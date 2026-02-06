@@ -3,23 +3,28 @@ import json
 import requests
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from werkzeug.utils import secure_filename
+from flask_cors import CORS
 from datetime import datetime
 from models import db, User, Room, Reservation 
 
 app = Flask(__name__)
 
+# Enable CORS
+CORS(app, supports_credentials=True, origins=[
+    'http://localhost:3000', 'http://localhost:5000',
+    'http://127.0.0.1:3000', 'http://127.0.0.1:5000'
+])
+
 # CONFIG
 app.config['SECRET_KEY'] = 'thesis-secret-key-123'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///school.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# UPLOAD CONFIG
-UPLOAD_FOLDER = 'static/uploads'
-ALLOWED_EXTENSIONS = {'pdf'}
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max file size
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# Ensure instance directory exists and use an absolute DB path
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
+os.makedirs(INSTANCE_DIR, exist_ok=True)
+DB_PATH = os.path.join(INSTANCE_DIR, 'school.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + DB_PATH.replace('\\', '/')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # AI CONFIG (Gemini API)
 GEMINI_API_KEY = ""
@@ -39,31 +44,59 @@ def load_user(user_id):
 with app.app_context():
     db.create_all()
 
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.before_request
+def log_incoming_request():
+    try:
+        app.logger.info("Incoming request: %s %s from %s", request.method, request.path, request.remote_addr)
+        # Log request headers for debugging CORS/preflight and client behavior
+        try:
+            headers_dict = dict(request.headers)
+            app.logger.info("Request Headers: %s", headers_dict)
+        except Exception:
+            pass
+        # Log JSON body for POST requests (non-destructive)
+        if request.method == 'POST':
+            try:
+                data = request.get_json(silent=True)
+                if data is not None:
+                    app.logger.info("Request JSON: %s", data)
+                else:
+                    # fallback to raw data
+                    raw = request.get_data(as_text=True)
+                    if raw:
+                        app.logger.info("Request body: %s", raw)
+            except Exception as e:
+                app.logger.debug("Could not parse request body: %s", e)
+    except Exception:
+        pass
+
+
+# Provide an informational GET handler to avoid accidental 405s from visiting the URL
+@app.route('/api/login', methods=['GET'])
+def api_login_info():
+    return jsonify({'message': 'This endpoint accepts POST with JSON {username, password}. Use the login form.'})
+
+
+# Log response headers to help correlate server responses with client-side network traces
+@app.after_request
+def log_response_headers(response):
+    try:
+        app.logger.info("Response status: %s", response.status)
+        try:
+            resp_headers = dict(response.headers)
+            app.logger.info("Response Headers: %s", resp_headers)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return response
 
 # ==================== WEB ROUTES ====================
 
 @app.route('/')
 def index():
-    rooms = Room.query.all()
-    print("--------------------------------------------------")
-    print(f"DEBUG CHECK: I found {len(rooms)} rooms in the database.")
-    for r in rooms:
-        print(f" - Room: {r.name} (ID: {r.id})")
-    print("--------------------------------------------------")
-    
-    # Convert Room objects to dictionaries for JSON serialization
-    rooms_dict = [{
-        'id': room.id,
-        'code': room.code,
-        'name': room.name,
-        'capacity': room.capacity,
-        'description': room.description,
-        'usual_activity': room.usual_activity
-    } for room in rooms]
-    
-    return render_template('index.html', user=current_user, rooms=rooms_dict)
+    return render_template('index.html')
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -71,16 +104,33 @@ def login():
     password = request.form.get('password')
     user = User.query.filter_by(username=username).first()
     
-    if user and user.check_password(password):
+    # Log web login attempt
+    try:
+        app.logger.info("/login attempt - username=%s remote=%s", username, request.remote_addr)
+    except Exception:
+        app.logger.info("/login attempt - username=%s", username)
+
+    if not user:
+        app.logger.warning("/login - user not found: %s", username)
+        flash('Invalid username or password')
+        return redirect(url_for('index'))
+
+    if user.check_password(password):
         login_user(user)
+        app.logger.info("/login success - user_id=%s username=%s", user.id, user.username)
         return redirect(url_for('index'))
     else:
+        app.logger.warning("/login failed - incorrect password for user: %s", username)
         flash('Invalid username or password')
         return redirect(url_for('index'))
 
 @app.route('/logout')
 @login_required
 def logout():
+    try:
+        app.logger.info("/logout - user_id=%s username=%s remote=%s", current_user.id, current_user.username, request.remote_addr)
+    except Exception:
+        app.logger.info("/logout - user logout")
     logout_user()
     return redirect(url_for('index'))
 
@@ -141,18 +191,44 @@ def api_login():
     username = data.get('username')
     password = data.get('password')
     user = User.query.filter_by(username=username).first()
-    
-    if user and user.check_password(password):
+
+    # Logging for debugging login issues (avoid logging passwords)
+    try:
+        app.logger.info(f"/api/login attempt - username=%s remote=%s", username, request.remote_addr)
+    except Exception:
+        app.logger.info(f"/api/login attempt - username=%s", username)
+
+    if not user:
+        app.logger.warning("/api/login - user not found: %s", username)
+        return jsonify({'status': 'error', 'message': 'Invalid username or password'}), 401
+
+    if user.check_password(password):
         login_user(user)
+        app.logger.info("/api/login success - user_id=%s username=%s", user.id, user.username)
         return jsonify({
             'status': 'success',
-            'user_id': user.id,  # ADDED THIS
-            'role': user.role, 
-            'username': user.username, 
+            'user_id': user.id,
+            'role': user.role,
+            'username': user.username,
             'department': user.department
         })
     else:
+        app.logger.warning("/api/login failed - incorrect password for user: %s", username)
         return jsonify({'status': 'error', 'message': 'Invalid username or password'}), 401
+
+# API Logout
+@app.route('/api/logout', methods=['POST'])
+def api_logout():
+    # Handle logout gracefully whether the client is authenticated or not.
+    try:
+        if current_user.is_authenticated:
+            app.logger.info("/api/logout - user_id=%s username=%s remote=%s", current_user.id, current_user.username, request.remote_addr)
+            logout_user()
+        else:
+            app.logger.info("/api/logout - no authenticated user (idempotent)")
+    except Exception:
+        app.logger.info("/api/logout called")
+    return jsonify({'status': 'success'})
 
 # Get all rooms
 @app.route('/api/rooms', methods=['GET'])
@@ -195,8 +271,8 @@ def get_reservations():
         'end_time': r.end_time.isoformat() if r.end_time else None,
         'status': r.status,
         'date_filed': r.date_filed.isoformat() if r.date_filed else None,
-        'concept_paper_filename': r.concept_paper_filename,
-        'final_form_filename': r.final_form_filename,
+        'concept_paper_url': r.concept_paper_url,
+        'final_form_url': r.final_form_url,
         'final_form_uploaded': r.final_form_uploaded,
         'denial_reason': r.denial_reason,
         'equipment_data': r.get_equipment(),
@@ -232,8 +308,8 @@ def get_reservation(reservation_id):
         'end_time': reservation.end_time.isoformat() if reservation.end_time else None,
         'status': reservation.status,
         'date_filed': reservation.date_filed.isoformat() if reservation.date_filed else None,
-        'concept_paper_filename': reservation.concept_paper_filename,
-        'final_form_filename': reservation.final_form_filename,
+        'concept_paper_url': reservation.concept_paper_url,
+        'final_form_url': reservation.final_form_url,
         'final_form_uploaded': reservation.final_form_uploaded,
         'denial_reason': reservation.denial_reason,
         'equipment_data': reservation.get_equipment(),
@@ -245,19 +321,15 @@ def get_reservation(reservation_id):
 @login_required
 def create_reservation():
     try:
-        data = request.form
+        data = request.get_json()
         
-        # Handle file upload
-        concept_paper = request.files.get('concept_paper')
-        if not concept_paper or not allowed_file(concept_paper.filename):
-            return jsonify({'error': 'Valid PDF file required'}), 400
+        # Validate Google Drive link
+        concept_paper_url = data.get('concept_paper_url', '').strip()
+        if not concept_paper_url:
+            return jsonify({'error': 'Concept paper Google Drive link required'}), 400
         
-        filename = secure_filename(concept_paper.filename)
-        # Add timestamp to filename to prevent conflicts
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"{timestamp}_{filename}"
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        concept_paper.save(filepath)
+        if 'drive.google.com' not in concept_paper_url:
+            return jsonify({'error': 'Please provide a valid Google Drive link'}), 400
         
         # Parse datetime
         start_datetime = datetime.fromisoformat(data.get('start_time'))
@@ -278,7 +350,7 @@ def create_reservation():
             start_time=start_datetime,
             end_time=end_datetime,
             status='pending',
-            concept_paper_filename=filename,
+            concept_paper_url=concept_paper_url,
             equipment_data=data.get('equipment_data', '{}')
         )
         
@@ -401,18 +473,16 @@ def upload_final_form(reservation_id):
     if reservation.status != 'concept-approved':
         return jsonify({'error': 'Concept not yet approved'}), 400
     
-    final_form = request.files.get('final_form')
-    if not final_form or not allowed_file(final_form.filename):
-        return jsonify({'error': 'Valid PDF file required'}), 400
+    # Validate Google Drive link
+    data = request.get_json()
+    final_form_url = data.get('final_form_url', '').strip()
+    if not final_form_url:
+        return jsonify({'error': 'Final form Google Drive link required'}), 400
     
-    filename = secure_filename(final_form.filename)
-    # Add timestamp to filename to prevent conflicts
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f"{timestamp}_final_{filename}"
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    final_form.save(filepath)
+    if 'drive.google.com' not in final_form_url:
+        return jsonify({'error': 'Please provide a valid Google Drive link'}), 400
     
-    reservation.final_form_filename = filename
+    reservation.final_form_url = final_form_url
     reservation.final_form_uploaded = True
     db.session.commit()
     
@@ -443,19 +513,7 @@ def delete_reservation(reservation_id):
     if current_user.role != 'admin' and reservation.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized'}), 403
     
-    # Delete associated files
-    if reservation.concept_paper_filename:
-        try:
-            os.remove(os.path.join(app.config['UPLOAD_FOLDER'], reservation.concept_paper_filename))
-        except:
-            pass
-    
-    if reservation.final_form_filename:
-        try:
-            os.remove(os.path.join(app.config['UPLOAD_FOLDER'], reservation.final_form_filename))
-        except:
-            pass
-    
+    # Delete database record (no files to clean up since using Google Drive links)
     db.session.delete(reservation)
     db.session.commit()
     

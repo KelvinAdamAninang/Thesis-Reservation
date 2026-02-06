@@ -27,9 +27,7 @@ class Room(db.Model):
     name = db.Column(db.String(100), nullable=False)
     capacity = db.Column(db.Integer, nullable=False)
     description = db.Column(db.Text, nullable=True)   
-    usual_activity = db.Column(db.String(200), nullable=True) # New Field
-    # We use the ID (e.g., 'pat', 'gym') as the primary key reference in JS, 
-    # but let's keep integer ID for SQL and store the 'code' separately.
+    usual_activity = db.Column(db.String(200), nullable=True)
     code = db.Column(db.String(20), unique=True, nullable=True) 
 
 class Reservation(db.Model):
@@ -51,9 +49,9 @@ class Reservation(db.Model):
     person_in_charge = db.Column(db.String(100), nullable=True)
     contact_number = db.Column(db.String(20), nullable=True)
     
-    # Files & Stages
-    concept_paper_filename = db.Column(db.String(200), nullable=True)
-    final_form_filename = db.Column(db.String(200), nullable=True)
+    # Files & Stages (Now Google Drive Links)
+    concept_paper_url = db.Column(db.String(500), nullable=True)  # Google Drive link
+    final_form_url = db.Column(db.String(500), nullable=True)  # Google Drive link
     final_form_uploaded = db.Column(db.Boolean, default=False)
     
     # Denial/Archive

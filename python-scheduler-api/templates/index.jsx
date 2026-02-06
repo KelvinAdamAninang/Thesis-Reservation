@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   LayoutDashboard, 
   Calendar as CalendarIcon, 
@@ -6,6 +6,7 @@ import {
   Archive, 
   ClipboardCheck, 
   BarChart3, 
+  Bot,
   LogOut, 
   User, 
   Clock, 
@@ -15,16 +16,33 @@ import {
   ChevronRight,
   Printer,
   X,
-  Bell,
-  Inbox,
+  Send,
+  Link as LinkIcon,
   Trash2,
-  Link as LinkIcon
+  Bell,
+  Inbox
 } from 'lucide-react';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from 'chart.js';
 import { Bar, Doughnut } from 'react-chartjs-2';
 
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
+
+// --- Constants ---
+const API_KEY = ""; // Managed by environment
+const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent";
+
+const EVENT_SPACES = [
+  { id: 'pat', name: 'Performing Arts Theatre', capacity: 1500, usualActivity: 'Concerts, Graduation, Large Plays', description: 'State-of-the-art facility for major university events.' },
+  { id: 'tv_studio', name: 'TV Studio', capacity: 50, usualActivity: 'Filming, Broadcasts', description: 'Equipped studio for media production.' },
+  { id: 'quad', name: 'Quadrangle', capacity: 3000, usualActivity: 'Fairs, Exhibitions', description: 'Central open field for massive gatherings.' },
+  { id: 'radio_room', name: 'Radio Room', capacity: 15, usualActivity: 'Broadcasting, Podcasts', description: 'Soundproof booth for audio recordings.' }
+];
+
+// Time Selection Parts
+const HOURS_12 = Array.from({ length: 12 }, (_, i) => (i + 1).toString());
+const MINUTES_10 = ['00', '10', '20', '30', '40', '50'];
+const PERIODS = ['AM', 'PM'];
 
 // ==================== API SERVICE ====================
 const API_BASE = 'http://localhost:5000/api';
@@ -137,6 +155,11 @@ export default function App() {
   const [error, setError] = useState('');
 
   const isAdmin = currentUser?.role === 'admin';
+
+  const notify = (msg) => {
+    setNotification(msg);
+    setActiveModal('notification');
+  };
 
   useEffect(() => {
     if (currentUser) {
@@ -279,6 +302,7 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0">
         <Header 
           title={currentView} 
+          onOpenAI={() => setActiveModal('ai')}
           onOpenNotifications={() => setActiveModal('notifications_list')}
           onOpenProfile={() => setActiveModal('profile')}
           user={currentUser} 
@@ -392,6 +416,8 @@ export default function App() {
           onClose={() => setActiveModal('details')} 
         />
       )}
+
+      {activeModal === 'ai' && <AIModal onClose={() => setActiveModal(null)} events={reservations.filter(r => r.status === 'approved')} spaces={EVENT_SPACES} />}
     </div>
   );
 }
@@ -477,12 +503,16 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin }) {
   );
 }
 
-function Header({ title, onOpenNotifications, onOpenProfile, user, hasUnread }) {
+function Header({ title, onOpenAI, onOpenNotifications, onOpenProfile, user, hasUnread }) {
   return (
-    <header className="bg-white border-b px-8 py-4 flex justify-between items-center">
+    <header className="bg-white border-b px-8 py-4 flex justify-between items-center text-left">
       <h2 className="text-xl font-bold text-slate-800 capitalize">{title}</h2>
-      <div className="flex gap-2 items-center">
-        <button onClick={onOpenNotifications} className="p-2 text-slate-400 hover:text-sky-500 transition relative" title="Notifications">
+      <div className="flex gap-2 items-center text-left">
+        <button onClick={onOpenAI} className="p-2 text-slate-400 hover:text-sky-500 transition relative group" title="AI Assistant">
+          <Bot size={22} />
+        </button>
+        
+        <button onClick={onOpenNotifications} className="p-2 text-slate-400 hover:text-sky-500 transition relative group" title="Notifications">
           <Bell size={22} />
           {hasUnread && (
             <span className="absolute top-2 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-white animate-pulse"></span>
@@ -574,44 +604,47 @@ function NotificationsListModal({ reservations, user, isAdmin, onClose, onViewRe
 
 
 function Dashboard({ reservations, rooms, user, onViewDetails, onBook }) {
-  const userRes = reservations.filter(r => r.user_id === user.id && !r.archived_at);
   const allRes = reservations;
 
   return (
-    <div className="space-y-8">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div className="space-y-8 text-left">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
         <StatCard label="Available Spaces" val={rooms.length} />
         <StatCard label="Total Requests" val={allRes.length} />
         <StatCard label="Approved Events" val={allRes.filter(r => r.status === 'approved').length} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white p-6 rounded-2xl border shadow-sm">
-          <h3 className="text-lg font-bold mb-4 text-slate-800">Space Availability</h3>
-          <div className="grid grid-cols-2 gap-4">
-            {rooms.slice(0, 4).map(s => (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 text-left">
+        <div className="bg-white p-6 rounded-2xl border shadow-sm text-left">
+          <h3 className="text-lg font-bold mb-4 text-slate-800 text-left">Space Availability</h3>
+          <div className="grid grid-cols-2 gap-4 text-left">
+            {rooms.map(s => (
               <button 
                 key={s.id} 
                 onClick={() => onBook(s.id)} 
-                className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between hover:bg-sky-50 hover:border-sky-300 transition-all group"
+                className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between hover:bg-sky-50 hover:border-sky-300 transition-all group text-left"
               >
-                <span className="font-semibold text-sm text-slate-700 group-hover:text-sky-600 truncate">{s.name}</span>
+                <span className="font-semibold text-sm text-slate-700 group-hover:text-sky-600 truncate text-left">{s.name}</span>
                 <ChevronRight size={16} className="text-slate-300 group-hover:text-sky-500" />
               </button>
             ))}
           </div>
         </div>
-        <div className="bg-white p-6 rounded-2xl border shadow-sm">
-          <h3 className="text-lg font-bold mb-4 text-slate-800">Your Reservations</h3>
-          <div className="space-y-3 max-h-[400px] overflow-y-auto">
-            {userRes.length === 0 ? (
-              <p className="text-slate-500 text-sm">No reservations yet</p>
+        <div className="bg-white p-6 rounded-2xl border shadow-sm text-left">
+          <h3 className="text-lg font-bold mb-4 text-slate-800 text-left">Reservation Status</h3>
+          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 text-left">
+            {allRes.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 text-left">
+                <Clock className="mx-auto mb-2 opacity-50" size={32} />
+                <p className="text-sm text-left">No reservations found</p>
+              </div>
             ) : (
-              userRes.map(r => (
-                <div key={r.id} onClick={() => onViewDetails(r)} className="p-3 border border-slate-200 rounded-xl flex justify-between items-center cursor-pointer hover:bg-slate-50 transition-colors">
-                  <div className="text-sm">
-                    <p className="font-bold text-slate-700">{r.activity_purpose}</p>
-                    <p className="text-xs text-slate-500">{r.start_time}</p>
+              allRes.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)).map(r => (
+                <div key={r.id} onClick={() => onViewDetails(r)} className="p-3 border border-slate-200 rounded-xl flex justify-between items-center cursor-pointer hover:bg-slate-50 transition-colors text-left">
+                  <div className="text-sm text-left">
+                    <p className="font-bold text-slate-700 text-left">{r.activity_purpose}</p>
+                    <p className="text-xs text-slate-500 text-left">{r.date_needed} | {r.start_time}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5 text-left">By: {r.username || 'User'}</p>
                   </div>
                   <Badge status={r.status} />
                 </div>
@@ -1155,6 +1188,72 @@ function PrintModal({ res, onClose }) {
         <div className="mt-8 flex justify-end gap-3 no-print">
           <button onClick={onClose} className="px-6 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm hover:bg-slate-200">Close</button>
           <button onClick={() => window.print()} className="px-6 py-2 bg-indigo-500 text-white rounded-lg font-bold text-sm hover:bg-indigo-600">Print</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AIModal({ onClose, events, spaces }) {
+  const [messages, setMessages] = useState([{ text: "Hello! I'm the VacanSee AI Assistant. How can I help you with your campus facility reservations?", sender: 'ai' }]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = input;
+    setInput('');
+    setMessages(prev => [...prev, { text: userMsg, sender: 'user' }]);
+    setLoading(true);
+
+    const context = `Spaces: ${JSON.stringify(spaces)} Upcoming Approved Events: ${JSON.stringify(events)}`;
+
+    try {
+      const res = await fetch(`${GEMINI_URL}?key=${API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `Context: ${context}\nUser: ${userMsg}` }] }]
+        })
+      });
+      const data = await res.json();
+      const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response.";
+      setMessages(prev => [...prev, { text: aiText, sender: 'ai' }]);
+    } catch (err) {
+      setMessages(prev => [...prev, { text: "Error.", sender: 'ai' }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 text-left">
+      <div className="bg-white rounded-3xl w-full max-w-lg h-[70vh] flex flex-col p-6 shadow-2xl overflow-hidden text-left">
+        <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-100 text-left">
+          <h3 className="text-xl font-bold flex items-center gap-2 text-slate-800 text-left">
+            <Bot className="text-sky-500" /> AI Assistant
+          </h3>
+          <button onClick={onClose} className="p-1 text-slate-800"><X /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto space-y-4 mb-4 p-2 no-scrollbar text-left">
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'} text-left`}>
+              <div className={`max-w-[85%] p-4 rounded-2xl text-sm text-left ${m.sender === 'user' ? 'bg-sky-500 text-white rounded-tr-none' : 'bg-slate-100 text-slate-800 rounded-tl-none'}`}>
+                {m.text}
+              </div>
+            </div>
+          ))}
+          {loading && <div className="text-sky-500 text-xs italic animate-pulse text-left">Thinking...</div>}
+        </div>
+        <div className="flex gap-2 pt-2 text-left">
+          <input 
+            value={input} 
+            onChange={e => setInput(e.target.value)} 
+            onKeyDown={e => e.key === 'Enter' && sendMessage()}
+            className="flex-1 p-3 border border-slate-200 rounded-2xl text-slate-800 text-sm focus:outline-none bg-slate-50 transition-all text-left" 
+            placeholder="Ask about availability..." 
+          />
+          <button onClick={sendMessage} className="bg-sky-500 text-white p-3 rounded-2xl transition-colors hover:bg-sky-600 shadow-lg"><Send size={20} /></button>
         </div>
       </div>
     </div>
