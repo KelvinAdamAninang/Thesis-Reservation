@@ -1,0 +1,1255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VacanSee: Campus Event Space Reservation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        #login-page { display: flex; align-items: center; justify-content: center; height: 100vh; background-color: #e2e8f0; }
+        .login-card { background: white; padding: 3rem; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); width: 100%; max-width: 420px; }
+        .app-container { display: grid; grid-template-columns: 280px 1fr; height: 100vh; }
+        .sidebar { background-color: #ffffff; border-right: 1px solid #e2e8f0; display: flex; flex-direction: column; padding: 1.5rem; }
+        .main-wrapper { display: flex; flex-direction: column; overflow-y: auto; }
+        header { padding: 1.5rem 2.5rem; border-bottom: 1px solid #e2e8f0; background-color: #ffffff; position: sticky; top: 0; z-index: 10; }
+        .main-content { padding: 2.5rem; flex-grow: 1; }
+        .nav-button { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; border-radius: 0.5rem; color: #475569; font-weight: 500; transition: all 0.2s; }
+        .nav-button:hover { background-color: #f1f5f9; color: #0ea5e9; }
+        .nav-button.active { background-color: #e0f2fe; color: #0ea5e9; font-weight: 600; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 50; opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; }
+        .modal-overlay.visible { opacity: 1; visibility: visible; }
+        .modal-content { background: white; padding: 2rem; border-radius: 1rem; max-width: 900px; width: 90%; transform: scale(0.95); transition: transform 0.3s; max-height: 90vh; overflow-y: auto; }
+        .modal-overlay.visible .modal-content { transform: scale(1); }
+        .chat-container { position: fixed; bottom: 2rem; right: 2rem; z-index: 40; }
+        .chat-button { background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); color: white; width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4); cursor: pointer; transition: transform 0.2s; }
+        .chat-button:hover { transform: scale(1.1); }
+        .chat-window { background: white; border-radius: 1rem; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2); width: 380px; height: 500px; display: flex; flex-direction: column; margin-bottom: 1rem; }
+        .chat-messages { flex-grow: 1; overflow-y: auto; padding: 1rem; }
+        .message { margin-bottom: 1rem; }
+        .message.user { text-align: right; }
+        .message.ai .bubble { background: #e0f2fe; color: #0c4a6e; }
+        .message.user .bubble { background: #0ea5e9; color: white; }
+        .bubble { display: inline-block; padding: 0.75rem 1rem; border-radius: 1rem; max-width: 80%; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.5rem; }
+        .calendar-day { aspect-ratio: 1; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 0.5rem; font-size: 0.875rem; position: relative; }
+        .calendar-day.has-event { background: #e0f2fe; border-color: #0ea5e9; cursor: pointer; }
+        .calendar-day .event-name { font-size: 0.65rem; color: #0369a1; margin-top: 0.25rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .participant-btn { padding: 0.5rem 1rem; border: 2px solid #cbd5e1; border-radius: 0.5rem; background: white; cursor: pointer; transition: all 0.2s; }
+        .participant-btn.active { background: #0ea5e9; color: white; border-color: #0ea5e9; }
+        .equipment-checkbox { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 0.5rem; margin-bottom: 0.5rem; }
+        .equipment-checkbox input[type="checkbox"]:checked + label { font-weight: 600; color: #0ea5e9; }
+        @media print {
+            body * { visibility: hidden; }
+            #print-area, #print-area * { visibility: visible; }
+            #print-area { position: absolute; left: 0; top: 0; width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="login-page">
+        <div class="login-card">
+            <div class="text-center mb-10">
+                <h1 class="text-4xl font-bold text-slate-800">Vacan<span class="text-sky-500">See</span></h1>
+                <p class="text-slate-500 mt-2">Sign in to book event spaces</p>
+            </div>
+            <form id="login-form">
+                <div class="mb-4">
+                    <label for="username" class="block text-sm font-medium text-slate-700 mb-1">Username</label>
+                    <input type="text" id="username" value="admin" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" required>
+                </div>
+                <div class="mb-6">
+                    <label for="password" class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                    <input type="password" id="password" value="admin123" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" required>
+                </div>
+                <button type="submit" class="w-full bg-sky-500 text-white py-3 rounded-lg font-semibold hover:bg-sky-600 transition">Sign In</button>
+                <p id="login-error" class="text-red-500 text-sm text-center mt-4"></p>
+            </form>
+        </div>
+    </div>
+
+    <div id="app-container" class="app-container hidden">
+        <aside class="sidebar">
+            <div class="text-sky-500 mb-10">
+                <h1 class="text-3xl font-bold">Vacan<span class="text-sky-400">See</span></h1>
+            </div>
+            <nav class="flex flex-col gap-4 flex-grow w-full">
+                <div>
+                    <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-3">Main</h2>
+                    <button data-view="dashboard" class="nav-button active w-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" /></svg>
+                        <span>Dashboard</span>
+                    </button>
+                </div>
+                <div>
+                    <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-3">Views</h2>
+                    <button data-view="facilities" class="nav-button w-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 6v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6M20 6v14a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2V6"/><rect x="4" y="2" width="16" height="4" rx="2"/></svg>
+                        <span>Facilities Catalog</span>
+                    </button>
+                    <button data-view="calendar" class="nav-button w-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd" /></svg>
+                        <span>Calendar</span>
+                    </button>
+                    <button data-view="my-reservations" class="nav-button w-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/><path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/></svg>
+                        <span>My Reservations</span>
+                    </button>
+                </div>
+                <div id="admin-nav-section" style="display: none;">
+                    <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-3">Admin</h2>
+                    <button data-view="reservations" class="nav-button w-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V5zm12 5H5v5h10V10zm-9-3a1 1 0 000 2h4a1 1 0 000-2H6z" clip-rule="evenodd" /></svg>
+                        <span>Requests</span>
+                    </button>
+                    <button data-view="archive" class="nav-button w-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z"/><path fill-rule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+                        <span>Archive</span>
+                    </button>
+                </div>
+            </nav>
+            <div class="mt-auto border-t border-slate-200 pt-4">
+                <div class="flex items-center gap-3">
+                    <img id="sidebar-avatar" src="" alt="User" class="w-10 h-10 rounded-full">
+                    <div>
+                        <p id="sidebar-username" class="font-semibold text-slate-700"></p>
+                        <button id="logout-btn" class="text-xs text-slate-500 hover:text-sky-500">Log out</button>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <div class="main-wrapper no-scrollbar">
+            <header>
+                <div class="flex justify-between items-center">
+                    <h2 class="text-xl font-bold text-slate-800">VacanSee</h2>
+                    <span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">Database Connected</span>
+                </div>
+            </header>
+            <main class="main-content">
+                <div id="dashboard-view" data-view="dashboard">
+                    <h2 class="text-2xl font-bold text-slate-800 mb-2" id="dashboard-title">Welcome</h2>
+                    <p class="text-slate-500 mb-8" id="current-datetime">Loading...</p>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                        <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-slate-500 mb-1">Available Today</p>
+                                    <p class="text-3xl font-bold text-sky-600" id="available-today">0</p>
+                                </div>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-sky-200" viewBox="0 0 20 20" fill="currentColor"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-slate-500 mb-1">Active Activities</p>
+                                    <p class="text-3xl font-bold text-green-600" id="active-activities">0</p>
+                                </div>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-green-200" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-slate-500 mb-1">Approved Reservations</p>
+                                    <p class="text-3xl font-bold text-purple-600" id="approved-count">0</p>
+                                </div>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-purple-200" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="facilities-view" data-view="facilities" class="hidden">
+                    <h2 class="text-2xl font-bold text-slate-800 mb-6">Facilities Catalog</h2>
+                    <div id="facilities-catalog" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                        <div class="text-center py-8 text-slate-500">Loading facilities...</div>
+                    </div>
+                </div>
+
+                <div id="calendar-view" data-view="calendar" class="hidden">
+                    <h2 class="text-2xl font-bold text-slate-800 mb-6">Reservation Calendar</h2>
+                    <div class="bg-white p-6 rounded-xl border border-slate-200">
+                        <div class="flex justify-between items-center mb-6">
+                            <button id="prev-month" class="px-4 py-2 bg-slate-100 rounded-lg hover:bg-slate-200">Previous</button>
+                            <h3 id="calendar-title" class="text-xl font-bold">Month Year</h3>
+                            <button id="next-month" class="px-4 py-2 bg-slate-100 rounded-lg hover:bg-slate-200">Next</button>
+                        </div>
+                        <div class="calendar-grid mb-4">
+                            <div class="text-center font-semibold text-slate-600">Sun</div>
+                            <div class="text-center font-semibold text-slate-600">Mon</div>
+                            <div class="text-center font-semibold text-slate-600">Tue</div>
+                            <div class="text-center font-semibold text-slate-600">Wed</div>
+                            <div class="text-center font-semibold text-slate-600">Thu</div>
+                            <div class="text-center font-semibold text-slate-600">Fri</div>
+                            <div class="text-center font-semibold text-slate-600">Sat</div>
+                        </div>
+                        <div id="calendar-days" class="calendar-grid"></div>
+                    </div>
+                </div>
+
+                <div id="my-reservations-view" data-view="my-reservations" class="hidden">
+                    <h2 class="text-2xl font-bold text-slate-800 mb-6">My Reservations</h2>
+                    <div id="my-reservations-list" class="space-y-4">
+                        <p class="text-slate-500">Loading...</p>
+                    </div>
+                </div>
+
+                <div id="reservations-view" data-view="reservations" class="hidden">
+                    <h2 class="text-3xl font-bold text-slate-800 mb-6">Admin: Reservation Requests</h2>
+                    <div id="reservations-list" class="space-y-4">
+                        <p class="text-slate-500">Loading reservations...</p>
+                    </div>
+                </div>
+
+                <div id="archive-view" data-view="archive" class="hidden">
+                    <h2 class="text-2xl font-bold text-slate-800 mb-6">Archived Reservations</h2>
+                    <div id="archive-list" class="space-y-4">
+                        <p class="text-slate-500">Loading...</p>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Reservation Form Modal -->
+    <div id="reservation-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h3 class="text-2xl font-bold mb-6">Create Reservation</h3>
+            <form id="reservation-form" enctype="multipart/form-data">
+                <input type="hidden" id="form-room-id" name="room_id">
+                
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Activity Purpose</label>
+                        <input type="text" name="activity_purpose" required class="w-full px-3 py-2 border rounded-lg">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Division</label>
+                        <input type="text" name="division" required class="w-full px-3 py-2 border rounded-lg">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Number of Attendees</label>
+                        <input type="number" name="attendees" required class="w-full px-3 py-2 border rounded-lg">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Participant Type</label>
+                        <div class="flex gap-2">
+                            <button type="button" class="participant-btn" data-type="students">Students</button>
+                            <button type="button" class="participant-btn" data-type="employees">Employees</button>
+                            <button type="button" class="participant-btn" data-type="others">Others</button>
+                        </div>
+                        <input type="hidden" name="participant_type" id="participant-type-input" required>
+                    </div>
+                </div>
+
+                <div class="mb-4" id="others-input-container" style="display: none;">
+                    <label class="block text-sm font-medium mb-1">Specify Others</label>
+                    <input type="text" id="others-specify" class="w-full px-3 py-2 border rounded-lg" placeholder="Please specify participant type">
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">Participant Details</label>
+                    <textarea name="participant_details" rows="2" class="w-full px-3 py-2 border rounded-lg"></textarea>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Classification</label>
+                        <select name="classification" required class="w-full px-3 py-2 border rounded-lg">
+                            <option value="">Select Classification</option>
+                            <option value="institutional">Institutional</option>
+                            <option value="curricular">Curricular</option>
+                            <option value="co-curricular">Co-Curricular</option>
+                            <option value="extra-curricular">Extra-curricular</option>
+                            <option value="outside-group">Outside Group</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Person in Charge</label>
+                        <input type="text" name="person_in_charge" required class="w-full px-3 py-2 border rounded-lg">
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">Contact Number</label>
+                    <input type="tel" name="contact_number" required class="w-full px-3 py-2 border rounded-lg">
+                </div>
+
+                <div class="grid grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Date</label>
+                        <input type="date" id="reservation-date" name="reservation_date" required class="w-full px-3 py-2 border rounded-lg">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Start Time</label>
+                        <input type="time" id="start-time" name="start_time_only" required class="w-full px-3 py-2 border rounded-lg">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">End Time</label>
+                        <input type="time" id="end-time" name="end_time_only" required class="w-full px-3 py-2 border rounded-lg">
+                    </div>
+                </div>
+                <p id="time-error" class="text-red-500 text-sm mb-4" style="display: none;">End time must be after start time</p>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2">Equipment Needed</label>
+                    <div class="grid grid-cols-2 gap-2" id="equipment-checkboxes">
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-tables" value="Tables">
+                            <label for="eq-tables">Tables</label>
+                            <input type="number" id="eq-tables-qty" min="1" placeholder="Qty" class="w-16 px-2 py-1 border rounded ml-auto" style="display:none;">
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-chairs" value="Chairs">
+                            <label for="eq-chairs">Chairs</label>
+                            <input type="number" id="eq-chairs-qty" min="1" placeholder="Qty" class="w-16 px-2 py-1 border rounded ml-auto" style="display:none;">
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-laptop" value="Laptop">
+                            <label for="eq-laptop">Laptop</label>
+                            <input type="number" id="eq-laptop-qty" min="1" placeholder="Qty" class="w-16 px-2 py-1 border rounded ml-auto" style="display:none;">
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-microphone" value="Microphone">
+                            <label for="eq-microphone">Microphone</label>
+                            <input type="number" id="eq-microphone-qty" min="1" placeholder="Qty" class="w-16 px-2 py-1 border rounded ml-auto" style="display:none;">
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-speaker" value="Speaker">
+                            <label for="eq-speaker">Speaker</label>
+                            <input type="number" id="eq-speaker-qty" min="1" placeholder="Qty" class="w-16 px-2 py-1 border rounded ml-auto" style="display:none;">
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-ph-flag" value="PH Flag">
+                            <label for="eq-ph-flag">PH Flag</label>
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-lcd" value="LCD Projector">
+                            <label for="eq-lcd">LCD Projector</label>
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-camera" value="Still Camera">
+                            <label for="eq-camera">Still Camera</label>
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-podium" value="Podium">
+                            <label for="eq-podium">Podium</label>
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-college-flag" value="College Flag">
+                            <label for="eq-college-flag">College Flag</label>
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-white-screen" value="White Screen">
+                            <label for="eq-white-screen">White Screen</label>
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-video-screen" value="Video Screen">
+                            <label for="eq-video-screen">Video Screen</label>
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-uni-flag" value="University Flag">
+                            <label for="eq-uni-flag">University Flag</label>
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-tv" value="TV">
+                            <label for="eq-tv">TV</label>
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-sound" value="Sound System">
+                            <label for="eq-sound">Sound System</label>
+                        </div>
+                        <div class="equipment-checkbox">
+                            <input type="checkbox" id="eq-light" value="Light Setup">
+                            <label for="eq-light">Light Setup</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <label class="block text-sm font-medium mb-1">Concept Paper (PDF)</label>
+                    <input type="file" name="concept_paper" accept=".pdf" required class="w-full px-3 py-2 border rounded-lg">
+                </div>
+
+                <div class="flex gap-3">
+                    <button type="submit" class="flex-1 bg-sky-500 text-white py-2 rounded-lg hover:bg-sky-600">Submit</button>
+                    <button type="button" id="cancel-reservation" class="px-6 py-2 border rounded-lg hover:bg-slate-100">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- View & Print Modal -->
+    <div id="view-print-modal" class="modal-overlay">
+        <div class="modal-content max-w-4xl">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-2xl font-bold">Reservation Form</h3>
+                <button id="print-form-btn" class="px-4 py-2 bg-sky-500 text-white rounded-lg hover:bg-sky-600">Print Form</button>
+            </div>
+            <div id="print-area" class="border border-slate-300 p-8 rounded-lg bg-white">
+                <div class="text-center mb-6">
+                    <h2 class="text-2xl font-bold">VacanSee Reservation Form</h2>
+                    <p class="text-sm text-slate-600">Campus Event Space Reservation</p>
+                </div>
+                <div id="form-content"></div>
+            </div>
+            <div class="flex gap-3 mt-6">
+                <button id="close-view-print" class="flex-1 px-6 py-2 border rounded-lg hover:bg-slate-100">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reservation Details Modal (Admin) -->
+    <div id="details-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div id="details-content"></div>
+        </div>
+    </div>
+
+    <!-- Denial Modal -->
+    <div id="denial-modal" class="modal-overlay">
+        <div class="modal-content max-w-md">
+            <h3 class="text-xl font-bold mb-4">Deny Reservation</h3>
+            <textarea id="denial-reason" rows="4" placeholder="Enter reason for denial..." class="w-full px-3 py-2 border rounded-lg mb-4"></textarea>
+            <div class="flex gap-3">
+                <button id="confirm-deny" class="flex-1 bg-red-500 text-white py-2 rounded-lg hover:bg-red-600">Deny</button>
+                <button id="cancel-deny" class="px-6 py-2 border rounded-lg hover:bg-slate-100">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stage 2 Upload Modal -->
+    <div id="upload-modal" class="modal-overlay">
+        <div class="modal-content max-w-md">
+            <h3 class="text-xl font-bold mb-4">Upload Final Form</h3>
+            <p class="text-sm text-slate-600 mb-4">Please upload the signed final form (PDF)</p>
+            <form id="upload-form">
+                <input type="file" name="final_form" accept=".pdf" required class="w-full px-3 py-2 border rounded-lg mb-4">
+                <div class="flex gap-3">
+                    <button type="submit" class="flex-1 bg-sky-500 text-white py-2 rounded-lg hover:bg-sky-600">Upload</button>
+                    <button type="button" id="cancel-upload" class="px-6 py-2 border rounded-lg hover:bg-slate-100">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- AI Chat -->
+    <div class="chat-container" id="chat-container">
+        <div id="chat-window" class="chat-window" style="display: none;">
+            <div class="bg-gradient-to-r from-sky-500 to-sky-600 text-white p-4 rounded-t-xl flex justify-between items-center">
+                <div>
+                    <h4 class="font-bold">VacanSee Assistant</h4>
+                    <p class="text-xs opacity-90">Ask me about facilities</p>
+                </div>
+                <button id="close-chat" class="text-white hover:text-slate-200">✕</button>
+            </div>
+            <div id="chat-messages" class="chat-messages"></div>
+            <div class="p-3 border-t">
+                <form id="chat-form" class="flex gap-2">
+                    <input type="text" id="chat-input" placeholder="Ask a question..." class="flex-1 px-3 py-2 border rounded-lg text-sm" required>
+                    <button type="submit" class="bg-sky-500 text-white px-4 py-2 rounded-lg hover:bg-sky-600">Send</button>
+                </form>
+            </div>
+        </div>
+        <div id="chat-button" class="chat-button">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clip-rule="evenodd" />
+            </svg>
+        </div>
+    </div>
+
+    <!-- Notification Modal -->
+    <div id="notification-modal" class="modal-overlay">
+        <div class="modal-content max-w-md text-center">
+            <p id="notification-message" class="text-lg mb-6"></p>
+            <button id="notification-ok" class="px-6 py-2 bg-sky-500 text-white rounded-lg hover:bg-sky-600">OK</button>
+        </div>
+    </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('VacanSee initialized - Backend Connected');
+        
+        var roomsFromBackend = {{ rooms|tojson|safe }};
+        console.log('Loaded rooms:', roomsFromBackend);
+        
+        var currentUser = null;
+        var allReservations = [];
+        var currentReservationId = null;
+        var currentMonth = new Date().getMonth();
+        var currentYear = new Date().getFullYear();
+        
+        var equipmentWithQty = ['Tables', 'Chairs', 'Laptop', 'Microphone', 'Speaker'];
+        
+        // Modal management
+        function showModal(modal) { modal.classList.add('visible'); }
+        function hideModal(modal) { modal.classList.remove('visible'); }
+        function showNotification(message) { 
+            document.getElementById('notification-message').textContent = message; 
+            showModal(document.getElementById('notification-modal')); 
+        }
+        
+        // Dashboard widgets
+        function updateDashboardWidgets() {
+            var today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            // Available facilities today (all rooms minus those with approved reservations today)
+            var reservationsToday = allReservations.filter(function(r) {
+                if (r.status !== 'approved' || r.archived_at) return false;
+                var startDate = new Date(r.start_time);
+                startDate.setHours(0, 0, 0, 0);
+                return startDate.getTime() === today.getTime();
+            });
+            var occupiedRoomIds = reservationsToday.map(function(r) { return r.room_id; });
+            var availableToday = roomsFromBackend.filter(function(room) {
+                return !occupiedRoomIds.includes(room.id);
+            }).length;
+            document.getElementById('available-today').textContent = availableToday;
+            
+            // Active activities (approved reservations from today onwards)
+            var activeActivities = allReservations.filter(function(r) {
+                if (r.status !== 'approved' || r.archived_at) return false;
+                var startDate = new Date(r.start_time);
+                return startDate >= today;
+            }).length;
+            document.getElementById('active-activities').textContent = activeActivities;
+            
+            // Approved reservations for current user
+            var approvedCount = allReservations.filter(function(r) {
+                return r.status === 'approved' && r.user_id === (currentUser ? currentUser.id : null);
+            }).length;
+            document.getElementById('approved-count').textContent = approvedCount;
+        }
+        
+        function updateDateTime() {
+            var now = new Date();
+            document.getElementById('current-datetime').textContent = now.toLocaleDateString('en-US', { 
+                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+            });
+        }
+        
+        async function loadReservations() {
+            try {
+                var response = await fetch('/api/reservations');
+                if (response.ok) {
+                    allReservations = await response.json();
+                    console.log('Loaded reservations:', allReservations);
+                    renderReservations();
+                    renderMyReservations();
+                    renderArchive();
+                    renderCalendar();
+                    updateDashboardWidgets();
+                }
+            } catch (error) {
+                console.error('Error loading reservations:', error);
+            }
+        }
+        
+        function renderFacilities() {
+            var facilitiesCatalog = document.getElementById('facilities-catalog');
+            facilitiesCatalog.innerHTML = '';
+            
+            if (!roomsFromBackend || roomsFromBackend.length === 0) {
+                facilitiesCatalog.innerHTML = '<div class="col-span-3 text-center py-8 text-red-500">No facilities found. Run /setup first.</div>';
+                return;
+            }
+            
+            roomsFromBackend.forEach(function(room) {
+                var imageUrl = 'https://placehold.co/400x200/f0f9ff/0ea5e9?text=' + encodeURIComponent(room.name.replace(/\s/g, '+'));
+                var catCard = document.createElement('div');
+                catCard.className = 'bg-white rounded-xl shadow-lg overflow-hidden border border-slate-100 flex flex-col transition hover:shadow-xl hover:border-sky-300';
+                catCard.innerHTML = '<img src="' + imageUrl + '" alt="' + room.name + '" class="w-full h-40 object-cover">' +
+                    '<div class="p-5 flex flex-col flex-grow">' +
+                    '<h3 class="text-xl font-bold text-slate-800 mb-2">' + room.name + '</h3>' +
+                    '<p class="text-sm text-slate-600 mb-3 flex-grow">' + (room.description || '') + '</p>' +
+                    '<div class="space-y-1 text-sm mb-4 pt-3 border-t">' +
+                    '<p><span class="font-semibold text-sky-600">Capacity:</span> ' + room.capacity + '</p>' +
+                    '<p><span class="font-semibold text-sky-600">Usual Activity:</span> ' + (room.usual_activity || 'General') + '</p>' +
+                    '</div>' +
+                    '<button class="reserve-btn w-full bg-sky-500 text-white py-2 rounded-lg hover:bg-sky-600 transition" data-room-id="' + room.id + '">Reserve</button>' +
+                    '</div>';
+                facilitiesCatalog.appendChild(catCard);
+            });
+            
+            document.querySelectorAll('.reserve-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    openReservationModal(this.dataset.roomId);
+                });
+            });
+        }
+        
+        function openReservationModal(roomId) {
+            document.getElementById('form-room-id').value = roomId;
+            document.getElementById('reservation-form').reset();
+            document.getElementById('participant-type-input').value = '';
+            document.getElementById('others-input-container').style.display = 'none';
+            document.getElementById('time-error').style.display = 'none';
+            document.querySelectorAll('.participant-btn').forEach(function(btn) {
+                btn.classList.remove('active');
+            });
+            showModal(document.getElementById('reservation-modal'));
+        }
+        
+        // Participant type buttons
+        document.querySelectorAll('.participant-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.participant-btn').forEach(function(b) {
+                    b.classList.remove('active');
+                });
+                this.classList.add('active');
+                var type = this.dataset.type;
+                document.getElementById('participant-type-input').value = type;
+                
+                if (type === 'others') {
+                    document.getElementById('others-input-container').style.display = 'block';
+                } else {
+                    document.getElementById('others-input-container').style.display = 'none';
+                }
+            });
+        });
+        
+        // Equipment checkboxes with quantity
+        equipmentWithQty.forEach(function(item) {
+            var checkbox = document.getElementById('eq-' + item.toLowerCase());
+            var qtyInput = document.getElementById('eq-' + item.toLowerCase() + '-qty');
+            
+            if (checkbox && qtyInput) {
+                checkbox.addEventListener('change', function() {
+                    qtyInput.style.display = this.checked ? 'block' : 'none';
+                    if (this.checked) {
+                        qtyInput.required = true;
+                        qtyInput.value = '1';
+                    } else {
+                        qtyInput.required = false;
+                        qtyInput.value = '';
+                    }
+                });
+            }
+        });
+        
+        // Time validation
+        document.getElementById('end-time').addEventListener('change', validateTime);
+        document.getElementById('start-time').addEventListener('change', validateTime);
+        
+        function validateTime() {
+            var startTime = document.getElementById('start-time').value;
+            var endTime = document.getElementById('end-time').value;
+            var errorEl = document.getElementById('time-error');
+            
+            if (startTime && endTime && startTime >= endTime) {
+                errorEl.style.display = 'block';
+                return false;
+            } else {
+                errorEl.style.display = 'none';
+                return true;
+            }
+        }
+        
+        // Reservation form submission
+        document.getElementById('reservation-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            if (!validateTime()) {
+                showNotification('End time must be after start time');
+                return;
+            }
+            
+            var formData = new FormData();
+            var formElements = this.elements;
+            
+            // Handle participant type
+            var participantType = document.getElementById('participant-type-input').value;
+            if (participantType === 'others') {
+                var othersSpecify = document.getElementById('others-specify').value;
+                if (!othersSpecify) {
+                    showNotification('Please specify participant type for Others');
+                    return;
+                }
+                participantType = 'Others: ' + othersSpecify;
+            }
+            
+            // Build datetime
+            var date = document.getElementById('reservation-date').value;
+            var startTime = document.getElementById('start-time').value;
+            var endTime = document.getElementById('end-time').value;
+            var startDateTime = date + 'T' + startTime;
+            var endDateTime = date + 'T' + endTime;
+            
+            // Collect equipment
+            var equipment = {};
+            document.querySelectorAll('#equipment-checkboxes input[type="checkbox"]:checked').forEach(function(cb) {
+                var name = cb.value;
+                if (equipmentWithQty.includes(name)) {
+                    var qtyInput = document.getElementById('eq-' + name.toLowerCase() + '-qty');
+                    equipment[name] = qtyInput ? qtyInput.value : '1';
+                } else {
+                    equipment[name] = '1';
+                }
+            });
+            
+            // Append all data
+            formData.append('room_id', document.getElementById('form-room-id').value);
+            formData.append('activity_purpose', formElements['activity_purpose'].value);
+            formData.append('division', formElements['division'].value);
+            formData.append('attendees', formElements['attendees'].value);
+            formData.append('participant_type', participantType);
+            formData.append('participant_details', formElements['participant_details'].value);
+            formData.append('classification', formElements['classification'].value);
+            formData.append('person_in_charge', formElements['person_in_charge'].value);
+            formData.append('contact_number', formElements['contact_number'].value);
+            formData.append('start_time', startDateTime);
+            formData.append('end_time', endDateTime);
+            formData.append('equipment_data', JSON.stringify(equipment));
+            formData.append('concept_paper', formElements['concept_paper'].files[0]);
+            
+            try {
+                var response = await fetch('/api/reservations', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    hideModal(document.getElementById('reservation-modal'));
+                    showNotification('Reservation submitted successfully!');
+                    loadReservations();
+                } else {
+                    var error = await response.json();
+                    showNotification('Error: ' + (error.error || 'Submission failed'));
+                }
+            } catch (error) {
+                console.error('Error submitting reservation:', error);
+                showNotification('Connection error');
+            }
+        });
+        
+        function renderMyReservations() {
+            var myList = document.getElementById('my-reservations-list');
+            myList.innerHTML = '';
+            
+            var mine = allReservations.filter(function(r) { return !r.archived_at && r.user_id === (currentUser ? currentUser.id : null); });
+            
+            if (mine.length === 0) {
+                myList.innerHTML = '<p class="text-slate-500">You have no reservations.</p>';
+                return;
+            }
+            
+            mine.forEach(function(res) {
+                var statusColor = 'bg-yellow-100 text-yellow-800';
+                if (res.status === 'approved') statusColor = 'bg-green-100 text-green-800';
+                else if (res.status === 'denied') statusColor = 'bg-red-100 text-red-800';
+                else if (res.status === 'concept-approved') statusColor = 'bg-blue-100 text-blue-800';
+                
+                var card = document.createElement('div');
+                card.className = 'bg-white p-6 rounded-xl border border-slate-200';
+                card.innerHTML = '<div class="flex justify-between items-start mb-4">' +
+                    '<div>' +
+                    '<h4 class="font-bold text-lg text-slate-800">' + res.activity_purpose + '</h4>' +
+                    '<p class="text-sm text-slate-600">' + new Date(res.start_time).toLocaleString() + '</p>' +
+                    '<p class="text-xs text-slate-500 mt-1">' + (res.denial_reason ? 'Reason: ' + res.denial_reason : '') + '</p>' +
+                    '</div>' +
+                    '<span class="text-xs font-medium px-3 py-1 rounded-full ' + statusColor + '">' + res.status + '</span>' +
+                    '</div>' +
+                    '<div class="flex gap-2">' +
+                    (res.status === 'concept-approved' ? '<button class="view-print-btn flex-1 px-4 py-2 bg-sky-500 text-white rounded-lg hover:bg-sky-600" data-id="' + res.id + '">View & Print Form</button>' : '') +
+                    (res.status === 'concept-approved' && !res.final_form_uploaded ? '<button class="upload-final-btn px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600" data-id="' + res.id + '">Upload Final Form</button>' : '') +
+                    (res.final_form_uploaded ? '<p class="text-xs text-green-600 px-4 py-2">✓ Final form uploaded</p>' : '') +
+                    '</div>';
+                myList.appendChild(card);
+            });
+            
+            attachMyReservationHandlers();
+        }
+        
+        function attachMyReservationHandlers() {
+            document.querySelectorAll('.view-print-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    viewAndPrintForm(this.dataset.id);
+                });
+            });
+            
+            document.querySelectorAll('.upload-final-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    currentReservationId = this.dataset.id;
+                    showModal(document.getElementById('upload-modal'));
+                });
+            });
+        }
+        
+        async function viewAndPrintForm(id) {
+            try {
+                var response = await fetch('/api/reservations/' + id);
+                if (response.ok) {
+                    var res = await response.json();
+                    var room = roomsFromBackend.find(function(r) { return r.id === res.room_id; });
+                    var equipment = JSON.parse(res.equipment_data || '{}');
+                    
+                    var equipmentList = Object.keys(equipment).map(function(key) {
+                        return key + (equipment[key] !== '1' ? ' (Qty: ' + equipment[key] + ')' : '');
+                    }).join(', ') || 'None';
+                    
+                    var formContent = '<div class="space-y-4">' +
+                        '<div class="grid grid-cols-2 gap-4">' +
+                        '<div><strong>Activity:</strong> ' + res.activity_purpose + '</div>' +
+                        '<div><strong>Division:</strong> ' + res.division + '</div>' +
+                        '<div><strong>Facility:</strong> ' + (room ? room.name : 'Unknown') + '</div>' +
+                        '<div><strong>Attendees:</strong> ' + res.attendees + '</div>' +
+                        '<div><strong>Participant Type:</strong> ' + res.participant_type + '</div>' +
+                        '<div><strong>Classification:</strong> ' + res.classification + '</div>' +
+                        '<div><strong>Person in Charge:</strong> ' + res.person_in_charge + '</div>' +
+                        '<div><strong>Contact:</strong> ' + res.contact_number + '</div>' +
+                        '<div><strong>Date:</strong> ' + new Date(res.start_time).toLocaleDateString() + '</div>' +
+                        '<div><strong>Time:</strong> ' + new Date(res.start_time).toLocaleTimeString() + ' - ' + new Date(res.end_time).toLocaleTimeString() + '</div>' +
+                        '</div>' +
+                        '<div><strong>Participant Details:</strong><p class="mt-1">' + (res.participant_details || 'N/A') + '</p></div>' +
+                        '<div><strong>Equipment Needed:</strong><p class="mt-1">' + equipmentList + '</p></div>' +
+                        '<div class="mt-8 pt-8 border-t">' +
+                        '<div class="grid grid-cols-2 gap-8">' +
+                        '<div class="text-center">' +
+                        '<div class="border-b-2 border-slate-800 mb-2 pb-8"></div>' +
+                        '<p class="font-semibold">Signature of Person in Charge</p>' +
+                        '</div>' +
+                        '<div class="text-center">' +
+                        '<div class="border-b-2 border-slate-800 mb-2 pb-8"></div>' +
+                        '<p class="font-semibold">EMC Approval Signature</p>' +
+                        '</div>' +
+                        '</div>' +
+                        '</div>' +
+                        '</div>';
+                    
+                    document.getElementById('form-content').innerHTML = formContent;
+                    showModal(document.getElementById('view-print-modal'));
+                }
+            } catch (error) {
+                console.error('Error loading form:', error);
+            }
+        }
+        
+        document.getElementById('print-form-btn').addEventListener('click', function() {
+            window.print();
+        });
+        
+        document.getElementById('close-view-print').addEventListener('click', function() {
+            hideModal(document.getElementById('view-print-modal'));
+        });
+        
+        function renderReservations() {
+            var reservationsList = document.getElementById('reservations-list');
+            reservationsList.innerHTML = '';
+            
+            var pending = allReservations.filter(function(r) { return !r.archived_at && r.status !== 'approved' && r.status !== 'denied'; });
+            
+            if (pending.length === 0) {
+                reservationsList.innerHTML = '<p class="text-slate-500">No pending reservations.</p>';
+                return;
+            }
+            
+            pending.forEach(function(res) {
+                var statusColor = 'bg-yellow-100 text-yellow-800';
+                if (res.status === 'concept-approved') statusColor = 'bg-blue-100 text-blue-800';
+                
+                var room = roomsFromBackend.find(function(r) { return r.id === res.room_id; });
+                
+                var card = document.createElement('div');
+                card.className = 'bg-white p-6 rounded-xl border border-slate-200 hover:shadow-md transition';
+                card.innerHTML = '<div class="flex justify-between items-start mb-4">' +
+                    '<div>' +
+                    '<h4 class="font-bold text-lg text-slate-800">' + res.activity_purpose + '</h4>' +
+                    '<p class="text-sm text-slate-600">By: ' + res.user + ' (' + res.department + ')</p>' +
+                    '<p class="text-sm text-slate-700">Person in Charge: ' + res.person_in_charge + '</p>' +
+                    '<p class="text-sm text-slate-700">Facility: ' + (room ? room.name : 'Unknown') + '</p>' +
+                    '<p class="text-xs text-slate-500">Filed: ' + new Date(res.date_filed).toLocaleDateString() + '</p>' +
+                    '<p class="text-sm text-slate-700 mt-2">Attendees: ' + res.attendees + ' | Contact: ' + res.contact_number + '</p>' +
+                    '</div>' +
+                    '<span class="text-xs font-medium px-3 py-1 rounded-full ' + statusColor + '">' + res.status + '</span>' +
+                    '</div>' +
+                    '<div class="flex gap-2 mb-3">' +
+                    (res.concept_paper_filename ? '<a href="/static/uploads/' + res.concept_paper_filename + '" target="_blank" class="text-sm text-sky-600 underline">View Concept Paper</a>' : '') +
+                    (res.final_form_uploaded && res.final_form_filename ? '<a href="/static/uploads/' + res.final_form_filename + '" target="_blank" class="text-sm text-green-600 underline ml-4">View Signed Final Form</a>' : '') +
+                    '</div>' +
+                    '<div class="flex gap-2">' +
+                    (res.status === 'pending' ? '<button class="approve-concept-btn px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600" data-id="' + res.id + '">Approve Concept</button>' : '') +
+                    (res.status === 'concept-approved' && res.final_form_uploaded ? '<button class="approve-final-btn px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600" data-id="' + res.id + '">Final Approve</button>' : '') +
+                    '<button class="deny-btn px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600" data-id="' + res.id + '">Deny</button>' +
+                    '<button class="archive-btn px-4 py-2 bg-slate-500 text-white rounded-lg hover:bg-slate-600" data-id="' + res.id + '">Archive</button>' +
+                    '</div>';
+                reservationsList.appendChild(card);
+            });
+            
+            attachReservationHandlers();
+        }
+        
+        function attachReservationHandlers() {
+            document.querySelectorAll('.approve-concept-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    approveConceptAction(this.dataset.id);
+                });
+            });
+            
+            document.querySelectorAll('.approve-final-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    approveFinalAction(this.dataset.id);
+                });
+            });
+            
+            document.querySelectorAll('.deny-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    currentReservationId = this.dataset.id;
+                    showModal(document.getElementById('denial-modal'));
+                });
+            });
+            
+            document.querySelectorAll('.archive-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    archiveReservation(this.dataset.id);
+                });
+            });
+        }
+        
+        async function approveConceptAction(id) {
+            try {
+                var response = await fetch('/api/reservations/' + id + '/approve-concept', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (response.ok) {
+                    showNotification('Concept approved! User can now print and upload final form.');
+                    loadReservations();
+                }
+            } catch (error) {
+                console.error('Error approving concept:', error);
+            }
+        }
+        
+        async function approveFinalAction(id) {
+            try {
+                var response = await fetch('/api/reservations/' + id + '/approve-final', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (response.ok) {
+                    showNotification('Reservation fully approved!');
+                    loadReservations();
+                }
+            } catch (error) {
+                console.error('Error approving final:', error);
+            }
+        }
+        
+        async function archiveReservation(id) {
+            try {
+                var response = await fetch('/api/reservations/' + id + '/archive', {
+                    method: 'POST'
+                });
+                if (response.ok) {
+                    showNotification('Reservation archived.');
+                    loadReservations();
+                }
+            } catch (error) {
+                console.error('Error archiving:', error);
+            }
+        }
+        
+        document.getElementById('confirm-deny').addEventListener('click', async function() {
+            var reason = document.getElementById('denial-reason').value;
+            if (!reason) {
+                showNotification('Please enter a reason');
+                return;
+            }
+            
+            try {
+                var response = await fetch('/api/reservations/' + currentReservationId + '/deny', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason: reason })
+                });
+                
+                if (response.ok) {
+                    hideModal(document.getElementById('denial-modal'));
+                    showNotification('Reservation denied');
+                    document.getElementById('denial-reason').value = '';
+                    loadReservations();
+                }
+            } catch (error) {
+                console.error('Error denying:', error);
+            }
+        });
+        
+        document.getElementById('upload-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            var formData = new FormData(this);
+            
+            try {
+                var response = await fetch('/api/reservations/' + currentReservationId + '/upload-final-form', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    hideModal(document.getElementById('upload-modal'));
+                    showNotification('Final form uploaded successfully!');
+                    this.reset();
+                    loadReservations();
+                } else {
+                    var error = await response.json();
+                    showNotification('Error: ' + (error.error || 'Upload failed'));
+                }
+            } catch (error) {
+                console.error('Error uploading:', error);
+                showNotification('Connection error');
+            }
+        });
+        
+        function renderArchive() {
+            var archiveList = document.getElementById('archive-list');
+            archiveList.innerHTML = '';
+            
+            var archived = allReservations.filter(function(r) { return r.archived_at; });
+            
+            if (archived.length === 0) {
+                archiveList.innerHTML = '<p class="text-slate-500">No archived reservations.</p>';
+                return;
+            }
+            
+            archived.forEach(function(res) {
+                var statusColor = 'bg-slate-100 text-slate-800';
+                if (res.status === 'approved') statusColor = 'bg-green-100 text-green-800';
+                else if (res.status === 'denied') statusColor = 'bg-red-100 text-red-800';
+                
+                var card = document.createElement('div');
+                card.className = 'bg-white p-4 rounded-xl border border-slate-200';
+                card.innerHTML = '<div class="flex justify-between items-start">' +
+                    '<div>' +
+                    '<h4 class="font-bold text-slate-800">' + res.activity_purpose + '</h4>' +
+                    '<p class="text-xs text-slate-500">Archived: ' + new Date(res.archived_at).toLocaleDateString() + '</p>' +
+                    '</div>' +
+                    '<span class="text-xs font-medium px-3 py-1 rounded-full ' + statusColor + '">' + res.status + '</span>' +
+                    '</div>';
+                archiveList.appendChild(card);
+            });
+        }
+        
+        function renderCalendar() {
+            var approved = allReservations.filter(function(r) { return r.status === 'approved' && !r.archived_at; });
+            var calendarTitle = document.getElementById('calendar-title');
+            var calendarDays = document.getElementById('calendar-days');
+            
+            var monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            calendarTitle.textContent = monthNames[currentMonth] + ' ' + currentYear;
+            
+            var firstDay = new Date(currentYear, currentMonth, 1).getDay();
+            var daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            
+            calendarDays.innerHTML = '';
+            
+            for (var i = 0; i < firstDay; i++) {
+                var emptyDiv = document.createElement('div');
+                emptyDiv.className = 'calendar-day';
+                calendarDays.appendChild(emptyDiv);
+            }
+            
+            for (var day = 1; day <= daysInMonth; day++) {
+                var dayDiv = document.createElement('div');
+                dayDiv.className = 'calendar-day';
+                dayDiv.textContent = day;
+                
+                var dateStr = currentYear + '-' + String(currentMonth + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+                var eventsOnDay = approved.filter(function(r) {
+                    return r.start_time && r.start_time.startsWith(dateStr);
+                });
+                
+                if (eventsOnDay.length > 0) {
+                    dayDiv.classList.add('has-event');
+                    eventsOnDay.forEach(function(event) {
+                        var eventName = document.createElement('div');
+                        eventName.className = 'event-name';
+                        eventName.textContent = event.activity_purpose;
+                        eventName.title = event.activity_purpose;
+                        dayDiv.appendChild(eventName);
+                    });
+                }
+                
+                calendarDays.appendChild(dayDiv);
+            }
+        }
+        
+        document.getElementById('prev-month').addEventListener('click', function() {
+            currentMonth--;
+            if (currentMonth < 0) {
+                currentMonth = 11;
+                currentYear--;
+            }
+            renderCalendar();
+        });
+        
+        document.getElementById('next-month').addEventListener('click', function() {
+            currentMonth++;
+            if (currentMonth > 11) {
+                currentMonth = 0;
+                currentYear++;
+            }
+            renderCalendar();
+        });
+        
+        // Chat functionality
+        var chatButton = document.getElementById('chat-button');
+        var chatWindow = document.getElementById('chat-window');
+        var chatForm = document.getElementById('chat-form');
+        var chatInput = document.getElementById('chat-input');
+        var chatMessages = document.getElementById('chat-messages');
+        
+        chatButton.addEventListener('click', function() {
+            chatWindow.style.display = 'flex';
+            chatButton.style.display = 'none';
+        });
+        
+        document.getElementById('close-chat').addEventListener('click', function() {
+            chatWindow.style.display = 'none';
+            chatButton.style.display = 'flex';
+        });
+        
+        chatForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            var message = chatInput.value.trim();
+            if (!message) return;
+            
+            chatMessages.innerHTML += '<div class="message user"><div class="bubble">' + message + '</div></div>';
+            chatInput.value = '';
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            try {
+                var response = await fetch('/api/gemini', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: message })
+                });
+                
+                if (response.ok) {
+                    var data = await response.json();
+                    chatMessages.innerHTML += '<div class="message ai"><div class="bubble">' + data.response + '</div></div>';
+                } else {
+                    chatMessages.innerHTML += '<div class="message ai"><div class="bubble">Sorry, I can only help with campus facility reservations.</div></div>';
+                }
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            } catch (error) {
+                console.error('Chat error:', error);
+            }
+        });
+        
+        function setupUI() {
+            var avatarUrl = currentUser.role === 'admin' 
+                ? 'https://placehold.co/100x100/0ea5e9/ffffff?text=A' 
+                : 'https://placehold.co/100x100/64748b/ffffff?text=U';
+            
+            document.getElementById('sidebar-avatar').src = avatarUrl;
+            document.getElementById('sidebar-username').textContent = currentUser.username;
+            document.getElementById('dashboard-title').textContent = 'Welcome, ' + currentUser.username;
+            document.getElementById('admin-nav-section').style.display = currentUser.role === 'admin' ? 'block' : 'none';
+            
+            updateDateTime();
+            renderFacilities();
+            loadReservations();
+        }
+        
+        function switchView(viewName) {
+            document.querySelectorAll('.nav-button').forEach(function(btn) {
+                btn.classList.toggle('active', btn.dataset.view === viewName);
+            });
+            var contentViews = document.querySelectorAll('.main-content > [data-view]');
+            contentViews.forEach(function(view) {
+                if (view.dataset.view === viewName) {
+                    view.classList.remove('hidden');
+                } else {
+                    view.classList.add('hidden');
+                }
+            });
+        }
+        
+        // Login
+        document.getElementById('login-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            document.getElementById('login-error').textContent = '';
+            
+            var username = document.getElementById('username').value;
+            var password = document.getElementById('password').value;
+            
+            fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username, password: password })
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                if (data.status === 'success') {
+                    currentUser = { 
+                        id: data.user_id,
+                        username: data.username, 
+                        role: data.role,
+                        department: data.department
+                    };
+                    document.getElementById('login-page').style.display = 'none';
+                    document.getElementById('app-container').classList.remove('hidden');
+                    setupUI();
+                    showNotification('Welcome, ' + username + '!');
+                } else {
+                    document.getElementById('login-error').textContent = data.message || 'Invalid credentials';
+                }
+            })
+            .catch(function(error) {
+                console.error('Login error:', error);
+                document.getElementById('login-error').textContent = 'Connection error';
+            });
+        });
+        
+        // Logout
+        document.getElementById('logout-btn').addEventListener('click', function() {
+            fetch('/logout').then(function() {
+                currentUser = null;
+                document.getElementById('login-page').style.display = 'flex';
+                document.getElementById('app-container').classList.add('hidden');
+                document.getElementById('login-form').reset();
+            });
+        });
+        
+        // Navigation
+        document.querySelectorAll('.nav-button').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var view = button.dataset.view;
+                switchView(view);
+            });
+        });
+        
+        // Modal buttons
+        document.getElementById('cancel-reservation').addEventListener('click', function() {
+            hideModal(document.getElementById('reservation-modal'));
+        });
+        
+        document.getElementById('cancel-upload').addEventListener('click', function() {
+            hideModal(document.getElementById('upload-modal'));
+        });
+        
+        document.getElementById('cancel-deny').addEventListener('click', function() {
+            hideModal(document.getElementById('denial-modal'));
+        });
+        
+        document.getElementById('notification-ok').addEventListener('click', function() { 
+            hideModal(document.getElementById('notification-modal')); 
+        });
+    });
+</script>
+
+</body>
+</html>
