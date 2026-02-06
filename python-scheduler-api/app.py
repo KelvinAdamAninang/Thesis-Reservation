@@ -22,8 +22,8 @@ app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max file size
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # AI CONFIG (Gemini API)
-GEMINI_API_KEY = "AIzaSyCj8u8zcuA0r42G2UrI1hwJyX0ABSn2ySI"
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent"
+GEMINI_API_KEY = ""
+GEMINI_URL = ""
 
 # Initialize extensions
 db.init_app(app)
@@ -105,15 +105,10 @@ def setup():
             print(f" -> Added Account: {u['user']}")
         
         rooms_list = [
-            {"code": "pat", "name": "Performing Arts Theatre", "cap": 1500, "act": "Concerts, Graduation Ceremonies, Large Plays", "desc": "A state-of-the-art facility designed for major university events, featuring professional lighting and sound systems."},
-            {"code": "mua", "name": "Medical University Auditorium", "cap": 800, "act": "Lectures, Medical Seminars, Academic Symposia", "desc": "A large, tiered auditorium ideal for professional academic and medical conferences."},
-            {"code": "quad", "name": "Quadrangle", "cap": 5000, "act": "School Fairs, Food Stalls, Outdoor Exhibitions", "desc": "The central open field, perfect for large-scale outdoor student gatherings and school-wide events."},
-            {"code": "apark", "name": "Achievers Park", "cap": 300, "act": "Quiet Study, Small Gatherings, Relaxation", "desc": "A landscaped area with benches and pathways, suitable for outdoor classes and informal meetings."},
-            {"code": "chapel", "name": "Campus Chapel", "cap": 200, "act": "Mass, Religious Services, Weddings", "desc": "A solemn and quiet space for spiritual activities and religious events."},
-            {"code": "oval", "name": "Oval", "cap": 10000, "act": "Athletic Training, Track and Field Meets, Large Outdoor Concerts", "desc": "The main sports field with a running track, used primarily for large athletic and physical activities."},
-            {"code": "gym", "name": "GYM and Sports Center", "cap": 5000, "act": "Basketball/Volleyball Games, Indoor Sports Fest, Exams", "desc": "A versatile indoor sports complex that can be converted for major exams or indoor conventions."},
-            {"code": "spool", "name": "Swimming Pool", "cap": 100, "act": "Swimming Competitions, Training, Aquatic Events", "desc": "The university pool area, restricted mostly to sports and academic aquatic activities."},
-            {"code": "maud", "name": "Mini Auditorium", "cap": 250, "act": "Student Organization Meetings, Film Viewings, Small Seminars", "desc": "A smaller, more intimate setting suitable for group discussions and presentations."}
+            {"code": "pat", "name": "Performing Arts Theatre", "cap": 1500, "desc": "A state-of-the-art facility designed for major university events, featuring professional lighting and sound systems."},
+            {"code": "tvs", "name": "TV Studio", "cap": 50,"desc": "Equipped studio for media production."},
+            {"code": "quad", "name": "Quadrangle", "cap": 3000, "desc": "The central open field, perfect for large-scale outdoor student gatherings and school-wide events."},
+            {"code": "rdr", "name": "Radio Room", "cap": 15, "desc": "Soundproof booth for audio recordings."}
         ]
         
         for r in rooms_list:
@@ -121,7 +116,6 @@ def setup():
                 code=r['code'],
                 name=r['name'], 
                 capacity=r['cap'], 
-                usual_activity=r['act'], 
                 description=r['desc']
             )
             db.session.add(new_room)
