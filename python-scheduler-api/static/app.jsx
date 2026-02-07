@@ -272,14 +272,12 @@ function ReservationModal({ initialData, rooms, onClose, onSubmit, loading }) {
     attendees: 0,
     start_time: '',
     end_time: '',
-    concept_paper: null
+    concept_paper_url: ''
   });
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const fd = new FormData();
-    Object.keys(form).forEach(k => fd.append(k, form[k]));
-    onSubmit(fd);
+    onSubmit(form);
   };
 
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
@@ -299,7 +297,7 @@ function ReservationModal({ initialData, rooms, onClose, onSubmit, loading }) {
         React.createElement('input', { type: 'number', placeholder: 'Attendees', value: form.attendees, onChange: (e) => setForm({ ...form, attendees: e.target.value }), className: 'w-full p-2 border rounded' }),
         React.createElement('input', { type: 'datetime-local', value: form.start_time, onChange: (e) => setForm({ ...form, start_time: e.target.value }), className: 'w-full p-2 border rounded', required: true }),
         React.createElement('input', { type: 'datetime-local', value: form.end_time, onChange: (e) => setForm({ ...form, end_time: e.target.value }), className: 'w-full p-2 border rounded', required: true }),
-        React.createElement('input', { type: 'file', accept: '.pdf', onChange: (e) => setForm({ ...form, concept_paper: e.target.files?.[0] }), className: 'w-full p-2 border rounded', required: true }),
+        React.createElement('input', { type: 'url', placeholder: 'Concept Paper Google Drive Link', value: form.concept_paper_url, onChange: (e) => setForm({ ...form, concept_paper_url: e.target.value }), className: 'w-full p-2 border rounded', required: true }),
         React.createElement('button', { type: 'submit', disabled: loading, className: 'w-full bg-sky-500 text-white p-2 rounded font-bold' }, loading ? '...' : 'Create')
       )
     )
