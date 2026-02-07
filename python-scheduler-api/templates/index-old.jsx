@@ -20,7 +20,8 @@ import {
   Link as LinkIcon,
   Trash2,
   Bell,
-  Inbox
+  Inbox,
+  Phone
 } from 'lucide-react';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from 'chart.js';
 import { Bar, Doughnut } from 'react-chartjs-2';
@@ -40,9 +41,9 @@ const EVENT_SPACES = [
 
 const INITIAL_RESERVATIONS = [
   { 
-    id: 101, spaceId: 'pat', activityPurpose: 'Medicine Symposium', dateNeeded: '2025-10-15', startTime: '14:00', endTime: '17:00', 
+    id: 101, spaceId: 'pat', activityPurpose: 'Medicine Symposium', reserverName: 'Dr. Maria Santos', contactNumber: '0917-123-4567', dateNeeded: '2025-10-15', startTime: '14:00', endTime: '17:00', 
     status: 'concept-approved', user: 'admin', department: 'Medical Dept', conceptPaperUrl: 'https://docs.google.com/example1', 
-    finalFormUrl: '', personInCharge: 'Dr. Cruz', contactNumber: '09170001111', equipment: {}, dateFiled: '2025-09-01',
+    finalFormUrl: '', personInCharge: 'Dr. Cruz', dateFiled: '2025-09-01',
     isNewForAdmin: false
   }
 ];
@@ -98,8 +99,6 @@ export default function App() {
   };
 
   const handleApproveFinal = (res) => {
-    // 1. Identify conflicting pending/concept-approved reservations
-    // Overlap logic: (StartA < EndB) && (EndA > StartB)
     const conflictingRes = reservations.filter(r => 
       r.id !== res.id && 
       r.spaceId === res.spaceId && 
@@ -107,7 +106,6 @@ export default function App() {
       ((r.startTime < res.endTime) && (r.endTime > res.startTime))
     );
 
-    // 2. Create denied entries for conflicting ones
     const autoDeniedEntries = conflictingRes.map(r => ({
       ...r,
       status: 'denied',
@@ -118,7 +116,6 @@ export default function App() {
       deletedByUser: false
     }));
 
-    // 3. Create entry for the approved one in archive
     const approvedArchiveEntry = {
       ...res,
       status: 'approved',
@@ -127,18 +124,10 @@ export default function App() {
       deletedByUser: false
     };
 
-    // 4. Update states
     const conflictingIds = conflictingRes.map(c => c.id);
-    
-    // Remove the approved one AND all conflicting ones from active reservations
     setReservations(prev => prev.filter(r => r.id !== res.id && !conflictingIds.includes(r.id)));
-    
-    // Add to schedule
     setEventSchedule(prev => [...prev, { ...res, status: 'approved' }]);
-    
-    // Update archive with both the newly approved and the auto-denied conflicts
     setArchive(prev => [approvedArchiveEntry, ...autoDeniedEntries, ...prev]);
-
     setActiveModal(null);
     
     if (conflictingRes.length > 0) {
@@ -158,19 +147,16 @@ export default function App() {
     }));
   };
 
-  // Logic to clear user notification (denials)
   const clearUserNotification = (archiveId) => {
     setArchive(archive.map(a => a.id === archiveId ? { ...a, isNewNotification: false } : a));
   };
 
-  // Logic to clear admin notification (new requests)
   const clearAdminNotification = (resId) => {
     setReservations(reservations.map(r => r.id === resId ? { ...r, isNewForAdmin: false } : r));
   };
 
   if (!currentUser) return <LoginPage onLogin={handleLogin} />;
 
-  // Calculate unread flag based on role
   const hasUnread = isAdmin 
     ? reservations.some(r => r.isNewForAdmin) 
     : archive.some(a => a.user === currentUser.username && a.isNewNotification);
@@ -337,16 +323,16 @@ function LoginPage({ onLogin }) {
         <h1 className="text-4xl font-bold text-center mb-2">Vacan<span className="text-sky-500">See</span></h1>
         <p className="text-slate-500 text-center mb-8">Campus Space Reservation</p>
         <div className="space-y-4">
-          <div className="text-left text-left">
-            <label className="block text-sm font-bold text-slate-700 mb-1 text-left text-left">Username</label>
-            <input value={u} onChange={e => setU(e.target.value)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left" placeholder="Username" required />
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1">Username</label>
+            <input value={u} onChange={e => setU(e.target.value)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-sky-500 outline-none" placeholder="Username" required />
           </div>
-          <div className="text-left text-left">
-            <label className="block text-sm font-bold text-slate-700 mb-1 text-left text-left">Password</label>
-            <input type="password" value={p} onChange={e => setP(e.target.value)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left" placeholder="Password" required />
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1">Password</label>
+            <input type="password" value={p} onChange={e => setP(e.target.value)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-sky-500 outline-none" placeholder="Password" required />
           </div>
           {err && <p className="text-red-500 text-sm text-center">{err}</p>}
-          <button type="submit" className="w-full bg-sky-500 text-white p-3 rounded-lg font-bold hover:bg-sky-600 transition shadow-lg text-center text-center">Sign In</button>
+          <button type="submit" className="w-full bg-sky-500 text-white p-3 rounded-lg font-bold hover:bg-sky-600 transition shadow-lg">Sign In</button>
           
           <div className="text-center mt-6 pt-6 border-t border-slate-100">
             <p className="text-xs text-slate-400 font-medium text-center">Hint: Use 'admin'/'admin123' or 'user'/'user123'</p>
@@ -371,12 +357,12 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin }) {
   return (
     <aside className="w-72 bg-white border-r flex flex-col p-6 h-full text-left">
       <div className="text-2xl font-bold mb-10 text-sky-500 text-left">VacanSee</div>
-      <nav className="flex-1 space-y-2 text-left">
+      <nav className="flex-1 space-y-2">
         <NavBtn id="dashboard" label="Dashboard" icon={LayoutDashboard} />
         <NavBtn id="calendar" label="Event Calendar" icon={CalendarIcon} />
         <NavBtn id="facilities" label="Facilities" icon={Building2} />
         {isAdmin && (
-          <div className="pt-4 mt-4 border-t text-left">
+          <div className="pt-4 mt-4 border-t">
             <p className="text-xs font-bold text-slate-400 uppercase mb-2 px-3 text-left">Admin Panel</p>
             <NavBtn id="reservations" label="Requests" icon={ClipboardCheck} />
             <NavBtn id="analytics" label="Analytics" icon={BarChart3} />
@@ -384,13 +370,13 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin }) {
         )}
         <NavBtn id="archive" label="Archive" icon={Archive} />
       </nav>
-      <div className="pt-6 border-t flex items-center gap-3 text-left">
+      <div className="pt-6 border-t flex items-center gap-3">
         <div className="w-10 h-10 bg-sky-100 text-sky-600 flex items-center justify-center rounded-full font-bold">
           {user.username[0].toUpperCase()}
         </div>
         <div className="flex-1 overflow-hidden text-left text-sm">
           <p className="font-bold truncate text-slate-800">{user.username}</p>
-          <button onClick={onLogout} className="text-xs text-slate-500 hover:text-red-500 flex items-center gap-1 text-left">
+          <button onClick={onLogout} className="text-xs text-slate-500 hover:text-red-500 flex items-center gap-1">
             <LogOut size={12} /> Log out
           </button>
         </div>
@@ -430,7 +416,7 @@ function Header({ title, onOpenAI, onOpenNotifications, onOpenProfile, user, has
 function ProfileModal({ user, onClose, onLogout }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 text-left">
-      <div className="bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl relative animate-in zoom-in duration-200 text-left">
+      <div className="bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl relative animate-in zoom-in duration-200">
         <button onClick={onClose} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 transition-colors"><X size={20} /></button>
         
         <div className="flex flex-col items-center text-center mb-8">
@@ -441,14 +427,14 @@ function ProfileModal({ user, onClose, onLogout }) {
           <p className="text-xs font-bold text-sky-500 uppercase tracking-widest">{user.role}</p>
         </div>
 
-        <div className="space-y-6 border-t pt-6 text-left">
-          <div className="flex flex-col text-left">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 text-left text-left">Department</span>
-            <span className="text-sm font-semibold text-slate-700 text-left">{user.department}</span>
+        <div className="space-y-6 border-t pt-6">
+          <div className="flex flex-col">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Department</span>
+            <span className="text-sm font-semibold text-slate-700">{user.department}</span>
           </div>
-          <div className="flex flex-col text-left">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 text-left text-left text-left text-left">Status</span>
-            <div className="flex items-center gap-2 text-green-600 text-left text-left">
+          <div className="flex flex-col">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Status</span>
+            <div className="flex items-center gap-2 text-green-600">
               <CheckCircle size={14} />
               <span className="text-sm font-semibold">Active Verified</span>
             </div>
@@ -473,29 +459,29 @@ function NotificationsListModal({ archive, reservations, user, isAdmin, onClose,
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 text-left">
-      <div className="bg-white rounded-3xl w-full max-w-md max-h-[70vh] flex flex-col p-6 shadow-2xl overflow-hidden animate-in slide-in-from-top-4 text-left text-left">
-        <div className="flex justify-between items-center mb-6 pb-4 border-b text-left text-left">
-          <h3 className="text-xl font-bold flex items-center gap-2 text-slate-800 text-left text-left">
-            <Bell className="text-sky-500 text-left" size={20} /> {isAdmin ? 'Admin Alerts' : 'Notifications'}
+      <div className="bg-white rounded-3xl w-full max-w-md max-h-[70vh] flex flex-col p-6 shadow-2xl overflow-hidden animate-in slide-in-from-top-4">
+        <div className="flex justify-between items-center mb-6 pb-4 border-b">
+          <h3 className="text-xl font-bold flex items-center gap-2 text-slate-800">
+            <Bell className="text-sky-500" size={20} /> {isAdmin ? 'Admin Alerts' : 'Notifications'}
           </h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 text-left text-left"><X size={20} /></button>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600"><X size={20} /></button>
         </div>
         
-        <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar text-left text-left text-left text-left text-left">
+        <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
           {notifications.length === 0 ? (
-            <div className="py-12 text-center text-slate-400 flex flex-col items-center text-left text-left">
-              <Inbox size={32} className="mb-2 opacity-20 text-left text-left" />
-              <p className="text-sm text-left text-left">No new activities</p>
+            <div className="py-12 text-center text-slate-400 flex flex-col items-center">
+              <Inbox size={32} className="mb-2 opacity-20" />
+              <p className="text-sm">No new activities</p>
             </div>
           ) : (
             notifications.map(n => (
               <div 
                 key={n.id} 
                 onClick={() => isAdmin && onViewRequest(n)}
-                className={`p-4 rounded-2xl border transition-all cursor-pointer text-left text-left ${isAdmin ? 'bg-sky-50 border-sky-100 hover:border-sky-300' : 'bg-red-50 border-red-100'}`}
+                className={`p-4 rounded-2xl border transition-all cursor-pointer ${isAdmin ? 'bg-sky-50 border-sky-100 hover:border-sky-300' : 'bg-red-50 border-red-100'}`}
               >
-                <div className="flex justify-between items-start mb-2 text-left text-left">
-                  <span className={`text-[10px] font-bold uppercase tracking-widest text-left text-left ${isAdmin ? 'text-sky-600' : 'text-red-500'}`}>
+                <div className="flex justify-between items-start mb-2">
+                  <span className={`text-[10px] font-bold uppercase tracking-widest ${isAdmin ? 'text-sky-600' : 'text-red-500'}`}>
                     {isAdmin ? 'New Reservation Request' : 'Reservation Denied'}
                   </span>
                   <button 
@@ -503,20 +489,20 @@ function NotificationsListModal({ archive, reservations, user, isAdmin, onClose,
                       e.stopPropagation(); 
                       isAdmin ? onClearAdmin(n.id) : onClearUser(n.id); 
                     }} 
-                    className="text-slate-300 hover:text-slate-500 text-left text-left"
+                    className="text-slate-300 hover:text-slate-500"
                   >
                     <CheckCircle size={14} />
                   </button>
                 </div>
-                <p className="text-sm font-bold text-slate-800 mb-1 text-left text-left">{n.activityPurpose}</p>
-                <div className="text-xs text-slate-600 leading-relaxed text-left text-left text-left text-left">
+                <p className="text-sm font-bold text-slate-800 mb-1">{n.activityPurpose}</p>
+                <div className="text-xs text-slate-600 leading-relaxed">
                   {isAdmin ? (
-                    <p className="text-left text-left">Filed by <strong>{n.user}</strong> for {n.dateNeeded}.</p>
+                    <p>Filed by <strong>{n.reserverName || n.user}</strong> for {n.dateNeeded}.</p>
                   ) : (
-                    <p className="italic bg-white/50 p-2 rounded-lg border border-red-100/50 mt-1 text-left text-left">{n.denialReason}</p>
+                    <p className="italic bg-white/50 p-2 rounded-lg border border-red-100/50 mt-1">{n.denialReason}</p>
                   )}
                 </div>
-                <p className="text-[10px] text-slate-400 mt-2 text-left text-left">{isAdmin ? n.dateFiled : new Date(n.archivedAt).toLocaleDateString()}</p>
+                <p className="text-[10px] text-slate-400 mt-2">{isAdmin ? n.dateFiled : new Date(n.archivedAt).toLocaleDateString()}</p>
               </div>
             ))
           )}
@@ -532,21 +518,21 @@ function Dashboard({ reservations, events, archive, user, onViewDetails, onBook,
   const newDenials = archive.filter(a => a.user === user.username && a.status === 'denied' && a.isNewNotification);
 
   return (
-    <div className="space-y-8 text-left text-left text-left text-left">
+    <div className="space-y-8 text-left">
       {newDenials.length > 0 && (
-        <div className="space-y-3 text-left text-left">
+        <div className="space-y-3">
           {newDenials.map(denial => (
-            <div key={denial.id} className="bg-red-50 border border-red-200 rounded-2xl p-4 flex gap-4 items-start animate-in fade-in slide-in-from-top-4 duration-300 text-left text-left text-left">
-              <div className="bg-red-100 p-2 rounded-xl text-red-600 text-left text-left text-left">
+            <div key={denial.id} className="bg-red-50 border border-red-200 rounded-2xl p-4 flex gap-4 items-start animate-in fade-in slide-in-from-top-4 duration-300">
+              <div className="bg-red-100 p-2 rounded-xl text-red-600">
                 <Bell size={20} />
               </div>
-              <div className="flex-1 text-sm text-left text-left">
-                <div className="flex justify-between items-start text-left text-left">
-                  <h4 className="font-bold text-red-800 uppercase text-[10px] tracking-widest mb-1 text-left text-left">Reservation Denied</h4>
-                  <button onClick={() => onClearDenial(denial.id)} className="text-red-400 hover:text-red-600 text-left text-left"><X size={14} /></button>
+              <div className="flex-1 text-sm">
+                <div className="flex justify-between items-start">
+                  <h4 className="font-bold text-red-800 uppercase text-[10px] tracking-widest mb-1">Reservation Denied</h4>
+                  <button onClick={() => onClearDenial(denial.id)} className="text-red-400 hover:text-red-600"><X size={14} /></button>
                 </div>
-                <p className="text-red-900 font-semibold mb-1 text-left text-left">Your request for "{denial.activityPurpose}" was denied.</p>
-                <p className="text-red-700 bg-red-100/50 p-2 rounded-lg text-xs italic border border-red-200/50 text-left text-left">
+                <p className="text-red-900 font-semibold mb-1">Your request for "{denial.activityPurpose}" was denied.</p>
+                <p className="text-red-700 bg-red-100/50 p-2 rounded-lg text-xs italic border border-red-200/50">
                   <strong>Reason:</strong> {denial.denialReason}
                 </p>
               </div>
@@ -555,43 +541,43 @@ function Dashboard({ reservations, events, archive, user, onViewDetails, onBook,
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left text-left">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatCard label="Available Spaces Today" val={EVENT_SPACES.length} />
         <StatCard label="Total Active Requests" val={allRes.length} />
         <StatCard label="Total Approved Events" val={allEvents.length} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 text-left text-left text-left text-left text-left">
-        <div className="bg-white p-6 rounded-2xl border shadow-sm text-left text-left text-left">
-          <h3 className="text-lg font-bold mb-4 text-slate-800 text-left text-left text-left">Space Availability</h3>
-          <div className="grid grid-cols-2 gap-4 text-left text-left">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 text-left">
+        <div className="bg-white p-6 rounded-2xl border shadow-sm">
+          <h3 className="text-lg font-bold mb-4 text-slate-800 text-left">Space Availability</h3>
+          <div className="grid grid-cols-2 gap-4">
             {EVENT_SPACES.map(s => (
               <button 
                 key={s.id} 
                 onClick={() => onBook(s.id)} 
-                className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between hover:bg-sky-50 hover:border-sky-300 transition-all text-left group text-left text-left"
+                className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between hover:bg-sky-50 hover:border-sky-300 transition-all text-left group"
               >
-                <span className="font-semibold text-sm text-slate-700 group-hover:text-sky-600 text-left text-left">{s.name}</span>
-                <ChevronRight size={16} className="text-slate-300 group-hover:text-sky-500 transition-colors text-left text-left" />
+                <span className="font-semibold text-sm text-slate-700 group-hover:text-sky-600">{s.name}</span>
+                <ChevronRight size={16} className="text-slate-300 group-hover:text-sky-500 transition-colors" />
               </button>
             ))}
           </div>
         </div>
-        <div className="bg-white p-6 rounded-2xl border shadow-sm text-left text-left text-left">
-          <h3 className="text-lg font-bold mb-4 text-slate-800 text-left text-left text-left">Reservation Status</h3>
-          <div className="space-y-3 overflow-y-auto max-h-[400px] pr-2 custom-scrollbar text-left text-left text-left text-left">
+        <div className="bg-white p-6 rounded-2xl border shadow-sm text-left">
+          <h3 className="text-lg font-bold mb-4 text-slate-800 text-left">Reservation Status</h3>
+          <div className="space-y-3 overflow-y-auto max-h-[400px] pr-2 custom-scrollbar">
             {[...allRes, ...allEvents].length === 0 ? (
-              <div className="py-12 text-center text-slate-400 text-left text-left">
-                <Clock className="mx-auto mb-2 opacity-50 text-left text-left text-left" size={32} />
-                <p className="text-sm text-left text-left text-left">No reservations found</p>
+              <div className="py-12 text-center text-slate-400">
+                <Clock className="mx-auto mb-2 opacity-50" size={32} />
+                <p className="text-sm">No reservations found</p>
               </div>
             ) : (
               [...allRes, ...allEvents].sort((a,b) => new Date(b.dateFiled || 0) - new Date(a.dateFiled || 0)).map(r => (
-                <div key={r.id} onClick={() => onViewDetails(r)} className="p-3 border border-slate-200 rounded-xl flex justify-between items-center cursor-pointer hover:bg-slate-50 transition-colors text-left text-left text-left text-left text-left">
-                  <div className="text-left text-sm text-left text-left text-left text-left text-left text-left">
-                    <p className="font-bold text-slate-700 text-left text-left text-left text-left">{r.activityPurpose}</p>
-                    <p className="text-xs text-slate-500 text-left text-left text-left text-left">{r.dateNeeded} | {r.startTime}</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5 text-left text-left text-left text-left text-left">By: {r.user}</p>
+                <div key={r.id} onClick={() => onViewDetails(r)} className="p-3 border border-slate-200 rounded-xl flex justify-between items-center cursor-pointer hover:bg-slate-50 transition-colors">
+                  <div className="text-left text-sm">
+                    <p className="font-bold text-slate-700">{r.activityPurpose}</p>
+                    <p className="text-xs text-slate-500">{r.dateNeeded} | {r.startTime}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">By: {r.reserverName || r.user}</p>
                   </div>
                   <Badge status={r.status} />
                 </div>
@@ -606,11 +592,11 @@ function Dashboard({ reservations, events, archive, user, onViewDetails, onBook,
 
 function StatCard({ label, val }) {
   return (
-    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left text-left">
-      <div className="flex justify-between items-start mb-2 text-left text-left text-left">
-        <span className="text-slate-500 font-medium text-xs uppercase tracking-wider text-left text-left">{label}</span>
+    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left">
+      <div className="flex justify-between items-start mb-2">
+        <span className="text-slate-500 font-medium text-xs uppercase tracking-wider">{label}</span>
       </div>
-      <p className="text-4xl font-bold text-slate-800 text-left text-left text-left">{val}</p>
+      <p className="text-4xl font-bold text-slate-800">{val}</p>
     </div>
   );
 }
@@ -623,7 +609,7 @@ function Badge({ status }) {
     denied: { bg: 'bg-red-100', text: 'text-red-700', label: 'Denied' },
   };
   const conf = configs[status] || configs.pending;
-  return <span className={`px-2 py-0.5 rounded-full text-xs font-bold text-left text-left ${conf.bg} ${conf.text}`}>{conf.label}</span>;
+  return <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${conf.bg} ${conf.text}`}>{conf.label}</span>;
 }
 
 function ReservationModal({ onClose, onSubmit, initialData }) {
@@ -637,6 +623,8 @@ function ReservationModal({ onClose, onSubmit, initialData }) {
 
   const [formData, setFormData] = useState({
     activityPurpose: '',
+    reserverName: '',
+    contactNumber: '',
     spaceId: initialData?.spaceId || 'pat',
     dateNeeded: '',
     conceptPaperUrl: ''
@@ -660,74 +648,104 @@ function ReservationModal({ onClose, onSubmit, initialData }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 text-left">
-      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-8 shadow-2xl text-left text-left text-left text-left">
-        <div className="flex justify-between items-center mb-6 text-slate-800 text-left text-left text-left text-left text-left">
-          <h3 className="text-2xl font-bold text-left text-left text-left">New Reservation Request</h3>
-          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-full transition-colors text-left text-left"><X /></button>
+      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-8 shadow-2xl">
+        <div className="flex justify-between items-center mb-6 text-slate-800">
+          <h3 className="text-2xl font-bold">New Reservation Request</h3>
+          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-full transition-colors"><X /></button>
         </div>
 
-        <form onSubmit={handleFormSubmit} className="space-y-6 text-left text-left text-left text-left">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left text-left text-left text-left">
-            <div className="md:col-span-2 text-left text-left text-left">
-              <label className="block text-sm font-bold text-slate-700 mb-1 text-left text-left text-left">Activity Name</label>
-              <input value={formData.activityPurpose} onChange={e => setFormData({...formData, activityPurpose: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-left text-left" required />
+        <form onSubmit={handleFormSubmit} className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-bold text-slate-700 mb-1">Activity Name</label>
+              <input 
+                value={formData.activityPurpose} 
+                onChange={e => setFormData({...formData, activityPurpose: e.target.value})} 
+                className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none" 
+                placeholder="Name of the Event"
+                required 
+              />
             </div>
-            <div className="text-left text-left text-left text-left text-left">
-              <label className="block text-sm font-bold text-slate-700 mb-1 text-left text-left text-left text-left text-left">Facility</label>
-              <select value={formData.spaceId} onChange={e => setFormData({...formData, spaceId: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-left text-left">
+            
+            <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 border-y border-slate-100 py-4 my-2">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Name of Reserver</label>
+                <input 
+                  value={formData.reserverName} 
+                  onChange={e => setFormData({...formData, reserverName: e.target.value})} 
+                  className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none" 
+                  placeholder="Full Name"
+                  required 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">Contact Number</label>
+                <input 
+                  value={formData.contactNumber} 
+                  onChange={e => setFormData({...formData, contactNumber: e.target.value})} 
+                  className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none" 
+                  placeholder="09XXXXXXXXX"
+                  required 
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1">Facility</label>
+              <select value={formData.spaceId} onChange={e => setFormData({...formData, spaceId: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none">
                 {EVENT_SPACES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
-            <div className="text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-              <label className="block text-sm font-bold text-slate-700 mb-1 text-left text-left text-left text-left text-left text-left text-left text-left text-left">Date</label>
-              <input type="date" value={formData.dateNeeded} onChange={e => setFormData({...formData, dateNeeded: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none text-left text-left text-left text-left text-left" required />
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1">Date</label>
+              <input type="date" value={formData.dateNeeded} onChange={e => setFormData({...formData, dateNeeded: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none" required />
             </div>
-            <div className="text-left text-left text-left text-left">
-              <label className="block text-sm font-bold text-slate-700 mb-1 text-left text-left text-left text-left">Start Time</label>
-              <div className="flex gap-1 text-left text-left text-left text-left">
-                <select value={startH} onChange={e => setStartH(e.target.value)} className="flex-1 p-2 border border-slate-300 rounded-lg bg-white text-sm outline-none text-left text-left text-left">
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1">Start Time</label>
+              <div className="flex gap-1">
+                <select value={startH} onChange={e => setStartH(e.target.value)} className="flex-1 p-2 border border-slate-300 rounded-lg bg-white text-sm outline-none">
                   {HOURS_12.map(h => <option key={h} value={h}>{h}</option>)}
                 </select>
-                <select value={startM} onChange={e => setStartM(e.target.value)} className="flex-1 p-2 border border-slate-300 rounded-lg bg-white text-sm outline-none text-left text-left text-left">
+                <select value={startM} onChange={e => setStartM(e.target.value)} className="flex-1 p-2 border border-slate-300 rounded-lg bg-white text-sm outline-none">
                   {MINUTES_10.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <select value={startP} onChange={e => setStartP(e.target.value)} className="flex-1 p-2 border border-slate-300 rounded-lg bg-white text-sm outline-none text-left text-left text-left">
+                <select value={startP} onChange={e => setStartP(e.target.value)} className="flex-1 p-2 border border-slate-300 rounded-lg bg-white text-sm outline-none">
                   {PERIODS.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
             </div>
-            <div className="text-left text-left text-left text-left text-left">
-              <label className="block text-sm font-bold text-slate-700 mb-1 text-left text-left text-left text-left text-left">End Time</label>
-              <div className="flex gap-1 text-left text-left text-left text-left text-left">
-                <select value={endH} onChange={e => setEndH(e.target.value)} className="flex-1 p-2 border border-slate-300 rounded-lg bg-white text-sm outline-none text-left text-left text-left text-left">
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1">End Time</label>
+              <div className="flex gap-1">
+                <select value={endH} onChange={e => setEndH(e.target.value)} className="flex-1 p-2 border border-slate-300 rounded-lg bg-white text-sm outline-none">
                   {HOURS_12.map(h => <option key={h} value={h}>{h}</option>)}
                 </select>
-                <select value={endM} onChange={e => setEndM(e.target.value)} className="flex-1 p-2 border border-slate-300 rounded-lg bg-white text-sm outline-none text-left text-left text-left text-left">
+                <select value={endM} onChange={e => setEndM(e.target.value)} className="flex-1 p-2 border border-slate-300 rounded-lg bg-white text-sm outline-none">
                   {MINUTES_10.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <select value={endP} onChange={e => setEndP(e.target.value)} className="flex-1 p-2 border border-slate-300 rounded-lg bg-white text-sm outline-none text-left text-left text-left text-left">
+                <select value={endP} onChange={e => setEndP(e.target.value)} className="flex-1 p-2 border border-slate-300 rounded-lg bg-white text-sm outline-none">
                   {PERIODS.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
             </div>
           </div>
 
-          <div className="bg-sky-50 p-4 rounded-xl border border-sky-200 text-left text-left text-left text-left text-left text-left">
-            <label className="block text-sm font-bold text-sky-800 mb-1 text-left text-left text-left text-left text-left text-left text-left">Concept Paper Link</label>
-            <p className="text-xs text-sky-600 mb-2 leading-relaxed text-left text-left text-left text-left text-left text-left text-left">Paste the link to your shared document (Google Drive/OneDrive) for initial review.</p>
+          <div className="bg-sky-50 p-4 rounded-xl border border-sky-200">
+            <label className="block text-sm font-bold text-sky-800 mb-1">Concept Paper Link</label>
+            <p className="text-xs text-sky-600 mb-2 leading-relaxed">Paste the link to your shared document (Google Drive/OneDrive) for initial review.</p>
             <input 
               type="url" 
               value={formData.conceptPaperUrl} 
               onChange={e => setFormData({...formData, conceptPaperUrl: e.target.value})}
               placeholder="https://docs.google.com/..." 
-              className="w-full border border-sky-300 p-2 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none bg-white text-sm text-left text-left text-left text-left text-left" 
+              className="w-full border border-sky-300 p-2 rounded-lg focus:ring-2 focus:ring-sky-500 outline-none bg-white text-sm" 
               required 
             />
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 text-left text-left text-left text-left text-left">
-            <button type="button" onClick={onClose} className="px-6 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors font-medium text-center text-center text-center text-center text-center">Cancel</button>
-            <button type="submit" className="px-6 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-lg font-bold shadow-md transition-colors text-center text-center text-center text-center text-center">Submit Request</button>
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+            <button type="button" onClick={onClose} className="px-6 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors font-medium">Cancel</button>
+            <button type="submit" className="px-6 py-2 bg-sky-500 hover:bg-sky-600 text-white rounded-lg font-bold shadow-md transition-colors">Submit Request</button>
           </div>
         </form>
       </div>
@@ -740,44 +758,44 @@ function AdminRequests({ reservations, onViewDetails }) {
   const stage2 = reservations.filter(r => r.status === 'concept-approved' && r.finalFormUrl);
 
   return (
-    <div className="space-y-8 text-left text-left text-left text-left text-left text-left text-left">
-      <section className="text-left text-left text-left text-left text-left text-left">
-        <h3 className="text-xl font-bold text-sky-600 mb-4 flex items-center gap-2 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
+    <div className="space-y-8 text-left">
+      <section>
+        <h3 className="text-xl font-bold text-sky-600 mb-4 flex items-center gap-2">
           <AlertCircle size={20} /> Stage 1: Concept Approvals
         </h3>
-        <div className="space-y-4 text-left text-left text-left text-left">
+        <div className="space-y-4">
           {pending.length === 0 ? (
-            <div className="bg-white p-8 border border-slate-100 rounded-2xl text-center text-slate-400 text-left text-left text-left text-left text-left">
-              <p className="text-left text-left text-left">No pending concepts.</p>
+            <div className="bg-white p-8 border border-slate-100 rounded-2xl text-center text-slate-400">
+              <p>No pending concepts.</p>
             </div>
           ) : pending.map(r => (
-            <div key={r.id} onClick={() => onViewDetails(r)} className="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-center cursor-pointer hover:shadow-md transition text-left text-left text-left text-left text-left text-left text-left">
-              <div className="text-sm text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-                <p className="font-bold text-slate-700 text-left text-left text-left text-left text-left">{r.activityPurpose}</p>
-                <p className="text-xs text-slate-500 text-left text-left text-left text-left text-left text-left">{r.user} | {r.dateNeeded}</p>
+            <div key={r.id} onClick={() => onViewDetails(r)} className="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-center cursor-pointer hover:shadow-md transition">
+              <div className="text-sm">
+                <p className="font-bold text-slate-700">{r.activityPurpose}</p>
+                <p className="text-xs text-slate-500">By: {r.reserverName || r.user} | {r.dateNeeded}</p>
               </div>
-              <button className="bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold text-center text-center text-center text-center text-center text-center text-center">Review</button>
+              <button className="bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold">Review</button>
             </div>
           ))}
         </div>
       </section>
 
-      <section className="text-left text-left text-left text-left text-left text-left text-left">
-        <h3 className="text-xl font-bold text-indigo-600 mb-4 flex items-center gap-2 text-left text-left text-left text-left text-left text-left text-left">
+      <section>
+        <h3 className="text-xl font-bold text-indigo-600 mb-4 flex items-center gap-2">
           <ClipboardCheck size={20} /> Stage 2: Final Form Approvals
         </h3>
-        <div className="space-y-4 text-left text-left text-left text-left">
+        <div className="space-y-4">
           {stage2.length === 0 ? (
-            <div className="bg-white p-8 border border-slate-100 rounded-2xl text-center text-slate-400 text-left text-left text-left text-left text-left text-left text-left">
-              <p className="text-left text-left text-left">No forms awaiting review.</p>
+            <div className="bg-white p-8 border border-slate-100 rounded-2xl text-center text-slate-400">
+              <p>No forms awaiting review.</p>
             </div>
           ) : stage2.map(r => (
-            <div key={r.id} onClick={() => onViewDetails(r)} className="bg-white p-4 rounded-xl border border-indigo-100 flex justify-between items-center cursor-pointer hover:shadow-md transition text-left text-left text-left text-left text-left text-left text-left">
-              <div className="text-sm text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-                <p className="font-bold text-slate-700 text-left text-left text-left text-left text-left">{r.activityPurpose}</p>
-                <p className="text-xs text-slate-500 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">{r.user} | {r.dateNeeded}</p>
+            <div key={r.id} onClick={() => onViewDetails(r)} className="bg-white p-4 rounded-xl border border-indigo-100 flex justify-between items-center cursor-pointer hover:shadow-md transition">
+              <div className="text-sm">
+                <p className="font-bold text-slate-700">{r.activityPurpose}</p>
+                <p className="text-xs text-slate-500">By: {r.reserverName || r.user} | {r.dateNeeded}</p>
               </div>
-              <button className="bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-bold text-center text-center text-center text-center text-center text-center text-center text-center text-center">Final Review</button>
+              <button className="bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-bold">Final Review</button>
             </div>
           ))}
         </div>
@@ -794,56 +812,77 @@ function DetailsModal({ res, user, onClose, onUpdate, onApproveStage1, onApprove
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 text-left">
-      <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-8 shadow-2xl text-left text-left text-left text-left text-left text-left text-left text-left">
-        <div className="flex justify-between items-start mb-6 text-left text-left text-left text-left">
-          <div className="text-left text-left text-left text-left text-left">
-            <h3 className="text-2xl font-bold text-slate-800 text-left text-left text-left text-left text-left text-left text-left">{res.activityPurpose}</h3>
+      <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-8 shadow-2xl">
+        <div className="flex justify-between items-start mb-6">
+          <div>
+            <h3 className="text-2xl font-bold text-slate-800">{res.activityPurpose}</h3>
             <Badge status={res.status} />
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-full transition-colors text-slate-800 text-left text-left text-left text-left text-left text-left text-left text-left text-left"><X /></button>
+          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-full transition-colors text-slate-800"><X /></button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-          <div className="space-y-4 text-left text-left text-left text-left text-left">
-            <h4 className="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase tracking-tight text-left text-left text-left text-left text-left text-left text-left text-left">Event Information</h4>
-            <div className="grid grid-cols-2 gap-4 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-              <div className="text-left text-left text-left text-left text-left text-left"><p className="text-slate-400 uppercase text-[10px] font-bold text-left text-left text-left text-left text-left text-left">Venue</p><p className="font-medium text-slate-700 text-left text-left text-left text-left text-left text-left">{space?.name}</p></div>
-              <div className="text-left text-left text-left text-left text-left text-left text-left"><p className="text-slate-400 uppercase text-[10px] font-bold text-left text-left text-left text-left text-left text-left text-left">Date</p><p className="font-medium text-slate-700 text-left text-left text-left text-left text-left text-left text-left">{res.dateNeeded}</p></div>
-              <div className="text-left text-left text-left text-left text-left text-left text-left text-left"><p className="text-slate-400 uppercase text-[10px] font-bold text-left text-left text-left text-left text-left text-left text-left text-left">Time</p><p className="font-medium text-slate-700 text-left text-left text-left text-left text-left text-left text-left text-left">{res.startTime} - {res.endTime}</p></div>
-              <div className="text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left"><p className="text-slate-400 uppercase text-[10px] font-bold text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">Requestor</p><p className="font-medium text-slate-700 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">{res.user}</p></div>
-            </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-sm">
+          <div className="space-y-6">
+            <section className="space-y-4">
+              <h4 className="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                <User size={16} className="text-sky-500" /> Identification Details
+              </h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div><p className="text-slate-400 uppercase text-[10px] font-bold">Reserver Name</p><p className="font-medium text-slate-700">{res.reserverName || 'Not Provided'}</p></div>
+                <div>
+                  <p className="text-slate-400 uppercase text-[10px] font-bold">Contact Number</p>
+                  <p className="font-medium text-slate-700 flex items-center gap-1">
+                    <Phone size={12} className="text-slate-400" /> {res.contactNumber || 'Not Provided'}
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <h4 className="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                <CalendarIcon size={16} className="text-sky-500" /> Event Information
+              </h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div><p className="text-slate-400 uppercase text-[10px] font-bold">Venue</p><p className="font-medium text-slate-700">{space?.name}</p></div>
+                <div><p className="text-slate-400 uppercase text-[10px] font-bold">Date</p><p className="font-medium text-slate-700">{res.dateNeeded}</p></div>
+                <div><p className="text-slate-400 uppercase text-[10px] font-bold">Time</p><p className="font-medium text-slate-700">{res.startTime} - {res.endTime}</p></div>
+                <div><p className="text-slate-400 uppercase text-[10px] font-bold">Account ID</p><p className="font-medium text-slate-700">{res.user}</p></div>
+              </div>
+            </section>
           </div>
 
-          <div className="space-y-4 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-            <h4 className="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase tracking-tight text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">Process Documents</h4>
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-left text-left text-left text-left text-left text-left text-left">
-              <p className="text-xs font-bold uppercase text-slate-400 mb-2 tracking-wider text-left text-left text-left text-left text-left text-left text-left">Stage 1: Concept Paper</p>
-              <a href={res.conceptPaperUrl} target="_blank" rel="noopener noreferrer" className="text-sky-600 underline font-medium block truncate hover:text-sky-700 text-left text-left text-left text-left text-left text-left text-left text-left">{res.conceptPaperUrl}</a>
+          <div className="space-y-4">
+            <h4 className="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase tracking-tight flex items-center gap-2">
+              <ClipboardCheck size={16} className="text-sky-500" /> Process Documents
+            </h4>
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <p className="text-xs font-bold uppercase text-slate-400 mb-2 tracking-wider">Stage 1: Concept Paper</p>
+              <a href={res.conceptPaperUrl} target="_blank" rel="noopener noreferrer" className="text-sky-600 underline font-medium block truncate hover:text-sky-700">{res.conceptPaperUrl}</a>
             </div>
 
-            <div className={`p-4 rounded-xl border text-left text-left text-left text-left text-left text-left ${res.status === 'concept-approved' ? 'bg-sky-50 border-sky-200 text-left text-left text-left text-left' : 'bg-slate-50 border-slate-200 text-left text-left text-left text-left'}`}>
-              <p className="text-xs font-bold uppercase text-slate-400 mb-2 tracking-wider text-left text-left text-left text-left text-left text-left text-left">Stage 2: Facility Form</p>
+            <div className={`p-4 rounded-xl border ${res.status === 'concept-approved' ? 'bg-sky-50 border-sky-200' : 'bg-slate-50 border-slate-200'}`}>
+              <p className="text-xs font-bold uppercase text-slate-400 mb-2 tracking-wider">Stage 2: Facility Form</p>
               {res.finalFormUrl ? (
-                <div className="text-left text-left text-left text-left text-left">
-                  <p className="text-green-600 font-bold flex items-center gap-2 text-left text-left text-left text-left text-left text-left text-left"><CheckCircle size={16} /> Link Submitted</p>
-                  <a href={res.finalFormUrl} target="_blank" rel="noopener noreferrer" className="text-sky-600 underline text-xs break-all block mt-1 text-left text-left text-left text-left text-left text-left text-left text-left">{res.finalFormUrl}</a>
+                <div>
+                  <p className="text-green-600 font-bold flex items-center gap-2"><CheckCircle size={16} /> Link Submitted</p>
+                  <a href={res.finalFormUrl} target="_blank" rel="noopener noreferrer" className="text-sky-600 underline text-xs break-all block mt-1">{res.finalFormUrl}</a>
                 </div>
               ) : res.status === 'concept-approved' ? (
-                <div className="space-y-3 text-left text-left text-left text-left text-left text-left">
-                  <p className="text-xs text-slate-700 leading-relaxed font-bold text-left text-left text-left text-left text-left text-left">Concept approved! Please input the link to your signed Facility Form document.</p>
-                  <button onClick={onPrint} className="flex items-center gap-2 text-indigo-600 font-bold text-xs text-left text-left text-left text-left text-left text-left text-left text-left"><Printer size={16} /> Print Template</button>
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-700 leading-relaxed font-bold">Concept approved! Please input the link to your signed Facility Form document.</p>
+                  <button onClick={onPrint} className="flex items-center gap-2 text-indigo-600 font-bold text-xs"><Printer size={16} /> Print Template</button>
                   {isOwner && (
-                    <div className="space-y-2 mt-2 text-left text-left text-left text-left text-left text-left">
+                    <div className="space-y-2 mt-2">
                        <input 
                         type="url" 
                         value={formLink} 
                         onChange={(e) => setFormLink(e.target.value)}
                         placeholder="Paste Form Link here..." 
-                        className="w-full border border-slate-300 p-2 rounded-lg text-xs bg-white focus:ring-2 focus:ring-sky-500 outline-none text-left text-left text-left text-left text-left text-left text-left text-left text-left" 
+                        className="w-full border border-slate-300 p-2 rounded-lg text-xs bg-white focus:ring-2 focus:ring-sky-500 outline-none" 
                        />
                        <button 
                         onClick={() => { if(formLink) onUpdate({...res, finalFormUrl: formLink}); }} 
-                        className="w-full bg-sky-500 hover:bg-sky-600 text-white py-2 rounded-lg font-bold text-xs shadow-md transition-colors text-center text-center text-center text-center text-center text-center text-center text-center"
+                        className="w-full bg-sky-500 hover:bg-sky-600 text-white py-2 rounded-lg font-bold text-xs shadow-md transition-colors text-center"
                        >
                         Submit Form Link
                        </button>
@@ -851,24 +890,24 @@ function DetailsModal({ res, user, onClose, onUpdate, onApproveStage1, onApprove
                   )}
                 </div>
               ) : (
-                <p className="text-slate-400 text-xs flex items-center gap-2 text-left text-left text-left text-left text-left text-left text-left text-left"><Clock size={14} /> Awaiting Stage 1 Approval</p>
+                <p className="text-slate-400 text-xs flex items-center gap-2"><Clock size={14} /> Awaiting Stage 1 Approval</p>
               )}
             </div>
           </div>
         </div>
 
         {isAdmin && (
-          <div className="mt-8 pt-6 border-t border-slate-100 flex gap-4 text-left text-left text-left text-left text-left text-left">
+          <div className="mt-8 pt-6 border-t border-slate-100 flex gap-4">
             {res.status === 'pending' && (
               <>
-                <button onClick={() => onApproveStage1(res.id)} className="flex-1 bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors text-center text-center text-center text-center text-center text-center text-center">Approve Concept</button>
-                <button onClick={onDenyClick} className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors text-center text-center text-center text-center text-center text-center text-center">Deny Request</button>
+                <button onClick={() => onApproveStage1(res.id)} className="flex-1 bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors text-center">Approve Concept</button>
+                <button onClick={onDenyClick} className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors text-center">Deny Request</button>
               </>
             )}
             {res.status === 'concept-approved' && res.finalFormUrl && (
               <>
-                <button onClick={() => onApproveFinal(res)} className="flex-1 bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors text-center text-center text-center text-center text-center text-center text-center">Final Approve</button>
-                <button onClick={onDenyClick} className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors text-center text-center text-center text-center text-center text-center text-center text-center">Deny Final</button>
+                <button onClick={() => onApproveFinal(res)} className="flex-1 bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors text-center">Final Approve</button>
+                <button onClick={onDenyClick} className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors text-center">Deny Final</button>
               </>
             )}
           </div>
@@ -882,36 +921,36 @@ function DenyModal({ res, onClose, onConfirm }) {
   const [reason, setReason] = useState('');
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 text-left text-left text-left text-left text-left text-left text-left">
-      <div className="bg-white rounded-2xl w-full max-w-md p-8 shadow-2xl animate-in zoom-in duration-200 text-left text-left text-left text-left text-left text-left text-left">
-        <div className="flex items-center gap-3 text-red-600 mb-4 text-left text-left text-left text-left text-left text-left text-left text-left text-left">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 text-left">
+      <div className="bg-white rounded-2xl w-full max-w-md p-8 shadow-2xl animate-in zoom-in duration-200">
+        <div className="flex items-center gap-3 text-red-600 mb-4">
           <Trash2 size={24} />
-          <h3 className="text-xl font-bold text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">Deny Reservation</h3>
+          <h3 className="text-xl font-bold">Deny Reservation</h3>
         </div>
-        <p className="text-sm text-slate-600 mb-6 text-left text-left text-left text-left text-left text-left text-left text-left">
+        <p className="text-sm text-slate-600 mb-6">
           You are about to deny <strong>{res.activityPurpose}</strong>. This will remove the reservation from the system.
         </p>
-        <div className="space-y-4 text-left text-left text-left text-left text-left text-left">
-          <div className="text-left text-left text-left text-left text-left text-left">
-            <label className="block text-xs font-bold text-slate-400 uppercase mb-1 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">Reason for Denial</label>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Reason for Denial</label>
             <textarea 
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="e.g., Facility maintenance, Scheduling conflict..."
-              className="w-full border border-slate-200 rounded-xl p-3 text-sm min-h-[100px] focus:ring-2 focus:ring-red-500 outline-none transition-all text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left"
+              className="w-full border border-slate-200 rounded-xl p-3 text-sm min-h-[100px] focus:ring-2 focus:ring-red-500 outline-none transition-all"
             />
           </div>
-          <div className="flex flex-col gap-2 text-left text-left text-left text-left text-left text-left text-left text-left">
+          <div className="flex flex-col gap-2">
             <button 
               disabled={!reason.trim()}
               onClick={() => onConfirm(res.id, reason)}
-              className="w-full bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white py-3 rounded-xl font-bold transition-all shadow-lg shadow-red-100 text-center text-center text-center text-center text-center text-center text-center text-center"
+              className="w-full bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white py-3 rounded-xl font-bold transition-all shadow-lg shadow-red-100 text-center"
             >
               Confirm Denial
             </button>
             <button 
               onClick={onClose}
-              className="w-full text-slate-400 hover:text-slate-600 text-sm font-medium py-2 transition-colors text-center text-center text-center text-center text-center text-center text-center text-center"
+              className="w-full text-slate-400 hover:text-slate-600 text-sm font-medium py-2 transition-colors text-center"
             >
               Cancel
             </button>
@@ -947,14 +986,14 @@ function AnalyticsView({ reservations, events }) {
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left text-left text-left text-left text-left text-left">
-      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-        <h3 className="font-bold mb-6 text-slate-800 flex items-center gap-2 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left"><BarChart3 size={18} className="text-sky-500 text-left text-left text-left text-left text-left text-left text-left text-left text-left" /> Popularity by Space</h3>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
+      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 className="font-bold mb-6 text-slate-800 flex items-center gap-2"><BarChart3 size={18} className="text-sky-500" /> Popularity by Space</h3>
         <Bar data={chartDataSpaces} options={{ plugins: { legend: { display: false } } }} />
       </div>
-      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-        <h3 className="font-bold mb-6 text-slate-800 w-full text-left flex items-center gap-2 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left"><Bot size={18} className="text-sky-500 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left" /> Request Distribution</h3>
-        <div className="w-64 py-4 text-left text-left text-left text-left text-left text-left">
+      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center">
+        <h3 className="font-bold mb-6 text-slate-800 w-full text-left flex items-center gap-2"><Bot size={18} className="text-sky-500" /> Request Distribution</h3>
+        <div className="w-64 py-4">
           <Doughnut data={chartDataStatus} />
         </div>
       </div>
@@ -964,18 +1003,18 @@ function AnalyticsView({ reservations, events }) {
 
 function FacilitiesView({ onBook }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left text-left text-left text-left text-left text-left text-left text-left text-left">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
       {EVENT_SPACES.map(s => (
-        <div key={s.id} className="bg-white rounded-2xl overflow-hidden border border-slate-200 hover:shadow-xl transition-all group flex flex-col text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-          <div className="h-40 bg-slate-200 flex items-center justify-center font-bold text-slate-400 text-2xl group-hover:bg-slate-300 transition-colors uppercase text-left text-left text-left text-left text-left text-left text-left text-left text-left">
+        <div key={s.id} className="bg-white rounded-2xl overflow-hidden border border-slate-200 hover:shadow-xl transition-all group flex flex-col text-left">
+          <div className="h-40 bg-slate-200 flex items-center justify-center font-bold text-slate-400 text-2xl group-hover:bg-slate-300 transition-colors uppercase">
             {s.name[0]}
           </div>
-          <div className="p-6 flex flex-col flex-1 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-            <h3 className="text-xl font-bold mb-2 text-slate-800 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">{s.name}</h3>
-            <p className="text-xs text-slate-500 mb-4 flex-1 leading-relaxed text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">{s.description}</p>
-            <div className="pt-4 border-t border-slate-100 mt-auto text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-              <p className="text-xs font-bold text-sky-600 mb-4 uppercase tracking-widest text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">Capacity: {s.capacity} pax</p>
-              <button onClick={() => onBook(s.id)} className="w-full bg-sky-500 hover:bg-sky-600 text-white py-2 rounded-xl font-bold transition-all transform active:scale-95 shadow-md text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center">Reserve Now</button>
+          <div className="p-6 flex flex-col flex-1">
+            <h3 className="text-xl font-bold mb-2 text-slate-800">{s.name}</h3>
+            <p className="text-xs text-slate-500 mb-4 flex-1 leading-relaxed">{s.description}</p>
+            <div className="pt-4 border-t border-slate-100 mt-auto">
+              <p className="text-xs font-bold text-sky-600 mb-4 uppercase tracking-widest">Capacity: {s.capacity} pax</p>
+              <button onClick={() => onBook(s.id)} className="w-full bg-sky-500 hover:bg-sky-600 text-white py-2 rounded-xl font-bold transition-all transform active:scale-95 shadow-md text-center">Reserve Now</button>
             </div>
           </div>
         </div>
@@ -995,42 +1034,42 @@ function CalendarView({ events }) {
   for (let i = 1; i <= daysInMonth; i++) days.push(i);
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm text-left text-left text-left text-left text-left text-left text-left text-left">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-        <div className="text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-          <h3 className="text-2xl font-bold text-slate-800 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">{curr.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h3>
-          <p className="text-xs text-slate-500 mt-1 uppercase tracking-wider font-bold text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
+    <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm text-left">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+        <div>
+          <h3 className="text-2xl font-bold text-slate-800">{curr.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h3>
+          <p className="text-xs text-slate-500 mt-1 uppercase tracking-wider font-bold">
             Showing: {filterSpace === 'all' ? 'All Facilities' : EVENT_SPACES.find(s => s.id === filterSpace)?.name}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-left text-left text-left text-left text-left text-left text-left text-left">
+        <div className="flex flex-wrap items-center gap-3">
           <select 
             value={filterSpace} 
             onChange={(e) => setFilterSpace(e.target.value)}
-            className="p-2 border border-slate-200 rounded-lg text-xs bg-slate-50 text-slate-700 focus:ring-2 focus:ring-sky-500 outline-none transition-all text-left text-left text-left text-left text-left text-left text-left text-left"
+            className="p-2 border border-slate-200 rounded-lg text-xs bg-slate-50 text-slate-700 focus:ring-2 focus:ring-sky-500 outline-none transition-all"
           >
             <option value="all">All Facilities</option>
             {EVENT_SPACES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
-          <div className="flex gap-1 text-left text-left text-left text-left text-left text-left text-left text-left">
-            <button onClick={() => setCurr(new Date(curr.setMonth(curr.getMonth() - 1)))} className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-800 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left"><ChevronLeft size={18} /></button>
-            <button onClick={() => setCurr(new Date(curr.setMonth(curr.getMonth() + 1)))} className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-800 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left"><ChevronRight size={18} /></button>
+          <div className="flex gap-1">
+            <button onClick={() => setCurr(new Date(curr.setMonth(curr.getMonth() - 1)))} className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-800"><ChevronLeft size={18} /></button>
+            <button onClick={() => setCurr(new Date(curr.setMonth(curr.getMonth() + 1)))} className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-800"><ChevronRight size={18} /></button>
           </div>
         </div>
       </div>
-      <div className="grid grid-cols-7 gap-px bg-slate-100 border border-slate-100 rounded-xl overflow-hidden text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
+      <div className="grid grid-cols-7 gap-px bg-slate-100 border border-slate-100 rounded-xl overflow-hidden text-left">
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-          <div key={d} className="bg-slate-50 p-3 text-center text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">{d}</div>
+          <div key={d} className="bg-slate-50 p-3 text-center text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100">{d}</div>
         ))}
         {days.map((d, i) => {
           const dateStr = d ? `${curr.getFullYear()}-${String(curr.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}` : null;
           const dayEvents = dateStr ? events.filter(e => e.dateNeeded === dateStr && (filterSpace === 'all' || e.spaceId === filterSpace)) : [];
           return (
-            <div key={i} className={`bg-white min-h-[120px] p-2 border-slate-50 text-left text-left text-left text-left text-left text-left text-left text-left ${!d && 'bg-slate-50/50'}`}>
-              <span className={`text-sm font-bold p-1 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left ${d ? 'text-slate-400' : 'text-transparent'}`}>{d || '.'}</span>
-              <div className="mt-1 space-y-1 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
+            <div key={i} className={`bg-white min-h-[120px] p-2 border-slate-50 text-left ${!d && 'bg-slate-50/50'}`}>
+              <span className={`text-sm font-bold p-1 ${d ? 'text-slate-400' : 'text-transparent'}`}>{d || '.'}</span>
+              <div className="mt-1 space-y-1">
                 {dayEvents.map(e => (
-                  <div key={e.id} className="bg-sky-500 text-white text-[9px] p-1 rounded font-bold shadow-sm shadow-sky-100 border-l-2 border-sky-700 truncate text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left" title={e.activityPurpose}>
+                  <div key={e.id} className="bg-sky-500 text-white text-[9px] p-1 rounded font-bold shadow-sm shadow-sky-100 border-l-2 border-sky-700 truncate" title={e.activityPurpose}>
                     {e.activityPurpose}
                   </div>
                 ))}
@@ -1044,47 +1083,46 @@ function CalendarView({ events }) {
 }
 
 function ArchiveView({ archive, user, isAdmin, onDelete }) {
-  // Logic to show only what hasn't been deleted by the viewer
   const display = isAdmin 
     ? archive.filter(a => !a.deletedByAdmin) 
     : archive.filter(a => a.user === user.username && !a.deletedByUser);
 
   return (
-    <div className="space-y-4 text-left text-left text-left text-left text-left text-left">
+    <div className="space-y-4 text-left">
       {display.length === 0 ? (
-        <div className="bg-white p-20 border border-slate-200 rounded-2xl text-center text-slate-400 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-           <Archive className="mx-auto mb-4 opacity-50 text-left text-left text-left text-left text-left text-left text-left" size={48} />
-           <p className="font-medium text-left text-left text-left text-left text-left text-left text-left text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center">No archived items found.</p>
+        <div className="bg-white p-20 border border-slate-200 rounded-2xl text-center text-slate-400">
+           <Archive className="mx-auto mb-4 opacity-50" size={48} />
+           <p className="font-medium">No archived items found.</p>
         </div>
       ) : display.map(a => (
-        <div key={a.id} className={`bg-white p-4 border rounded-xl flex flex-col transition-all text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left ${a.status === 'denied' ? 'border-red-100 bg-red-50/10' : 'border-green-100 bg-green-50/10'} hover:shadow-md`}>
-          <div className="flex justify-between items-center mb-2 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-            <div className="text-left text-sm text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-              <p className="font-bold text-slate-700 text-left text-left text-left text-left text-left text-left text-left text-left text-left">{a.activityPurpose}</p>
-              <p className="text-xs text-slate-500 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">{a.dateNeeded} | {a.user}</p>
+        <div key={a.id} className={`bg-white p-4 border rounded-xl flex flex-col transition-all ${a.status === 'denied' ? 'border-red-100 bg-red-50/10' : 'border-green-100 bg-green-50/10'} hover:shadow-md`}>
+          <div className="flex justify-between items-center mb-2">
+            <div className="text-left text-sm">
+              <p className="font-bold text-slate-700">{a.activityPurpose}</p>
+              <p className="text-xs text-slate-500">{a.dateNeeded} | By: {a.reserverName || a.user}</p>
             </div>
-            <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest text-left text-left text-left text-left text-left text-left text-left text-left ${a.status === 'denied' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+            <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-widest ${a.status === 'denied' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
               {a.status === 'denied' ? 'Denied' : 'Approved'}
             </span>
           </div>
           
           <div className="flex justify-between items-end gap-4 mt-2">
-            <div className="flex-1 text-left text-left text-left text-left text-left">
+            <div className="flex-1">
               {a.status === 'denied' && a.denialReason ? (
-                <div className="p-3 bg-red-50 rounded-lg border-l-2 border-red-400 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-                  <p className="text-[10px] font-bold text-red-400 uppercase tracking-tighter mb-1 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">Reason for Denial:</p>
-                  <p className="text-xs text-red-700 italic text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">{a.denialReason}</p>
+                <div className="p-3 bg-red-50 rounded-lg border-l-2 border-red-400">
+                  <p className="text-[10px] font-bold text-red-400 uppercase tracking-tighter mb-1">Reason for Denial:</p>
+                  <p className="text-xs text-red-700 italic">{a.denialReason}</p>
                 </div>
               ) : a.status === 'approved' ? (
-                <p className="text-[10px] text-green-500 font-bold uppercase italic px-1 text-left">Reservation successfully processed and completed.</p>
+                <p className="text-[10px] text-green-500 font-bold uppercase italic px-1">Reservation successfully processed and completed.</p>
               ) : null}
             </div>
             <button 
               onClick={() => onDelete(a.id)}
-              className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all group flex-shrink-0 text-left text-left"
+              className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all group flex-shrink-0"
               title="Delete from archive"
             >
-              <Trash2 size={16} className="group-active:scale-90 text-left text-left" />
+              <Trash2 size={16} className="group-active:scale-90" />
             </button>
           </div>
         </div>
@@ -1095,13 +1133,13 @@ function ArchiveView({ archive, user, isAdmin, onDelete }) {
 
 function NotificationModal({ message, onClose }) {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-      <div className="bg-white p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl animate-in zoom-in duration-200 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-        <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4 text-left text-left text-left text-left text-left text-left text-left text-left">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 text-left">
+      <div className="bg-white p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl animate-in zoom-in duration-200">
+        <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
           <CheckCircle size={32} />
         </div>
-        <p className="text-lg font-bold mb-6 text-slate-800 text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center">{message}</p>
-        <button onClick={onClose} className="w-full bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-2xl font-bold shadow-lg shadow-sky-200 transition-colors text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center">OK</button>
+        <p className="text-lg font-bold mb-6 text-slate-800">{message}</p>
+        <button onClick={onClose} className="w-full bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-2xl font-bold shadow-lg shadow-sky-200 transition-colors text-center">OK</button>
       </div>
     </div>
   );
@@ -1140,31 +1178,31 @@ function AIModal({ onClose, events, spaces }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 text-left text-slate-900 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-      <div className="bg-white rounded-3xl w-full max-w-lg h-[70vh] flex flex-col p-6 shadow-2xl overflow-hidden text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-        <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-100 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-          <h3 className="text-xl font-bold flex items-center gap-2 text-slate-800 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left"><Bot className="text-sky-500 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left" /> AI Assistant</h3>
-          <button onClick={onClose} className="p-1 text-slate-800 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left"><X /></button>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 text-left text-slate-900">
+      <div className="bg-white rounded-3xl w-full max-w-lg h-[70vh] flex flex-col p-6 shadow-2xl overflow-hidden">
+        <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-100">
+          <h3 className="text-xl font-bold flex items-center gap-2 text-slate-800"><Bot className="text-sky-500" /> AI Assistant</h3>
+          <button onClick={onClose} className="p-1 text-slate-800"><X /></button>
         </div>
-        <div className="flex-1 overflow-y-auto space-y-4 mb-4 p-2 no-scrollbar text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
+        <div className="flex-1 overflow-y-auto space-y-4 mb-4 p-2 no-scrollbar">
           {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.sender === 'user' ? 'justify-end text-left text-left text-left text-left text-left' : 'justify-start text-left text-left text-left text-left text-left text-left text-left text-left'} text-left text-left text-left text-left text-left text-left text-left text-left text-left`}>
-              <div className={`max-w-[85%] p-4 rounded-2xl text-sm text-left text-left text-left text-left text-left text-left ${m.sender === 'user' ? 'bg-sky-500 text-white rounded-tr-none text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left' : 'bg-slate-100 text-slate-800 rounded-tl-none text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left'}`}>
+            <div key={i} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] p-4 rounded-2xl text-sm ${m.sender === 'user' ? 'bg-sky-500 text-white rounded-tr-none' : 'bg-slate-100 text-slate-800 rounded-tl-none'}`}>
                 {m.text}
               </div>
             </div>
           ))}
-          {loading && <div className="text-sky-500 text-xs italic animate-pulse text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">Thinking...</div>}
+          {loading && <div className="text-sky-500 text-xs italic animate-pulse">Thinking...</div>}
         </div>
-        <div className="flex gap-2 pt-2 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
+        <div className="flex gap-2 pt-2">
           <input 
             value={input} 
             onChange={e => setInput(e.target.value)} 
             onKeyDown={e => e.key === 'Enter' && sendMessage()}
-            className="flex-1 p-3 border border-slate-200 rounded-2xl text-slate-800 text-sm focus:outline-none bg-slate-50 transition-all text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left" 
+            className="flex-1 p-3 border border-slate-200 rounded-2xl text-slate-800 text-sm focus:outline-none bg-slate-50 transition-all" 
             placeholder="Ask about availability..." 
           />
-          <button onClick={sendMessage} className="bg-sky-500 text-white p-3 rounded-2xl transition-colors hover:bg-sky-600 shadow-lg text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left"><Send size={20} /></button>
+          <button onClick={sendMessage} className="bg-sky-500 text-white p-3 rounded-2xl transition-colors hover:bg-sky-600 shadow-lg"><Send size={20} /></button>
         </div>
       </div>
     </div>
@@ -1175,34 +1213,34 @@ function PrintModal({ res, onClose }) {
   const printRef = useRef();
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-12 shadow-2xl text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-        <div className="flex justify-between mb-8 no-print text-slate-800 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-          <h3 className="text-2xl font-bold text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">Print Request Form</h3>
-          <button onClick={onClose} className="p-1 text-slate-800 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left"><X /></button>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 text-left">
+      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-12 shadow-2xl text-left">
+        <div className="flex justify-between mb-8 no-print text-slate-800">
+          <h3 className="text-2xl font-bold">Print Request Form</h3>
+          <button onClick={onClose} className="p-1 text-slate-800"><X /></button>
         </div>
 
-        <div ref={printRef} className="border-2 border-slate-800 p-8 text-slate-800 font-serif bg-white text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-          <div className="text-center mb-8 pb-4 border-b-2 border-slate-800 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-            <h2 className="text-2xl font-bold uppercase tracking-widest text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">COMMON FACILITY REQUEST FORM</h2>
-            <p className="text-sm mt-1 uppercase opacity-60 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">University of Perpetual Help System Laguna</p>
+        <div ref={printRef} className="border-2 border-slate-800 p-8 text-slate-800 font-serif bg-white">
+          <div className="text-center mb-8 pb-4 border-b-2 border-slate-800">
+            <h2 className="text-2xl font-bold uppercase tracking-widest text-left">COMMON FACILITY REQUEST FORM</h2>
+            <p className="text-sm mt-1 uppercase opacity-60 text-left">University of Perpetual Help System Laguna</p>
           </div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-6 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
+          <div className="grid grid-cols-2 gap-x-8 gap-y-6 text-left">
             <PrintField label="Activity Purpose" val={res.activityPurpose} full />
             <PrintField label="Facility" val={EVENT_SPACES.find(s => s.id === res.spaceId)?.name} />
             <PrintField label="Date Requested" val={res.dateNeeded} />
             <PrintField label="Time Slot" val={`${res.startTime} - ${res.endTime}`} />
-            <PrintField label="Requestor" val={res.user} />
+            <PrintField label="Requestor" val={res.reserverName || res.user} />
           </div>
-          <div className="mt-20 pt-10 border-t border-slate-300 grid grid-cols-2 gap-8 text-center text-[10px] uppercase font-bold text-slate-400 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-            <p className="text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">Signature Over Printed Name</p>
-            <p className="text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">Department Head Approval</p>
+          <div className="mt-20 pt-10 border-t border-slate-300 grid grid-cols-2 gap-8 text-center text-[10px] uppercase font-bold text-slate-400 text-left">
+            <p className="text-left">Signature Over Printed Name</p>
+            <p className="text-left">Department Head Approval</p>
           </div>
         </div>
 
-        <div className="mt-8 flex justify-end gap-3 no-print text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">
-          <button onClick={onClose} className="px-6 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm transition-colors hover:bg-slate-200 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center">Close</button>
-          <button onClick={() => window.print()} className="px-6 py-2 bg-indigo-500 text-white rounded-lg font-bold text-sm shadow-md transition-colors hover:bg-indigo-600 text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center text-center">Print Now</button>
+        <div className="mt-8 flex justify-end gap-3 no-print">
+          <button onClick={onClose} className="px-6 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm transition-colors hover:bg-slate-200 text-left">Close</button>
+          <button onClick={() => window.print()} className="px-6 py-2 bg-indigo-500 text-white rounded-lg font-bold text-sm shadow-md transition-colors hover:bg-indigo-600 text-center">Print Now</button>
         </div>
       </div>
     </div>
@@ -1211,9 +1249,9 @@ function PrintModal({ res, onClose }) {
 
 function PrintField({ label, val, full }) {
   return (
-    <div className={`${full ? 'col-span-2' : ''} text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left`}>
-      <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1 tracking-wider text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">{label}</label>
-      <div className="border-b border-slate-300 pb-1 font-medium text-slate-800 italic text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left text-left">{val || '___________________'}</div>
+    <div className={`${full ? 'col-span-2' : ''} text-left`}>
+      <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1 tracking-wider text-left">{label}</label>
+      <div className="border-b border-slate-300 pb-1 font-medium text-slate-800 italic text-left">{val || '___________________'}</div>
     </div>
   );
 }
