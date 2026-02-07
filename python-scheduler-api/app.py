@@ -148,33 +148,28 @@ def setup():
             {'user': 'avi', 'pass': '1234', 'role': 'student', 'dept': 'College of Nursing'},
         ]
         
-        for u in users_to_add:
-            new_user = User(username=u['user'], role=u['role'], department=u['dept'])
-            new_user.set_password(u['pass'])
-            db.session.add(new_user)
-            print(f" -> Added Account: {u['user']}")
-        
-        rooms_list = [
-            {"code": "pat", "name": "Performing Arts Theatre", "cap": 1500, "desc": "A state-of-the-art facility designed for major university events, featuring professional lighting and sound systems."},
-            {"code": "tvs", "name": "TV Studio", "cap": 50,"desc": "Equipped studio for media production."},
-            {"code": "quad", "name": "Quadrangle", "cap": 3000, "desc": "The central open field, perfect for large-scale outdoor student gatherings and school-wide events."},
-            {"code": "rdr", "name": "Radio Room", "cap": 15, "desc": "Soundproof booth for audio recordings."}
-        ]
-        
-        for r in rooms_list:
-            new_room = Room(
-                code=r['code'],
-                name=r['name'], 
-                capacity=r['cap'], 
-                description=r['desc']
-            )
-            db.session.add(new_room)
-            print(f" -> Added Facility: {r['name']}")
-        
+        for u_data in users_to_add:
+            user_obj = User(username=u_data['user'], role=u_data['role'], department=u_data['dept'])
+            user_obj.set_password(u_data['pass'])
+            db.session.add(user_obj)
+
         db.session.commit()
+
+        rooms_list = [
+            {'code': 'PAT', 'name': 'Performing Arts Theatre', 'capacity': 1500, 'desc': 'State-of-the-art facility for major university events.', 'usual': 'Concerts, Graduation, Large Plays'},
+            {'code': 'TV_STUDIO', 'name': 'TV Studio', 'capacity': 50, 'desc': 'Equipped studio for media production.', 'usual': 'Filming, Broadcasts'},
+            {'code': 'QUAD', 'name': 'Quadrangle', 'capacity': 3000, 'desc': 'Central open field for massive gatherings.', 'usual': 'Fairs, Exhibitions'},
+            {'code': 'RADIO', 'name': 'Radio Room', 'capacity': 15, 'desc': 'Soundproof booth for audio recordings.', 'usual': 'Broadcasting, Podcasts'}
+        ]
+
+        for r_data in rooms_list:
+            room_obj = Room(code=r_data['code'], name=r_data['name'], capacity=r_data['capacity'], description=r_data['desc'], usual_activity=r_data['usual'])
+            db.session.add(room_obj)
+
+        db.session.commit()
+
         return f"""
-        <h1>Setup Complete! 🚀</h1>
-        <p>Database has been wiped and re-seeded with:</p>
+        <h1>Setup Complete!</h1>
         <ul>
             <li>{len(users_to_add)} Users created</li>
             <li>{len(rooms_list)} Facilities added</li>
@@ -183,6 +178,21 @@ def setup():
         """
 
 # ==================== API ROUTES ====================
+
+# NEW: Check current user session endpoint
+@app.route('/api/me', methods=['GET'])
+def api_me():
+    """Check if user is currently logged in and return their info"""
+    if current_user.is_authenticated:
+        return jsonify({
+            'status': 'success',
+            'user_id': current_user.id,
+            'role': current_user.role,
+            'username': current_user.username,
+            'department': current_user.department
+        })
+    else:
+        return jsonify({'status': 'error', 'message': 'Not authenticated'}), 401
 
 # Authentication API - FIXED TO INCLUDE user_id
 @app.route('/api/login', methods=['POST'])
@@ -278,15 +288,17 @@ def get_reservations():
         'equipment_data': r.get_equipment(),
         'archived_at': r.archived_at.isoformat() if r.archived_at else None
     } for r in reservations]
+    
     return jsonify(reservations_list)
 
-# Get single reservation
-@app.route('/api/reservations/<int:reservation_id>', methods=['GET'])
+# Get a specific reservation by ID
+@app.route('/api/reservations/<int:id>', methods=['GET'])
 @login_required
-def get_reservation(reservation_id):
-    reservation = Reservation.query.get_or_404(reservation_id)
+def get_reservation(id):
+    reservation = db.session.get(Reservation, id)
+    if not reservation:
+        return jsonify({'error': 'Reservation not found'}), 404
     
-    # Check permission
     if current_user.role != 'admin' and reservation.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized'}), 403
     
@@ -316,310 +328,171 @@ def get_reservation(reservation_id):
         'archived_at': reservation.archived_at.isoformat() if reservation.archived_at else None
     })
 
-# Create reservation
+# Create new reservation
 @app.route('/api/reservations', methods=['POST'])
 @login_required
-def create_reservation():
+def create_reservation(): 
+    data = request.get_json()
+    
     try:
-        data = request.get_json()
-        
-        # Validate Google Drive link
-        concept_paper_url = data.get('concept_paper_url', '').strip()
-        if not concept_paper_url:
-            return jsonify({'error': 'Concept paper Google Drive link required'}), 400
-        
-        if 'drive.google.com' not in concept_paper_url:
-            return jsonify({'error': 'Please provide a valid Google Drive link'}), 400
-        
-        # Parse datetime
-        start_datetime = datetime.fromisoformat(data.get('start_time'))
-        end_datetime = datetime.fromisoformat(data.get('end_time'))
-        
-        # Create reservation
-        new_reservation = Reservation(
+        reservation = Reservation(
             user_id=current_user.id,
-            room_id=int(data.get('room_id')),
-            activity_purpose=data.get('activity_purpose'),
-            division=data.get('division'),
-            attendees=int(data.get('attendees', 0)),
-            participant_type=data.get('participant_type'),
-            participant_details=data.get('participant_details'),
-            classification=data.get('classification'),
-            person_in_charge=data.get('person_in_charge'),
-            contact_number=data.get('contact_number'),
-            start_time=start_datetime,
-            end_time=end_datetime,
+            room_id=data['room_id'],
+            activity_purpose=data['activity_purpose'],
+            division=data.get('division', ''),
+            attendees=data.get('attendees', 0),
+            participant_type=data.get('participant_type', ''),
+            participant_details=data.get('participant_details', ''),
+            classification=data.get('classification', ''),
+            person_in_charge=data['person_in_charge'],
+            contact_number=data['contact_number'],
+            start_time=datetime.fromisoformat(data['start_time']),
+            end_time=datetime.fromisoformat(data['end_time']),
+            concept_paper_url=data.get('concept_paper_url', ''),
             status='pending',
-            concept_paper_url=concept_paper_url,
-            equipment_data=data.get('equipment_data', '{}')
+            date_filed=datetime.now()
         )
         
-        db.session.add(new_reservation)
+        if 'equipment_data' in data:
+            reservation.set_equipment(data['equipment_data'])
+        
+        db.session.add(reservation)
         db.session.commit()
         
-        return jsonify({'status': 'success', 'id': new_reservation.id})
-    
+        return jsonify({'status': 'success', 'id': reservation.id, 'message': 'Reservation created'})
     except Exception as e:
         db.session.rollback()
-        print(f"Error creating reservation: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'status': 'error', 'message': str(e)}), 400
 
-# Update reservation
-@app.route('/api/reservations/<int:reservation_id>', methods=['PUT'])
+# Upload final form (user submits final form URL after concept is approved)
+@app.route('/api/reservations/<int:id>/upload-final-form', methods=['POST'])
 @login_required
-def update_reservation(reservation_id):
-    reservation = Reservation.query.get_or_404(reservation_id)
+def upload_final_form(id):
+    reservation = db.session.get(Reservation, id)
+    if not reservation:
+        return jsonify({'error': 'Reservation not found'}), 404
     
-    # Check permission
     if current_user.role != 'admin' and reservation.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized'}), 403
     
-    try:
-        data = request.get_json()
-        
-        # Update fields
-        if 'activity_purpose' in data:
-            reservation.activity_purpose = data['activity_purpose']
-        if 'division' in data:
-            reservation.division = data['division']
-        if 'attendees' in data:
-            reservation.attendees = data['attendees']
-        if 'participant_type' in data:
-            reservation.participant_type = data['participant_type']
-        if 'participant_details' in data:
-            reservation.participant_details = data['participant_details']
-        if 'classification' in data:
-            reservation.classification = data['classification']
-        if 'person_in_charge' in data:
-            reservation.person_in_charge = data['person_in_charge']
-        if 'contact_number' in data:
-            reservation.contact_number = data['contact_number']
-        if 'start_time' in data:
-            reservation.start_time = datetime.fromisoformat(data['start_time'])
-        if 'end_time' in data:
-            reservation.end_time = datetime.fromisoformat(data['end_time'])
-        if 'room_id' in data:
-            reservation.room_id = data['room_id']
-        if 'equipment_data' in data:
-            reservation.equipment_data = data['equipment_data']
-        
-        db.session.commit()
-        return jsonify({'status': 'success'})
+    data = request.get_json()
+    reservation.final_form_url = data.get('final_form_url', '')
+    reservation.final_form_uploaded = True
     
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Final form uploaded'})
 
-# Admin: Approve concept (Stage 1)
-@app.route('/api/reservations/<int:reservation_id>/approve-concept', methods=['POST'])
+# Approve concept (Stage 1) - Admin only
+@app.route('/api/reservations/<int:id>/approve-concept', methods=['POST'])
 @login_required
-def approve_concept(reservation_id):
+def approve_concept(id):
     if current_user.role != 'admin':
-        return jsonify({'error': 'Unauthorized'}), 403
+        return jsonify({'error': 'Admin access required'}), 403
     
-    reservation = Reservation.query.get_or_404(reservation_id)
+    reservation = db.session.get(Reservation, id)
+    if not reservation:
+        return jsonify({'error': 'Reservation not found'}), 404
+    
     reservation.status = 'concept-approved'
     db.session.commit()
     
-    return jsonify({'status': 'success'})
+    return jsonify({'status': 'success', 'message': 'Concept approved'})
 
-# Admin: Final approval (Stage 2)
-@app.route('/api/reservations/<int:reservation_id>/approve-final', methods=['POST'])
+# Approve final (Stage 2) - Admin only
+@app.route('/api/reservations/<int:id>/approve-final', methods=['POST'])
 @login_required
-def approve_final(reservation_id):
+def approve_final(id):
     if current_user.role != 'admin':
-        return jsonify({'error': 'Unauthorized'}), 403
+        return jsonify({'error': 'Admin access required'}), 403
     
-    reservation = Reservation.query.get_or_404(reservation_id)
-    
-    if not reservation.final_form_uploaded:
-        return jsonify({'error': 'Final form not uploaded'}), 400
+    reservation = db.session.get(Reservation, id)
+    if not reservation:
+        return jsonify({'error': 'Reservation not found'}), 404
     
     reservation.status = 'approved'
     db.session.commit()
     
-    return jsonify({'status': 'success'})
+    return jsonify({'status': 'success', 'message': 'Final form approved, reservation confirmed'})
 
-# Admin: Deny reservation
-@app.route('/api/reservations/<int:reservation_id>/deny', methods=['POST'])
+# Deny reservation - Admin only
+@app.route('/api/reservations/<int:id>/deny', methods=['POST'])
 @login_required
-def deny_reservation(reservation_id):
+def deny_reservation(id):
     if current_user.role != 'admin':
-        return jsonify({'error': 'Unauthorized'}), 403
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    reservation = db.session.get(Reservation, id)
+    if not reservation:
+        return jsonify({'error': 'Reservation not found'}), 404
     
     data = request.get_json()
-    reason = data.get('reason', '')
-    
-    if not reason:
-        return jsonify({'error': 'Denial reason required'}), 400
-    
-    reservation = Reservation.query.get_or_404(reservation_id)
     reservation.status = 'denied'
-    reservation.denial_reason = reason
-    db.session.commit()
-    
-    return jsonify({'status': 'success'})
-
-# User: Upload final form (Stage 2)
-@app.route('/api/reservations/<int:reservation_id>/upload-final-form', methods=['POST'])
-@login_required
-def upload_final_form(reservation_id):
-    reservation = Reservation.query.get_or_404(reservation_id)
-    
-    # Check permission
-    if reservation.user_id != current_user.id:
-        return jsonify({'error': 'Unauthorized'}), 403
-    
-    if reservation.status != 'concept-approved':
-        return jsonify({'error': 'Concept not yet approved'}), 400
-    
-    # Validate Google Drive link
-    data = request.get_json()
-    final_form_url = data.get('final_form_url', '').strip()
-    if not final_form_url:
-        return jsonify({'error': 'Final form Google Drive link required'}), 400
-    
-    if 'drive.google.com' not in final_form_url:
-        return jsonify({'error': 'Please provide a valid Google Drive link'}), 400
-    
-    reservation.final_form_url = final_form_url
-    reservation.final_form_uploaded = True
-    db.session.commit()
-    
-    return jsonify({'status': 'success'})
-
-# Archive reservation
-@app.route('/api/reservations/<int:reservation_id>/archive', methods=['POST'])
-@login_required
-def archive_reservation(reservation_id):
-    reservation = Reservation.query.get_or_404(reservation_id)
-    
-    # Check permission
-    if current_user.role != 'admin' and reservation.user_id != current_user.id:
-        return jsonify({'error': 'Unauthorized'}), 403
-    
+    reservation.denial_reason = data.get('reason', 'No reason provided')
     reservation.archived_at = datetime.now()
-    db.session.commit()
     
-    return jsonify({'status': 'success'})
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Reservation denied'})
 
 # Delete reservation
-@app.route('/api/reservations/<int:reservation_id>', methods=['DELETE'])
+@app.route('/api/reservations/<int:id>', methods=['DELETE'])
 @login_required
-def delete_reservation(reservation_id):
-    reservation = Reservation.query.get_or_404(reservation_id)
+def delete_reservation(id):
+    reservation = db.session.get(Reservation, id)
+    if not reservation:
+        return jsonify({'error': 'Reservation not found'}), 404
     
-    # Check permission
     if current_user.role != 'admin' and reservation.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized'}), 403
     
-    # Delete database record (no files to clean up since using Google Drive links)
     db.session.delete(reservation)
     db.session.commit()
-    
-    return jsonify({'status': 'success'})
+    return jsonify({'status': 'success', 'message': 'Reservation deleted'})
 
-# Gemini AI Proxy
-@app.route('/api/gemini', methods=['POST'])
+# Get archived/denied reservations
+@app.route('/api/archive', methods=['GET'])
 @login_required
-def gemini_proxy():
-    try:
-        data = request.get_json()
-        prompt = data.get('prompt', '')
-        
-        if not prompt:
-            return jsonify({'error': 'Prompt required'}), 400
-        
-        # Get context data
-        rooms = Room.query.all()
-        approved_reservations = Reservation.query.filter_by(status='approved').all()
-        
-        context = {
-            'facilities': [{
-                'id': r.id,
-                'code': r.code,
-                'name': r.name,
-                'capacity': r.capacity,
-                'usual_activity': r.usual_activity,
-                'description': r.description
-            } for r in rooms],
-            'approved_schedule': [{
-                'id': r.id,
-                'room_id': r.room_id,
-                'activity': r.activity_purpose,
-                'date': r.start_time.date().isoformat() if r.start_time else None,
-                'start_time': r.start_time.time().isoformat() if r.start_time else None,
-                'end_time': r.end_time.time().isoformat() if r.end_time else None
-            } for r in approved_reservations]
-        }
-        
-        system_instruction = """
-You are VacanSee, the official Campus Event Space Reservation Assistant.
-Your only purpose is to help users and administrators with questions strictly related to campus facilities and the reservation process as defined by the system.
-
-You MUST follow these rules:
-
-1. Answer only based on the valid JSON context provided.
-   Only give information about:
-   - facility availability
-   - capacity
-   - location
-   - allowed activities
-   - reservation steps
-   - document requirements
-   - approval status
-
-2. Do NOT answer any question outside campus facilities and reservations.
-   If the user asks about unrelated topics (e.g., cooking, history, math, coding, celebrity gossip), politely decline with:
-   "I am only programmed to assist with campus facility reservations. Please ask me about room availability or the reservation process."
-
-3. Maintain a helpful, concise, and professional tone.
-   Give step-by-step guidance only when necessary.
-   Avoid assumptions or adding information outside the provided JSON data.
-
-4. Always follow the official VacanSee digital reservation workflow.
-   If the user asks how to reserve a space, describe the process exactly as defined:
-   Upload concept paper → EMC initial approval → Download/print form → Collect physical signatures → Upload signed form → Final EMC approval/decline.
-
-5. Special rule for Concept Paper questions:
-   If the user asks "How do I get a concept paper?" or similar, respond exactly:
-   "You must first speak with the facility coordinator responsible for the venue you want to reserve. The coordinator will explain the required details for the concept paper. After drafting the concept paper, you must have it signed by the Chancellor. Only the Concept Paper signed by the Chancellor can be uploaded to VacanSee for EMC's initial review."
-
-6. Never invent approval steps, signatures, or requirements not present in the JSON context.
-   If a required item is missing from the JSON, tell the user you cannot confirm it and ask them to contact the facility coordinator or EMC office.
-
-END OF SYSTEM INSTRUCTION.
-"""
-        
-        user_query = f"""
-The current date/time is {datetime.now().isoformat()}.
-Here is the current application state:
-{json.dumps(context, indent=2)}
-
-The user asks: {prompt}
-"""
-        
-        # Call Gemini API
-        response = requests.post(
-            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
-            json={
-                'contents': [{'parts': [{'text': user_query}]}],
-                'systemInstruction': {'parts': [{'text': system_instruction}]}
-            },
-            headers={'Content-Type': 'application/json'},
-            timeout=10
-        )
-        
-        if response.ok:
-            result = response.json()
-            ai_response = result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', 'No response')
-            return jsonify({'response': ai_response})
-        else:
-            return jsonify({'error': 'AI service error', 'details': response.text}), 500
+def get_archive():
+    if current_user.role == 'admin':
+        archived = Reservation.query.filter_by(status='denied').all()
+    else:
+        archived = Reservation.query.filter_by(user_id=current_user.id, status='denied').all()
     
-    except Exception as e:
-        print(f"Gemini API error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+    archive_list = [{
+        'id': r.id,
+        'user_id': r.user_id,
+        'user': r.requester.username if r.requester else 'Unknown',
+        'department': r.requester.department if r.requester else 'Unknown',
+        'room_id': r.room_id,
+        'activity_purpose': r.activity_purpose,
+        'start_time': r.start_time.isoformat() if r.start_time else None,
+        'end_time': r.end_time.isoformat() if r.end_time else None,
+        'status': r.status,
+        'denial_reason': r.denial_reason,
+        'archived_at': r.archived_at.isoformat() if r.archived_at else None
+    } for r in archived]
+    
+    return jsonify(archive_list)
+
+# Get analytics - Admin only
+@app.route('/api/analytics', methods=['GET'])
+@login_required
+def get_analytics():
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    total = Reservation.query.count()
+    pending = Reservation.query.filter_by(status='pending').count()
+    concept_approved = Reservation.query.filter_by(status='concept-approved').count()
+    approved = Reservation.query.filter_by(status='approved').count()
+    denied = Reservation.query.filter_by(status='denied').count()
+    
+    return jsonify({
+        'total': total,
+        'pending': pending,
+        'concept_approved': concept_approved,
+        'approved': approved,
+        'denied': denied
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)
