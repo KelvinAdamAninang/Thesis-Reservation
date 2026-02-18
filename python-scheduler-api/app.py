@@ -254,6 +254,24 @@ def get_rooms():
     } for room in rooms]
     return jsonify(rooms_list)
 
+# Get all approved calendar events (visible to all logged-in users)
+@app.route('/api/calendar-events', methods=['GET'])
+@login_required
+def get_calendar_events():
+    # Return all approved, non-archived reservations for the calendar
+    reservations = Reservation.query.filter_by(status='approved').filter(Reservation.archived_at == None).all()
+    events_list = [{
+        'id': r.id,
+        'room_id': r.room_id,
+        'room_name': db.session.get(Room, r.room_id).name if db.session.get(Room, r.room_id) else 'Unknown',
+        'activity_purpose': r.activity_purpose,
+        'person_in_charge': r.person_in_charge or 'N/A',
+        'start_time': r.start_time.isoformat() if r.start_time else None,
+        'end_time': r.end_time.isoformat() if r.end_time else None,
+        'department': r.requester.department if r.requester else 'Unknown'
+    } for r in reservations]
+    return jsonify(events_list)
+
 # Get all reservations (Admin sees all, users see their own)
 @app.route('/api/reservations', methods=['GET'])
 @login_required
@@ -433,6 +451,28 @@ def deny_reservation(id):
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'Reservation denied'})
 
+# Delete event from calendar (Admin only) - with notification to user
+@app.route('/api/reservations/<int:id>/delete-event', methods=['POST'])
+@login_required
+def delete_event(id):
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    reservation = db.session.get(Reservation, id)
+    if not reservation:
+        return jsonify({'error': 'Reservation not found'}), 404
+    
+    data = request.get_json()
+    reason = data.get('reason', 'No reason provided')
+    
+    # Mark as deleted (not denied) so users get notified
+    reservation.status = 'deleted'
+    reservation.denial_reason = reason
+    reservation.archived_at = datetime.now()
+    
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Event deleted and user notified'})
+
 # Delete reservation
 @app.route('/api/reservations/<int:id>', methods=['DELETE'])
 @login_required
@@ -453,9 +493,9 @@ def delete_reservation(id):
 @login_required
 def get_archive():
     if current_user.role == 'admin':
-        archived = Reservation.query.filter_by(status='denied').all()
+        archived = Reservation.query.filter(Reservation.status.in_(['denied', 'deleted'])).all()
     else:
-        archived = Reservation.query.filter_by(user_id=current_user.id, status='denied').all()
+        archived = Reservation.query.filter_by(user_id=current_user.id).filter(Reservation.status.in_(['denied', 'deleted'])).all()
     
     archive_list = [{
         'id': r.id,

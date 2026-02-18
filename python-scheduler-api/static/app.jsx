@@ -118,6 +118,23 @@ const apiService = {
     });
     if (!response.ok) throw new Error('Failed to approve');
     return response.json();
+  },
+
+  async getCalendarEvents() {
+    const response = await fetch(`${API_BASE}/calendar-events`, { credentials: 'include' });
+    if (!response.ok) throw new Error('Failed to fetch calendar events');
+    return response.json();
+  },
+
+  async deleteEventWithReason(id, reason) {
+    const response = await fetch(`${API_BASE}/reservations/${id}/delete-event`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ reason })
+    });
+    if (!response.ok) throw new Error('Failed to delete event');
+    return response.json();
   }
 };
 
@@ -126,6 +143,7 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [currentView, setCurrentView] = useState('dashboard');
   const [reservations, setReservations] = useState([]);
+  const [calendarEvents, setCalendarEvents] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [activeModal, setActiveModal] = useState(null);
   const [selectedRes, setSelectedRes] = useState(null);
@@ -139,22 +157,43 @@ function App() {
 
   const isAdmin = currentUser?.role === 'admin';
 
+  const getNotificationKey = (notification) => {
+    if (isAdmin) {
+      if (notification.notification_type === 'final-submitted') return `admin-final-${notification.id}`;
+      return `admin-pending-${notification.id}`;
+    }
+    return `user-${notification.id}`;
+  };
+
   // Compute unread notifications
   const getUnreadNotifications = () => {
     if (!currentUser) return [];
     if (isAdmin) {
-      // Admin sees new pending requests
-      return reservations.filter(r => r.status === 'pending' && !r.archived_at && !seenNotifications.includes(`admin-${r.id}`));
-    } else {
-      // Users see their denied requests
-      return reservations.filter(r => r.user_id === currentUser.id && r.status === 'denied' && !seenNotifications.includes(`user-${r.id}`));
+      // Admin sees new pending requests and final form submissions
+      return reservations
+        .filter(r => !r.archived_at)
+        .filter(r => {
+          if (r.status === 'pending') {
+            return !seenNotifications.includes(`admin-pending-${r.id}`);
+          }
+          if (r.status === 'concept-approved' && (r.final_form_url || r.final_form_uploaded)) {
+            return !seenNotifications.includes(`admin-final-${r.id}`);
+          }
+          return false;
+        })
+        .map(r => ({
+          ...r,
+          notification_type: r.status === 'pending' ? 'pending' : 'final-submitted'
+        }));
     }
+    // Users see their denied or deleted requests
+    return reservations.filter(r => r.user_id === currentUser.id && (r.status === 'denied' || r.status === 'deleted') && !seenNotifications.includes(`user-${r.id}`));
   };
 
   const hasUnread = getUnreadNotifications().length > 0;
 
-  const markNotificationSeen = (id) => {
-    const key = isAdmin ? `admin-${id}` : `user-${id}`;
+  const markNotificationSeen = (notification) => {
+    const key = getNotificationKey(notification);
     const updated = [...seenNotifications, key];
     setSeenNotifications(updated);
     localStorage.setItem('seenNotifications', JSON.stringify(updated));
@@ -162,7 +201,7 @@ function App() {
 
   const markAllNotificationsSeen = () => {
     const notifications = getUnreadNotifications();
-    const keys = notifications.map(n => isAdmin ? `admin-${n.id}` : `user-${n.id}`);
+    const keys = notifications.map(n => getNotificationKey(n));
     const updated = [...seenNotifications, ...keys];
     setSeenNotifications(updated);
     localStorage.setItem('seenNotifications', JSON.stringify(updated));
@@ -200,6 +239,8 @@ function App() {
           setRooms(data);
           const res = await apiService.getReservations();
           setReservations(res);
+          const events = await apiService.getCalendarEvents();
+          setCalendarEvents(events);
         } catch (err) {
           setError(err.message);
         }
@@ -277,7 +318,7 @@ function App() {
       // Main content
       React.createElement('main', { className: 'flex-1 overflow-y-auto p-8' },
         currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
-        currentView === 'calendar' && React.createElement(CalendarView, { events: reservations.filter(r => r.status === 'approved' && !r.archived_at), rooms }),
+        currentView === 'calendar' && React.createElement(CalendarView, { events: calendarEvents, rooms, onViewEvent: (e) => { setSelectedRes(e); setActiveModal('eventDetails'); } }),
         currentView === 'facilities' && React.createElement(FacilitiesView, { rooms, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
         currentView === 'reservations' && isAdmin && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
         currentView === 'analytics' && React.createElement(AnalyticsView, { reservations }),
@@ -285,7 +326,7 @@ function App() {
       )
     ),
     // Modals
-    activeModal === 'reservation' && React.createElement(ReservationModal, { initialData: selectedRes || {}, rooms, onClose: () => setActiveModal(null), onSubmit: async (fd) => { setLoading(true); try { await apiService.createReservation(fd); setNotification('Created!'); setActiveModal('notification'); const res = await apiService.getReservations(); setReservations(res); } catch (err) { setError(err.message); } finally { setLoading(false); } }, loading }),
+    activeModal === 'reservation' && React.createElement(ReservationModal, { initialData: selectedRes || {}, rooms, calendarEvents, onClose: () => setActiveModal(null), onSubmit: async (fd) => { setLoading(true); try { await apiService.createReservation(fd); setNotification('Created!'); setActiveModal('notification'); const res = await apiService.getReservations(); setReservations(res); } catch (err) { setError(err.message); } finally { setLoading(false); } }, loading }),
     activeModal === 'details' && React.createElement(DetailsModal, { 
       res: selectedRes, 
       user: currentUser, 
@@ -307,7 +348,9 @@ function App() {
         try { 
           await apiService.approveFinal(id); 
           const res = await apiService.getReservations(); 
-          setReservations(res); 
+          setReservations(res);
+          const events = await apiService.getCalendarEvents();
+          setCalendarEvents(events); 
           setNotification('Reservation fully approved! Now visible on calendar.'); 
           setActiveModal('notification'); 
         } catch (err) { setError(err.message); } 
@@ -339,14 +382,41 @@ function App() {
       onMarkAllSeen: markAllNotificationsSeen,
       onViewRequest: (r) => { setSelectedRes(r); setActiveModal('details'); }
     }),
-    activeModal === 'notification' && React.createElement(NotificationModal, { message: notification, onClose: () => setActiveModal(null) })
+    activeModal === 'notification' && React.createElement(NotificationModal, { message: notification, onClose: () => setActiveModal(null) }),
+    activeModal === 'eventDetails' && React.createElement(EventDetailsModal, { 
+      event: selectedRes, 
+      rooms, 
+      user: currentUser,
+      isAdmin,
+      loading,
+      onClose: () => setActiveModal(null),
+      onDeleteClick: () => setActiveModal('deleteEvent')
+    }),
+    activeModal === 'deleteEvent' && React.createElement(DeleteEventModal, {
+      event: selectedRes,
+      onClose: () => setActiveModal('eventDetails'),
+      onConfirm: async (reason) => {
+        setLoading(true);
+        try {
+          await apiService.deleteEventWithReason(selectedRes.id, reason);
+          const events = await apiService.getCalendarEvents();
+          setCalendarEvents(events);
+          const res = await apiService.getReservations();
+          setReservations(res);
+          setNotification('Event deleted and user notified');
+          setActiveModal('notification');
+        } catch (err) { setError(err.message); }
+        finally { setLoading(false); }
+      },
+      loading
+    })
   );
 }
 
 // Components
 function LoginPage({ onLogin, loading, error }) {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState();
+  const [password, setPassword] = useState();
   const handleSubmit = (e) => { e.preventDefault(); onLogin(username, password); };
   
   return React.createElement('div', { className: 'h-screen flex items-center justify-center bg-slate-200' },
@@ -385,7 +455,7 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin }) {
       React.createElement('div', { className: 'w-10 h-10 bg-sky-100 text-sky-600 flex items-center justify-center rounded-full font-bold' }, user.username[0].toUpperCase()),
       React.createElement('div', { className: 'flex-1 overflow-hidden text-sm' },
         React.createElement('p', { className: 'font-bold truncate text-slate-800' }, user.username),
-        React.createElement('button', { onClick: onLogout, className: 'text-xs text-slate-500 hover:text-red-500 flex items-center gap-1' }, '🚪 Log out')
+        React.createElement('button', { onClick: onLogout, className: 'text-xs text-slate-500 hover:text-red-500 flex items-center gap-1' }, 'Log out')
       )
     )
   );
@@ -442,7 +512,7 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook }
     React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-3 gap-6' },
       // Recent reservations (2 cols)
       React.createElement('div', { className: 'lg:col-span-2 bg-white p-6 rounded-3xl shadow-sm border' },
-        React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, '📋 My Reservations'),
+        React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, 'My Reservations'),
         userRes.length === 0 
           ? React.createElement('p', { className: 'text-slate-400 py-8 text-center' }, 'No reservations yet. Book a space to get started!')
           : userRes.slice(0, 5).map(r => React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-slate-50 rounded-xl mb-2 cursor-pointer hover:bg-sky-50 transition' },
@@ -457,7 +527,7 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook }
       ),
       // Quick book (1 col)
       React.createElement('div', { className: 'bg-white p-6 rounded-3xl shadow-sm border' },
-        React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, '⚡ Quick Book'),
+        React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, 'Quick Book'),
         rooms.slice(0, 3).map(r => React.createElement('button', { 
           key: r.id, 
           onClick: () => onBook(r.id), 
@@ -471,7 +541,7 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook }
   );
 }
 
-function ReservationModal({ initialData, rooms, onClose, onSubmit, loading }) {
+function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmit, loading }) {
   const [form, setForm] = useState({
     room_id: initialData?.room_id || '',
     activity_purpose: '',
@@ -482,9 +552,42 @@ function ReservationModal({ initialData, rooms, onClose, onSubmit, loading }) {
     end_time: '',
     concept_paper_url: ''
   });
+  const [localError, setLocalError] = useState('');
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    setLocalError('');
+
+    // Validate end time is after start time
+    if (form.start_time >= form.end_time) {
+      setLocalError('End time must be after start time.');
+      return;
+    }
+
+    // Check for double booking against approved calendar events
+    const newStart = form.start_time;
+    const newEnd = form.end_time;
+    const newDate = form.event_date;
+    const newRoomId = parseInt(form.room_id);
+
+    const conflict = (calendarEvents || []).find(e => {
+      if (e.room_id != newRoomId) return false;
+      const eventDate = e.start_time?.split('T')[0];
+      if (eventDate !== newDate) return false;
+      const eventStart = e.start_time?.split('T')[1]?.substring(0, 5) || '';
+      const eventEnd = e.end_time?.split('T')[1]?.substring(0, 5) || '';
+      // Check time overlap: newStart < eventEnd AND newEnd > eventStart
+      return (newStart < eventEnd) && (newEnd > eventStart);
+    });
+
+    if (conflict) {
+      const roomName = rooms?.find(r => r.id == newRoomId)?.name || 'This space';
+      const conflictStart = conflict.start_time?.split('T')[1]?.substring(0, 5) || '';
+      const conflictEnd = conflict.end_time?.split('T')[1]?.substring(0, 5) || '';
+      setLocalError(`Double Booking Detected: ${roomName} is already reserved for "${conflict.activity_purpose}" during this time (${conflictStart}-${conflictEnd}).`);
+      return;
+    }
+
     // Combine date with times for the API
     const formData = {
       ...form,
@@ -499,6 +602,11 @@ function ReservationModal({ initialData, rooms, onClose, onSubmit, loading }) {
       React.createElement('div', { className: 'flex justify-between items-center mb-4' },
         React.createElement('h3', { className: 'font-bold' }, 'New Reservation'),
         React.createElement('button', { onClick: onClose, className: 'text-2xl' }, '✕')
+      ),
+      // Error banner
+      localError && React.createElement('div', { className: 'mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs font-bold flex items-start gap-2' },
+        React.createElement('span', {}, '⚠️'),
+        React.createElement('p', {}, localError)
       ),
       React.createElement('form', { onSubmit: handleSubmit, className: 'space-y-3' },
         React.createElement('select', { value: form.room_id, onChange: (e) => setForm({ ...form, room_id: e.target.value }), className: 'w-full p-2 border rounded', required: true },
@@ -706,6 +814,33 @@ function DenyModal({ res, onClose, onConfirm, loading }) {
   );
 }
 
+function DeleteEventModal({ event, onClose, onConfirm, loading }) {
+  const [reason, setReason] = useState('');
+  return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
+    React.createElement('div', { className: 'bg-white rounded-3xl p-6 max-w-sm shadow-2xl' },
+      React.createElement('h3', { className: 'font-bold text-lg mb-2 text-slate-800' }, '🗑️ Delete Event'),
+      React.createElement('p', { className: 'text-sm text-slate-600 mb-4' }, 
+        'Are you sure you want to delete "', React.createElement('strong', {}, event?.activity_purpose), '"? The user will be notified.'
+      ),
+      React.createElement('textarea', { 
+        value: reason, 
+        onChange: (e) => setReason(e.target.value), 
+        placeholder: 'Reason for deletion (required)...', 
+        className: 'w-full p-3 border rounded-xl mb-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-300', 
+        rows: 3 
+      }),
+      React.createElement('div', { className: 'flex gap-2' },
+        React.createElement('button', { onClick: onClose, className: 'flex-1 bg-slate-200 hover:bg-slate-300 p-3 rounded-xl font-semibold transition-colors' }, 'Cancel'),
+        React.createElement('button', { 
+          onClick: () => reason && onConfirm(reason), 
+          disabled: !reason || loading, 
+          className: 'flex-1 bg-red-500 hover:bg-red-600 text-white p-3 rounded-xl font-semibold disabled:opacity-50 transition-colors' 
+        }, loading ? 'Deleting...' : 'Delete')
+      )
+    )
+  );
+}
+
 function ProfileModal({ user, onClose, onLogout }) {
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
     React.createElement('div', { className: 'bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl relative' },
@@ -786,9 +921,11 @@ function FacilitiesView({ rooms, onBook }) {
   );
 }
 
-function CalendarView({ events, rooms }) {
+function CalendarView({ events, rooms, onViewEvent }) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [filterRoom, setFilterRoom] = useState('all');
+  const [hoveredEvent, setHoveredEvent] = useState(null);
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -804,7 +941,17 @@ function CalendarView({ events, rooms }) {
 
   const monthName = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-  return React.createElement('div', { className: 'bg-white rounded-2xl border border-slate-200 p-8 shadow-sm' },
+  const handleMouseMove = (e) => {
+    setTooltipPos({ x: e.clientX + 10, y: e.clientY + 10 });
+  };
+
+  const formatTime = (isoString) => {
+    if (!isoString) return 'N/A';
+    const date = new Date(isoString);
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  };
+
+  return React.createElement('div', { className: 'bg-white rounded-2xl border border-slate-200 p-8 shadow-sm relative' },
     // Header with controls
     React.createElement('div', { className: 'flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6' },
       React.createElement('div', {},
@@ -830,7 +977,7 @@ function CalendarView({ events, rooms }) {
     ),
 
     // Calendar grid
-    React.createElement('div', { className: 'grid grid-cols-7 gap-px bg-slate-100 border border-slate-100 rounded-xl overflow-hidden' },
+    React.createElement('div', { className: 'grid grid-cols-7 gap-px bg-slate-100 border border-slate-100 rounded-xl overflow-hidden relative' },
       // Day headers
       ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => 
         React.createElement('div', { key: d, className: 'bg-slate-50 p-3 text-center text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100' }, d)
@@ -855,14 +1002,42 @@ function CalendarView({ events, rooms }) {
             dayEvents.slice(0, 3).map(e => 
               React.createElement('div', { 
                 key: e.id, 
-                className: 'bg-sky-500 text-white text-[9px] p-1 rounded font-bold shadow-sm border-l-2 border-sky-700 truncate',
-                title: e.activity_purpose
+                className: 'bg-sky-500 text-white text-[9px] p-1 rounded font-bold shadow-sm border-l-2 border-sky-700 truncate cursor-pointer hover:bg-sky-600 transition-colors',
+                onMouseEnter: () => setHoveredEvent(e),
+                onMouseLeave: () => setHoveredEvent(null),
+                onMouseMove: handleMouseMove,
+                onClick: () => onViewEvent && onViewEvent(e)
               }, e.activity_purpose)
             ),
             dayEvents.length > 3 && React.createElement('div', { className: 'text-[9px] text-slate-400 font-bold' }, `+${dayEvents.length - 3} more`)
           )
         );
       })
+    ),
+
+    // Hover tooltip
+    hoveredEvent && React.createElement('div', { 
+      className: 'fixed z-[100] bg-white border border-slate-200 p-4 rounded-xl shadow-2xl pointer-events-none w-64',
+      style: { left: tooltipPos.x, top: tooltipPos.y }
+    },
+      React.createElement('div', { className: 'flex flex-col gap-2' },
+        React.createElement('h4', { className: 'font-bold text-slate-800 text-sm leading-tight border-b pb-2' }, hoveredEvent.activity_purpose),
+        React.createElement('div', { className: 'space-y-2 pt-1' },
+          React.createElement('div', { className: 'flex items-center gap-2 text-xs text-slate-600' },
+            React.createElement('span', {}, '🕐'),
+            React.createElement('span', {}, formatTime(hoveredEvent.start_time), ' - ', formatTime(hoveredEvent.end_time))
+          ),
+          React.createElement('div', { className: 'flex items-center gap-2 text-xs text-slate-600' },
+            React.createElement('span', {}, '📍'),
+            React.createElement('span', { className: 'font-semibold' }, hoveredEvent.room_name || (rooms?.find(r => r.id == hoveredEvent.room_id)?.name) || 'Unknown')
+          ),
+          React.createElement('div', { className: 'flex items-center gap-2 text-xs text-slate-600' },
+            React.createElement('span', {}, '👤'),
+            React.createElement('span', {}, hoveredEvent.person_in_charge || 'N/A')
+          )
+        ),
+        React.createElement('div', { className: 'mt-2 text-[8px] text-sky-400 font-bold uppercase italic' }, 'Click to view full details')
+      )
     ),
 
     // Events list below calendar
@@ -872,10 +1047,14 @@ function CalendarView({ events, rooms }) {
         ? React.createElement('p', { className: 'text-slate-400 py-4 text-center text-sm' }, 'No approved events yet.')
         : React.createElement('div', { className: 'space-y-2 max-h-[200px] overflow-y-auto' },
             events.slice(0, 10).map(e =>
-              React.createElement('div', { key: e.id, className: 'p-3 bg-slate-50 rounded-lg flex justify-between items-center' },
+              React.createElement('div', { 
+                key: e.id, 
+                className: 'p-3 bg-slate-50 rounded-lg flex justify-between items-center cursor-pointer hover:bg-sky-50 transition',
+                onClick: () => onViewEvent && onViewEvent(e)
+              },
                 React.createElement('div', {},
                   React.createElement('p', { className: 'font-bold text-slate-800 text-sm' }, e.activity_purpose),
-                  React.createElement('p', { className: 'text-xs text-slate-500' }, e.start_time)
+                  React.createElement('p', { className: 'text-xs text-slate-500' }, e.start_time?.split('T')[0], ' • ', formatTime(e.start_time), ' - ', formatTime(e.end_time))
                 ),
                 React.createElement('span', { className: 'px-2 py-1 bg-green-100 text-green-700 rounded-full text-[10px] font-bold' }, 'Approved')
               )
@@ -900,7 +1079,7 @@ function ArchiveView({ archive, user, isAdmin, onDelete }) {
             React.createElement('p', { className: 'text-sm text-slate-500' }, a.start_time),
             a.denial_reason && React.createElement('p', { className: 'text-sm text-red-500 mt-1' }, 'Reason: ', a.denial_reason)
           ),
-          React.createElement('button', { onClick: () => onDelete(a.id), className: 'px-4 py-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 font-medium transition' }, '🗑️ Delete')
+          React.createElement('button', { onClick: () => onDelete(a.id), className: 'px-4 py-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 font-medium transition' }, 'Delete')
         )
       )
   );
@@ -911,6 +1090,114 @@ function NotificationModal({ message, onClose }) {
     React.createElement('div', { className: 'bg-white rounded-2xl p-6 max-w-sm text-center' },
       React.createElement('p', { className: 'text-lg font-bold text-green-600 mb-4' }, '✓ ' + message),
       React.createElement('button', { onClick: onClose, className: 'w-full bg-sky-500 text-white p-2 rounded' }, 'Close')
+    )
+  );
+}
+
+function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDeleteClick }) {
+  if (!event) return null;
+
+  const formatDateTime = (isoString) => {
+    if (!isoString) return 'N/A';
+    const date = new Date(isoString);
+    return date.toLocaleString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  const formatTime = (isoString) => {
+    if (!isoString) return 'N/A';
+    const date = new Date(isoString);
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  };
+
+  const formatDate = (isoString) => {
+    if (!isoString) return 'N/A';
+    const date = new Date(isoString);
+    return date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  };
+
+  const roomName = event.room_name || (rooms?.find(r => r.id == event.room_id)?.name) || 'Unknown Facility';
+
+  return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
+    React.createElement('div', { className: 'bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl' },
+      // Header
+      React.createElement('div', { className: 'flex justify-between items-start mb-6' },
+        React.createElement('div', {},
+          React.createElement('h3', { className: 'text-2xl font-bold text-slate-800 mb-2' }, event.activity_purpose),
+          React.createElement('span', { className: 'px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold' }, 'Approved Event')
+        ),
+        React.createElement('button', { onClick: onClose, className: 'p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600' }, '✕')
+      ),
+
+      // Event details
+      React.createElement('div', { className: 'space-y-4' },
+        // Date
+        React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+          React.createElement('span', { className: 'text-2xl' }, '📅'),
+          React.createElement('div', {},
+            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Date'),
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, formatDate(event.start_time))
+          )
+        ),
+
+        // Time
+        React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+          React.createElement('span', { className: 'text-2xl' }, '🕐'),
+          React.createElement('div', {},
+            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Time'),
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, formatTime(event.start_time), ' - ', formatTime(event.end_time))
+          )
+        ),
+
+        // Location
+        React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+          React.createElement('span', { className: 'text-2xl' }, '📍'),
+          React.createElement('div', {},
+            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Facility'),
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, roomName)
+          )
+        ),
+
+        // Person in charge
+        React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+          React.createElement('span', { className: 'text-2xl' }, '👤'),
+          React.createElement('div', {},
+            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Person in Charge'),
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, event.person_in_charge || 'N/A')
+          )
+        ),
+
+        // Department
+        event.department && React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+          React.createElement('span', { className: 'text-2xl' }, '🏛️'),
+          React.createElement('div', {},
+            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Department'),
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, event.department)
+          )
+        )
+      ),
+
+      // Action buttons
+      React.createElement('div', { className: 'mt-6 flex gap-3' },
+        // Close button
+        React.createElement('button', { 
+          onClick: onClose, 
+          className: `${isAdmin ? 'flex-1' : 'w-full'} bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-xl font-bold transition-colors` 
+        }, 'Close'),
+        // Delete button (admin only)
+        isAdmin && React.createElement('button', { 
+          onClick: onDeleteClick,
+          disabled: loading,
+          className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2' 
+        }, '🗑️ Delete Event')
+      )
     )
   );
 }
@@ -939,18 +1226,19 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
               React.createElement('span', { className: 'text-4xl mb-2 opacity-20' }, '📭'),
               React.createElement('p', { className: 'text-sm' }, 'No new notifications')
             )
-          : notifications.map(n => 
-              React.createElement('div', { 
+          : notifications.map(n => {
+              const isDeleted = n.status === 'deleted';
+              return React.createElement('div', { 
                 key: n.id, 
-                onClick: () => { if(isAdmin) { onMarkSeen(n.id); onViewRequest(n); } },
-                className: `p-4 rounded-2xl border transition-all cursor-pointer ${isAdmin ? 'bg-sky-50 border-sky-100 hover:border-sky-300' : 'bg-red-50 border-red-100'}`
+                onClick: () => { if(isAdmin) { onMarkSeen(n); onViewRequest(n); } },
+                className: `p-4 rounded-2xl border transition-all cursor-pointer ${isAdmin ? 'bg-sky-50 border-sky-100 hover:border-sky-300' : (isDeleted ? 'bg-orange-50 border-orange-100' : 'bg-red-50 border-red-100')}`
               },
                 React.createElement('div', { className: 'flex justify-between items-start mb-2' },
                   React.createElement('span', { 
-                    className: `text-[10px] font-bold uppercase tracking-widest ${isAdmin ? 'text-sky-600' : 'text-red-500'}` 
-                  }, isAdmin ? 'New Reservation Request' : 'Reservation Denied'),
+                    className: `text-[10px] font-bold uppercase tracking-widest ${isAdmin ? 'text-sky-600' : (isDeleted ? 'text-orange-600' : 'text-red-500')}` 
+                  }, isAdmin ? (n.notification_type === 'final-submitted' ? 'Final Form Submitted' : 'New Reservation Request') : (isDeleted ? 'Event Deleted by Admin' : 'Reservation Denied')),
                   React.createElement('button', { 
-                    onClick: (e) => { e.stopPropagation(); onMarkSeen(n.id); },
+                    onClick: (e) => { e.stopPropagation(); onMarkSeen(n); },
                     className: 'text-slate-300 hover:text-green-500 transition-colors',
                     title: 'Mark as read'
                   }, '✓')
@@ -959,13 +1247,13 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
                 React.createElement('div', { className: 'text-xs text-slate-600 leading-relaxed' },
                   isAdmin 
                     ? React.createElement('p', {}, 'Filed by ', React.createElement('strong', {}, n.user || 'Unknown'), ' • ', n.start_time?.split('T')[0] || 'No date')
-                    : n.denial_reason && React.createElement('p', { className: 'italic bg-white/50 p-2 rounded-lg border border-red-100/50 mt-1 text-red-700' }, n.denial_reason)
+                    : n.denial_reason && React.createElement('p', { className: `italic bg-white/50 p-2 rounded-lg border mt-1 ${isDeleted ? 'border-orange-100/50 text-orange-700' : 'border-red-100/50 text-red-700'}` }, n.denial_reason)
                 ),
                 React.createElement('p', { className: 'text-[10px] text-slate-400 mt-2' }, 
                   isAdmin ? (n.date_filed || 'Recently') : (n.archived_at ? new Date(n.archived_at).toLocaleDateString() : 'Recently')
                 )
-              )
-            )
+              );
+            })
       )
     )
   );
