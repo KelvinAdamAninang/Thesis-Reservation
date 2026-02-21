@@ -135,6 +135,15 @@ const apiService = {
     });
     if (!response.ok) throw new Error('Failed to delete event');
     return response.json();
+  },
+
+  async archiveReservation(id) {
+    const response = await fetch(`${API_BASE}/reservations/${id}/archive`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    if (!response.ok) throw new Error('Failed to archive reservation');
+    return response.json();
   }
 };
 
@@ -162,8 +171,13 @@ function App() {
   const getNotificationKey = (notification) => {
     if (isAdminOrPhase1) {
       if (notification.notification_type === 'final-submitted') return `admin-final-${notification.id}`;
+      if (notification.notification_type === 'approved') return `admin-approved-${notification.id}`;
+      if (notification.notification_type === 'denied') return `admin-denied-${notification.id}`;
       return `admin-pending-${notification.id}`;
     }
+    // For users, key by status type
+    if (notification.notification_type === 'concept-approved') return `user-concept-${notification.id}`;
+    if (notification.notification_type === 'approved') return `user-approved-${notification.id}`;
     return `user-${notification.id}`;
   };
 
@@ -190,8 +204,22 @@ function App() {
           return { ...r, notification_type };
         });
     }
-    // Users see their denied or deleted requests
-    return reservations.filter(r => r.user_id === currentUser.id && (r.status === 'denied' || r.status === 'deleted') && !seenNotifications.includes(`user-${r.id}`));
+    // Users see their own reservations: denied, deleted, concept-approved, or fully approved
+    return reservations
+      .filter(r => r.user_id === currentUser.id && !r.archived_at)
+      .filter(r => {
+        if (r.status === 'denied' && !seenNotifications.includes(`user-${r.id}`)) return true;
+        if (r.status === 'deleted' && !seenNotifications.includes(`user-${r.id}`)) return true;
+        if (r.status === 'concept-approved' && !seenNotifications.includes(`user-concept-${r.id}`)) return true;
+        if (r.status === 'approved' && !seenNotifications.includes(`user-approved-${r.id}`)) return true;
+        return false;
+      })
+      .map(r => {
+        let notification_type = r.status;
+        if (r.status === 'concept-approved') notification_type = 'concept-approved';
+        else if (r.status === 'approved') notification_type = 'approved';
+        return { ...r, notification_type };
+      });
   };
 
   const hasUnread = getUnreadNotifications().length > 0;
@@ -372,6 +400,19 @@ function App() {
         } catch (err) { setError(err.message); } 
         finally { setLoading(false); } 
       },
+      onArchive: async (id) => {
+        setLoading(true);
+        try {
+          await apiService.archiveReservation(id);
+          const res = await apiService.getReservations();
+          setReservations(res);
+          const events = await apiService.getCalendarEvents();
+          setCalendarEvents(events);
+          setNotification('Reservation archived successfully.');
+          setActiveModal('notification');
+        } catch (err) { setError(err.message); }
+        finally { setLoading(false); }
+      },
       onDenyClick: () => setActiveModal('deny'), 
       loading 
     }),
@@ -496,8 +537,8 @@ function StatCard({ label, val }) {
 }
 
 function Badge({ status }) {
-  const colors = { pending: 'bg-yellow-100 text-yellow-700', 'concept-approved': 'bg-blue-100 text-blue-700', approved: 'bg-green-100 text-green-700', denied: 'bg-red-100 text-red-700' };
-  return React.createElement('span', { className: `px-3 py-1 rounded-full text-xs font-bold ${colors[status]}` }, status);
+  const colors = { pending: 'bg-yellow-100 text-yellow-700', 'concept-approved': 'bg-blue-100 text-blue-700', approved: 'bg-green-100 text-green-700', denied: 'bg-red-100 text-red-700', archived: 'bg-amber-100 text-amber-700', deleted: 'bg-slate-100 text-slate-700' };
+  return React.createElement('span', { className: `px-3 py-1 rounded-full text-xs font-bold ${colors[status] || 'bg-slate-100 text-slate-700'}` }, status);
 }
 
 function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook }) {
@@ -660,7 +701,7 @@ function AdminRequests({ reservations, onViewDetails }) {
   );
 }
 
-function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onDenyClick, onUploadFinalForm, loading }) {
+function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onDenyClick, onUploadFinalForm, onArchive, loading }) {
   const [finalFormLink, setFinalFormLink] = useState('');
   const isAdmin = user.role === 'admin';
   const isPhase1Admin = user.role === 'admin_phase1';
@@ -819,7 +860,13 @@ function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onD
           React.createElement('button', { onClick: onDenyClick, className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors' }, 'Deny Final')
         ),
         // Stage 2 view-only for phase1 admin
-        isPhase1Admin && res.status === 'concept-approved' && res.final_form_url && React.createElement('div', { className: 'flex-1 bg-slate-100 text-slate-500 py-3 rounded-lg font-bold shadow-md flex items-center justify-center' }, 'Waiting for full admin approval')
+        isPhase1Admin && res.status === 'concept-approved' && res.final_form_url && React.createElement('div', { className: 'flex-1 bg-slate-100 text-slate-500 py-3 rounded-lg font-bold shadow-md flex items-center justify-center' }, 'Waiting for full admin approval'),
+        // Archive button for approved reservations - both admin and admin_phase1
+        res.status === 'approved' && React.createElement('button', { 
+          onClick: () => onArchive(res.id), 
+          disabled: loading, 
+          className: 'flex-1 bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors disabled:opacity-50' 
+        }, loading ? 'Processing...' : '📦 Move to Archive')
       )
     )
   );
@@ -1228,6 +1275,35 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
 }
 
 function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkSeen, onMarkAllSeen, onViewRequest }) {
+  const getNotificationStyle = (n) => {
+    if (isAdmin) return 'bg-sky-50 border-sky-100 hover:border-sky-300';
+    if (n.status === 'concept-approved') return 'bg-blue-50 border-blue-100 hover:border-blue-300';
+    if (n.status === 'approved') return 'bg-green-50 border-green-100 hover:border-green-300';
+    if (n.status === 'deleted') return 'bg-orange-50 border-orange-100';
+    return 'bg-red-50 border-red-100';
+  };
+
+  const getNotificationLabel = (n) => {
+    if (isAdmin) {
+      if (n.notification_type === 'final-submitted') return 'Final Form Submitted';
+      if (n.notification_type === 'approved') return 'Reservation Approved';
+      if (n.notification_type === 'denied') return 'Reservation Denied';
+      return 'New Reservation Request';
+    }
+    if (n.status === 'concept-approved') return 'Phase 1 Approved!';
+    if (n.status === 'approved') return 'Fully Approved!';
+    if (n.status === 'deleted') return 'Event Deleted by Admin';
+    return 'Reservation Denied';
+  };
+
+  const getLabelColor = (n) => {
+    if (isAdmin) return 'text-sky-600';
+    if (n.status === 'concept-approved') return 'text-blue-600';
+    if (n.status === 'approved') return 'text-green-600';
+    if (n.status === 'deleted') return 'text-orange-600';
+    return 'text-red-500';
+  };
+
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
     React.createElement('div', { className: 'bg-white rounded-3xl w-full max-w-md max-h-[70vh] flex flex-col p-6 shadow-2xl overflow-hidden' },
       // Header
@@ -1252,16 +1328,15 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
               React.createElement('p', { className: 'text-sm' }, 'No new notifications')
             )
           : notifications.map(n => {
-              const isDeleted = n.status === 'deleted';
               return React.createElement('div', { 
                 key: n.id, 
-                onClick: () => { if(isAdmin) { onMarkSeen(n); onViewRequest(n); } },
-                className: `p-4 rounded-2xl border transition-all cursor-pointer ${isAdmin ? 'bg-sky-50 border-sky-100 hover:border-sky-300' : (isDeleted ? 'bg-orange-50 border-orange-100' : 'bg-red-50 border-red-100')}`
+                onClick: () => { onMarkSeen(n); onViewRequest(n); },
+                className: `p-4 rounded-2xl border transition-all cursor-pointer ${getNotificationStyle(n)}`
               },
                 React.createElement('div', { className: 'flex justify-between items-start mb-2' },
                   React.createElement('span', { 
-                    className: `text-[10px] font-bold uppercase tracking-widest ${isAdmin ? 'text-sky-600' : (isDeleted ? 'text-orange-600' : 'text-red-500')}` 
-                  }, isAdmin ? (n.notification_type === 'final-submitted' ? 'Final Form Submitted' : 'New Reservation Request') : (isDeleted ? 'Event Deleted by Admin' : 'Reservation Denied')),
+                    className: `text-[10px] font-bold uppercase tracking-widest ${getLabelColor(n)}` 
+                  }, getNotificationLabel(n)),
                   React.createElement('button', { 
                     onClick: (e) => { e.stopPropagation(); onMarkSeen(n); },
                     className: 'text-slate-300 hover:text-green-500 transition-colors',
@@ -1272,7 +1347,12 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
                 React.createElement('div', { className: 'text-xs text-slate-600 leading-relaxed' },
                   isAdmin 
                     ? React.createElement('p', {}, 'Filed by ', React.createElement('strong', {}, n.user || 'Unknown'), ' • ', n.start_time?.split('T')[0] || 'No date')
-                    : n.denial_reason && React.createElement('p', { className: `italic bg-white/50 p-2 rounded-lg border mt-1 ${isDeleted ? 'border-orange-100/50 text-orange-700' : 'border-red-100/50 text-red-700'}` }, n.denial_reason)
+                    : (n.status === 'concept-approved' 
+                        ? React.createElement('p', { className: 'italic bg-white/50 p-2 rounded-lg border mt-1 border-blue-100/50 text-blue-700' }, 'Your concept paper was approved! Please submit your final form.')
+                        : n.status === 'approved'
+                          ? React.createElement('p', { className: 'italic bg-white/50 p-2 rounded-lg border mt-1 border-green-100/50 text-green-700' }, 'Your reservation is fully approved and visible on the calendar!')
+                          : n.denial_reason && React.createElement('p', { className: `italic bg-white/50 p-2 rounded-lg border mt-1 ${n.status === 'deleted' ? 'border-orange-100/50 text-orange-700' : 'border-red-100/50 text-red-700'}` }, n.denial_reason)
+                      )
                 ),
                 React.createElement('p', { className: 'text-[10px] text-slate-400 mt-2' }, 
                   isAdmin ? (n.date_filed || 'Recently') : (n.archived_at ? new Date(n.archived_at).toLocaleDateString() : 'Recently')

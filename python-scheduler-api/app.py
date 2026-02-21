@@ -474,6 +474,23 @@ def delete_event(id):
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'Event deleted and user notified'})
 
+# Archive approved reservation - Admin and admin_phase1 can archive
+@app.route('/api/reservations/<int:id>/archive', methods=['POST'])
+@login_required
+def archive_reservation(id):
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    reservation = db.session.get(Reservation, id)
+    if not reservation:
+        return jsonify({'error': 'Reservation not found'}), 404
+    
+    reservation.status = 'archived'
+    reservation.archived_at = datetime.now()
+    
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Reservation archived'})
+
 # Delete reservation
 @app.route('/api/reservations/<int:id>', methods=['DELETE'])
 @login_required
@@ -494,9 +511,9 @@ def delete_reservation(id):
 @login_required
 def get_archive():
     if current_user.role in ['admin', 'admin_phase1']:
-        archived = Reservation.query.filter(Reservation.status.in_(['denied', 'deleted'])).all()
+        archived = Reservation.query.filter(Reservation.status.in_(['denied', 'deleted', 'archived'])).all()
     else:
-        archived = Reservation.query.filter_by(user_id=current_user.id).filter(Reservation.status.in_(['denied', 'deleted'])).all()
+        archived = Reservation.query.filter_by(user_id=current_user.id).filter(Reservation.status.in_(['denied', 'deleted', 'archived'])).all()
     
     archive_list = [{
         'id': r.id,
