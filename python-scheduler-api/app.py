@@ -142,6 +142,7 @@ def setup():
         
         users_to_add = [
             {'user': 'admin', 'pass': 'admin123', 'role': 'admin', 'dept': 'Administration'},
+            {'user': 'admin_phase1', 'pass': 'phase1', 'role': 'admin_phase1', 'dept': 'Administration'},
             {'user': 'ccs', 'pass': '1234', 'role': 'student', 'dept': 'College of Computer Studies'},
             {'user': 'cas', 'pass': '1234', 'role': 'student', 'dept': 'College of Arts & Sciences'},
             {'user': 'eng', 'pass': '1234', 'role': 'student', 'dept': 'College of Engineering'},
@@ -404,8 +405,8 @@ def upload_final_form(id):
 @app.route('/api/reservations/<int:id>/approve-concept', methods=['POST'])
 @login_required
 def approve_concept(id):
-    if current_user.role != 'admin':
-        return jsonify({'error': 'Admin access required'}), 403
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin or Phase1 Admin access required'}), 403
     
     reservation = db.session.get(Reservation, id)
     if not reservation:

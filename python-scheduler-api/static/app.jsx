@@ -156,6 +156,7 @@ function App() {
   });
 
   const isAdmin = currentUser?.role === 'admin';
+  const isPhase1Admin = currentUser?.role === 'admin_phase1';
 
   const getNotificationKey = (notification) => {
     if (isAdmin) {
@@ -299,7 +300,7 @@ function App() {
   // UI matching index-old.jsx (sidebar layout)
   return React.createElement('div', { className: 'flex h-screen bg-slate-50 overflow-hidden' },
     // Sidebar
-    React.createElement(Sidebar, { currentView, setView: setCurrentView, user: currentUser, onLogout: handleLogout, isAdmin }),
+    React.createElement(Sidebar, { currentView, setView: setCurrentView, user: currentUser, onLogout: handleLogout, isAdmin: isAdmin || isPhase1Admin }),
     // Main content area
     React.createElement('div', { className: 'flex-1 flex flex-col min-w-0' },
       // Header
@@ -320,9 +321,9 @@ function App() {
         currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
         currentView === 'calendar' && React.createElement(CalendarView, { events: calendarEvents, rooms, onViewEvent: (e) => { setSelectedRes(e); setActiveModal('eventDetails'); } }),
         currentView === 'facilities' && React.createElement(FacilitiesView, { rooms, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
-        currentView === 'reservations' && isAdmin && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
-        currentView === 'analytics' && React.createElement(AnalyticsView, { reservations }),
-        currentView === 'archive' && React.createElement(ArchiveView, { archive, user: currentUser, isAdmin, onDelete: async (id) => { if (window.confirm('Delete?')) { await apiService.deleteReservation(id); setReservations(reservations.filter(r => r.id !== id)); } } })
+        currentView === 'reservations' && (isAdmin || isPhase1Admin) && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
+        currentView === 'analytics' && (isAdmin || isPhase1Admin) && React.createElement(AnalyticsView, { reservations }),
+        currentView === 'archive' && React.createElement(ArchiveView, { archive, user: currentUser, isAdmin: isAdmin || isPhase1Admin, onDelete: async (id) => { if (window.confirm('Delete?')) { await apiService.deleteReservation(id); setReservations(reservations.filter(r => r.id !== id)); } } })
       )
     ),
     // Modals
@@ -376,7 +377,7 @@ function App() {
     activeModal === 'notifications' && React.createElement(NotificationsListModal, {
       notifications: getUnreadNotifications(),
       user: currentUser,
-      isAdmin,
+      isAdmin: isAdmin || isPhase1Admin,
       onClose: () => setActiveModal(null),
       onMarkSeen: markNotificationSeen,
       onMarkAllSeen: markAllNotificationsSeen,
@@ -640,23 +641,38 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
 }
 
 function AdminRequests({ reservations, onViewDetails }) {
+  // Show both pending and concept-approved requests for admin and admin_phase1
   const pending = reservations.filter(r => r.status === 'pending');
+  const conceptApproved = reservations.filter(r => r.status === 'concept-approved');
   return React.createElement('div',
     React.createElement('h2', { className: 'text-2xl font-bold mb-4' }, 'Requests'),
-    pending.length === 0 ? React.createElement('p', { className: 'text-slate-500' }, 'None') : pending.map(r =>
-      React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-white rounded-lg border mb-2 cursor-pointer' },
-        React.createElement('div', { className: 'flex justify-between' },
-          React.createElement('div', {}, React.createElement('p', { className: 'font-bold' }, r.activity_purpose), React.createElement('p', { className: 'text-sm' }, r.user)),
-          React.createElement(Badge, { status: r.status })
-        )
-      )
-    )
+    (pending.length === 0 && conceptApproved.length === 0)
+      ? React.createElement('p', { className: 'text-slate-500' }, 'None')
+      : [
+          ...pending.map(r =>
+            React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-white rounded-lg border mb-2 cursor-pointer' },
+              React.createElement('div', { className: 'flex justify-between' },
+                React.createElement('div', {}, React.createElement('p', { className: 'font-bold' }, r.activity_purpose), React.createElement('p', { className: 'text-sm' }, r.user)),
+                React.createElement(Badge, { status: r.status })
+              )
+            )
+          ),
+          ...conceptApproved.map(r =>
+            React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-blue-50 rounded-lg border mb-2 cursor-pointer' },
+              React.createElement('div', { className: 'flex justify-between' },
+                React.createElement('div', {}, React.createElement('p', { className: 'font-bold' }, r.activity_purpose), React.createElement('p', { className: 'text-sm' }, r.user)),
+                React.createElement(Badge, { status: r.status })
+              )
+            )
+          )
+        ]
   );
 }
 
 function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onDenyClick, onUploadFinalForm, loading }) {
   const [finalFormLink, setFinalFormLink] = useState('');
   const isAdmin = user.role === 'admin';
+  const isPhase1Admin = user.role === 'admin_phase1';
   const isOwner = res.user_id === user.id;
 
   const handlePrint = () => {
@@ -786,15 +802,19 @@ function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onD
       ),
 
       // Admin action buttons
-      isAdmin && React.createElement('div', { className: 'mt-8 pt-6 border-t border-slate-100 flex gap-4' },
+      (isAdmin || isPhase1Admin) && React.createElement('div', { className: 'mt-8 pt-6 border-t border-slate-100 flex gap-4' },
+        // Stage 1 approval
         res.status === 'pending' && React.createElement(React.Fragment, {},
           React.createElement('button', { onClick: onApproveStage1, disabled: loading, className: 'flex-1 bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors disabled:opacity-50' }, loading ? 'Processing...' : 'Approve Concept'),
-          React.createElement('button', { onClick: onDenyClick, className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors' }, 'Deny Request')
+          isAdmin && React.createElement('button', { onClick: onDenyClick, className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors' }, 'Deny Request')
         ),
-        res.status === 'concept-approved' && res.final_form_url && React.createElement(React.Fragment, {},
+        // Stage 2 approval (only full admin)
+        isAdmin && res.status === 'concept-approved' && res.final_form_url && React.createElement(React.Fragment, {},
           React.createElement('button', { onClick: () => onApproveFinal(res.id), disabled: loading, className: 'flex-1 bg-green-500 hover:bg-green-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors disabled:opacity-50' }, loading ? 'Processing...' : 'Final Approve'),
           React.createElement('button', { onClick: onDenyClick, className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors' }, 'Deny Final')
-        )
+        ),
+        // Stage 2 view-only for phase1 admin
+        isPhase1Admin && res.status === 'concept-approved' && res.final_form_url && React.createElement('div', { className: 'flex-1 bg-slate-100 text-slate-500 py-3 rounded-lg font-bold shadow-md flex items-center justify-center' }, 'Waiting for full admin approval')
       )
     )
   );
