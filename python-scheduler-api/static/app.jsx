@@ -157,9 +157,10 @@ function App() {
 
   const isAdmin = currentUser?.role === 'admin';
   const isPhase1Admin = currentUser?.role === 'admin_phase1';
+  const isAdminOrPhase1 = isAdmin || isPhase1Admin;
 
   const getNotificationKey = (notification) => {
-    if (isAdmin) {
+    if (isAdminOrPhase1) {
       if (notification.notification_type === 'final-submitted') return `admin-final-${notification.id}`;
       return `admin-pending-${notification.id}`;
     }
@@ -169,23 +170,25 @@ function App() {
   // Compute unread notifications
   const getUnreadNotifications = () => {
     if (!currentUser) return [];
-    if (isAdmin) {
-      // Admin sees new pending requests and final form submissions
+    if (isAdminOrPhase1) {
+      // Both admin and admin_phase1 see all non-archived requests as notifications
       return reservations
         .filter(r => !r.archived_at)
         .filter(r => {
-          if (r.status === 'pending') {
-            return !seenNotifications.includes(`admin-pending-${r.id}`);
-          }
-          if (r.status === 'concept-approved' && (r.final_form_url || r.final_form_uploaded)) {
-            return !seenNotifications.includes(`admin-final-${r.id}`);
-          }
+          // Notify for all status changes except archived
+          if (!seenNotifications.includes(`admin-pending-${r.id}`) && r.status === 'pending') return true;
+          if (!seenNotifications.includes(`admin-final-${r.id}`) && r.status === 'concept-approved' && (r.final_form_url || r.final_form_uploaded)) return true;
+          if (!seenNotifications.includes(`admin-approved-${r.id}`) && r.status === 'approved') return true;
+          if (!seenNotifications.includes(`admin-denied-${r.id}`) && r.status === 'denied') return true;
           return false;
         })
-        .map(r => ({
-          ...r,
-          notification_type: r.status === 'pending' ? 'pending' : 'final-submitted'
-        }));
+        .map(r => {
+          let notification_type = 'pending';
+          if (r.status === 'concept-approved' && (r.final_form_url || r.final_form_uploaded)) notification_type = 'final-submitted';
+          else if (r.status === 'approved') notification_type = 'approved';
+          else if (r.status === 'denied') notification_type = 'denied';
+          return { ...r, notification_type };
+        });
     }
     // Users see their denied or deleted requests
     return reservations.filter(r => r.user_id === currentUser.id && (r.status === 'denied' || r.status === 'deleted') && !seenNotifications.includes(`user-${r.id}`));
@@ -300,7 +303,7 @@ function App() {
   // UI matching index-old.jsx (sidebar layout)
   return React.createElement('div', { className: 'flex h-screen bg-slate-50 overflow-hidden' },
     // Sidebar
-    React.createElement(Sidebar, { currentView, setView: setCurrentView, user: currentUser, onLogout: handleLogout, isAdmin: isAdmin || isPhase1Admin }),
+    React.createElement(Sidebar, { currentView, setView: setCurrentView, user: currentUser, onLogout: handleLogout, isAdmin: isAdminOrPhase1 }),
     // Main content area
     React.createElement('div', { className: 'flex-1 flex flex-col min-w-0' },
       // Header
@@ -321,9 +324,9 @@ function App() {
         currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
         currentView === 'calendar' && React.createElement(CalendarView, { events: calendarEvents, rooms, onViewEvent: (e) => { setSelectedRes(e); setActiveModal('eventDetails'); } }),
         currentView === 'facilities' && React.createElement(FacilitiesView, { rooms, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
-        currentView === 'reservations' && (isAdmin || isPhase1Admin) && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
-        currentView === 'analytics' && (isAdmin || isPhase1Admin) && React.createElement(AnalyticsView, { reservations }),
-        currentView === 'archive' && React.createElement(ArchiveView, { archive, user: currentUser, isAdmin: isAdmin || isPhase1Admin, onDelete: async (id) => { if (window.confirm('Delete?')) { await apiService.deleteReservation(id); setReservations(reservations.filter(r => r.id !== id)); } } })
+        currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
+        currentView === 'analytics' && isAdminOrPhase1 && React.createElement(AnalyticsView, { reservations }),
+        currentView === 'archive' && React.createElement(ArchiveView, { archive, user: currentUser, isAdmin: isAdminOrPhase1, onDelete: async (id) => { if (window.confirm('Delete?')) { await apiService.deleteReservation(id); setReservations(reservations.filter(r => r.id !== id)); } } })
       )
     ),
     // Modals
@@ -377,7 +380,7 @@ function App() {
     activeModal === 'notifications' && React.createElement(NotificationsListModal, {
       notifications: getUnreadNotifications(),
       user: currentUser,
-      isAdmin: isAdmin || isPhase1Admin,
+      isAdmin: isAdminOrPhase1,
       onClose: () => setActiveModal(null),
       onMarkSeen: markNotificationSeen,
       onMarkAllSeen: markAllNotificationsSeen,
@@ -641,31 +644,19 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
 }
 
 function AdminRequests({ reservations, onViewDetails }) {
-  // Show both pending and concept-approved requests for admin and admin_phase1
-  const pending = reservations.filter(r => r.status === 'pending');
-  const conceptApproved = reservations.filter(r => r.status === 'concept-approved');
+  // Show all non-archived requests for admin and admin_phase1 (from all users)
   return React.createElement('div',
     React.createElement('h2', { className: 'text-2xl font-bold mb-4' }, 'Requests'),
-    (pending.length === 0 && conceptApproved.length === 0)
+    reservations.length === 0
       ? React.createElement('p', { className: 'text-slate-500' }, 'None')
-      : [
-          ...pending.map(r =>
-            React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-white rounded-lg border mb-2 cursor-pointer' },
-              React.createElement('div', { className: 'flex justify-between' },
-                React.createElement('div', {}, React.createElement('p', { className: 'font-bold' }, r.activity_purpose), React.createElement('p', { className: 'text-sm' }, r.user)),
-                React.createElement(Badge, { status: r.status })
-              )
-            )
-          ),
-          ...conceptApproved.map(r =>
-            React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-blue-50 rounded-lg border mb-2 cursor-pointer' },
-              React.createElement('div', { className: 'flex justify-between' },
-                React.createElement('div', {}, React.createElement('p', { className: 'font-bold' }, r.activity_purpose), React.createElement('p', { className: 'text-sm' }, r.user)),
-                React.createElement(Badge, { status: r.status })
-              )
+      : reservations.map(r =>
+          React.createElement('div', { key:r.id, onClick: () => onViewDetails(r), className: `p-4 rounded-lg border mb-2 cursor-pointer ${r.status === 'pending' ? 'bg-white' : r.status === 'concept-approved' ? 'bg-blue-50' : r.status === 'approved' ? 'bg-green-50' : r.status === 'denied' ? 'bg-red-50' : 'bg-slate-50'}` },
+            React.createElement('div', { className: 'flex justify-between' },
+              React.createElement('div', {}, React.createElement('p', { className: 'font-bold' }, r.activity_purpose), React.createElement('p', { className: 'text-sm' }, r.user)),
+              React.createElement(Badge, { status: r.status })
             )
           )
-        ]
+        )
   );
 }
 
@@ -674,6 +665,20 @@ function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onD
   const isAdmin = user.role === 'admin';
   const isPhase1Admin = user.role === 'admin_phase1';
   const isOwner = res.user_id === user.id;
+
+  // Format datetime to readable 12-hour format
+  const formatDateTime = (isoString) => {
+    if (!isoString) return 'N/A';
+    const date = new Date(isoString);
+    return date.toLocaleString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric',
+      hour: 'numeric', 
+      minute: '2-digit', 
+      hour12: true 
+    });
+  };
 
   const handlePrint = () => {
     const printWindow = window.open('', '_blank');
@@ -739,11 +744,11 @@ function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onD
             React.createElement('div', { className: 'grid grid-cols-2 gap-3' },
               React.createElement('div', {},
                 React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'Start Time'),
-                React.createElement('p', { className: 'font-medium text-slate-700' }, res.start_time || 'N/A')
+                React.createElement('p', { className: 'font-medium text-slate-700' }, formatDateTime(res.start_time))
               ),
               React.createElement('div', {},
                 React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'End Time'),
-                React.createElement('p', { className: 'font-medium text-slate-700' }, res.end_time || 'N/A')
+                React.createElement('p', { className: 'font-medium text-slate-700' }, formatDateTime(res.end_time))
               ),
               React.createElement('div', {},
                 React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'Attendees'),
@@ -803,10 +808,10 @@ function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onD
 
       // Admin action buttons
       (isAdmin || isPhase1Admin) && React.createElement('div', { className: 'mt-8 pt-6 border-t border-slate-100 flex gap-4' },
-        // Stage 1 approval
+        // Stage 1 approval - both admin and admin_phase1 can approve/deny
         res.status === 'pending' && React.createElement(React.Fragment, {},
           React.createElement('button', { onClick: onApproveStage1, disabled: loading, className: 'flex-1 bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors disabled:opacity-50' }, loading ? 'Processing...' : 'Approve Concept'),
-          isAdmin && React.createElement('button', { onClick: onDenyClick, className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors' }, 'Deny Request')
+          React.createElement('button', { onClick: onDenyClick, className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors' }, 'Deny Request')
         ),
         // Stage 2 approval (only full admin)
         isAdmin && res.status === 'concept-approved' && res.final_form_url && React.createElement(React.Fragment, {},

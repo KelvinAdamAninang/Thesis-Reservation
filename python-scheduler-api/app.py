@@ -273,11 +273,11 @@ def get_calendar_events():
     } for r in reservations]
     return jsonify(events_list)
 
-# Get all reservations (Admin sees all, users see their own)
+# Get all reservations (Admin and admin_phase1 see all, users see their own)
 @app.route('/api/reservations', methods=['GET'])
 @login_required
 def get_reservations():
-    if current_user.role == 'admin':
+    if current_user.role in ['admin', 'admin_phase1']:
         reservations = Reservation.query.all()
     else:
         reservations = Reservation.query.filter_by(user_id=current_user.id).all()
@@ -433,11 +433,11 @@ def approve_final(id):
     
     return jsonify({'status': 'success', 'message': 'Final form approved, reservation confirmed'})
 
-# Deny reservation - Admin only
+# Deny reservation - Admin and admin_phase1 can deny
 @app.route('/api/reservations/<int:id>/deny', methods=['POST'])
 @login_required
 def deny_reservation(id):
-    if current_user.role != 'admin':
+    if current_user.role not in ['admin', 'admin_phase1']:
         return jsonify({'error': 'Admin access required'}), 403
     
     reservation = db.session.get(Reservation, id)
@@ -493,7 +493,7 @@ def delete_reservation(id):
 @app.route('/api/archive', methods=['GET'])
 @login_required
 def get_archive():
-    if current_user.role == 'admin':
+    if current_user.role in ['admin', 'admin_phase1']:
         archived = Reservation.query.filter(Reservation.status.in_(['denied', 'deleted'])).all()
     else:
         archived = Reservation.query.filter_by(user_id=current_user.id).filter(Reservation.status.in_(['denied', 'deleted'])).all()
