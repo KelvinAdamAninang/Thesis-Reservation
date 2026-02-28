@@ -1,5 +1,4 @@
 // VacanSee - Campus Space Reservation System
-// This version uses CDN-only dependencies and works without a build tool
 
 const { useState, useEffect } = React;
 
@@ -326,7 +325,7 @@ function App() {
     return React.createElement(LoginPage, { onLogin: handleLogin, loading, error });
   }
 
-  const archive = reservations.filter(r => r.archived_at);
+  const archive = reservations.filter(r => r.archived_at || r.status === 'denied' || r.status === 'deleted');
 
   // UI matching index-old.jsx (sidebar layout)
   return React.createElement('div', { className: 'flex h-screen bg-slate-50 overflow-hidden' },
@@ -1138,22 +1137,34 @@ function CalendarView({ events, rooms, onViewEvent }) {
 
 function ArchiveView({ archive, user, isAdmin, onDelete }) {
   const items = isAdmin ? archive : archive.filter(a => a.user_id === user.id);
+  
+  const getArchiveLabel = (item) => {
+    if (item.status === 'denied') return { text: 'Denied', color: 'bg-red-100 text-red-700' };
+    if (item.status === 'deleted') return { text: 'Deleted', color: 'bg-slate-100 text-slate-700' };
+    if (item.status === 'approved' && item.archived_at) return { text: 'Archived (Approved)', color: 'bg-amber-100 text-amber-700' };
+    return { text: item.status, color: 'bg-slate-100 text-slate-700' };
+  };
+
   return React.createElement('div', { className: 'space-y-4' },
     React.createElement('h2', { className: 'text-2xl font-bold text-slate-800' }, '📦 Archive'),
     items.length === 0 
       ? React.createElement('div', { className: 'bg-white p-8 rounded-3xl shadow-sm border text-center' },
         React.createElement('p', { className: 'text-slate-400' }, 'No archived items.')
       )
-      : items.map(a =>
-        React.createElement('div', { key: a.id, className: 'p-4 bg-white rounded-2xl border shadow-sm flex justify-between items-center' },
+      : items.map(a => {
+        const label = getArchiveLabel(a);
+        return React.createElement('div', { key: a.id, className: 'p-4 bg-white rounded-2xl border shadow-sm flex justify-between items-center' },
           React.createElement('div', {}, 
-            React.createElement('p', { className: 'font-bold text-slate-800' }, a.activity_purpose), 
+            React.createElement('div', { className: 'flex items-center gap-2 mb-1' },
+              React.createElement('p', { className: 'font-bold text-slate-800' }, a.activity_purpose),
+              React.createElement('span', { className: `px-2 py-0.5 rounded-full text-[10px] font-bold ${label.color}` }, label.text)
+            ),
             React.createElement('p', { className: 'text-sm text-slate-500' }, a.start_time),
             a.denial_reason && React.createElement('p', { className: 'text-sm text-red-500 mt-1' }, 'Reason: ', a.denial_reason)
           ),
           React.createElement('button', { onClick: () => onDelete(a.id), className: 'px-4 py-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 font-medium transition' }, 'Delete')
-        )
-      )
+        );
+      })
   );
 }
 
