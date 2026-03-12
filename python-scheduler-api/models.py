@@ -72,3 +72,10 @@ class Reservation(db.Model):
         if self.equipment_data:
             return json.loads(self.equipment_data)
         return {}
+    
+    def set_equipment(self, equipment_dict):
+        """Store equipment dict as JSON string"""
+        if equipment_dict:
+            self.equipment_data = json.dumps(equipment_dict)
+        else:
+            self.equipment_data = None

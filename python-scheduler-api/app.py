@@ -1,7 +1,7 @@
 import os
 import json
 import requests
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_cors import CORS
 from datetime import datetime
@@ -97,6 +97,10 @@ def log_response_headers(response):
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/app.jsx')
+def serve_app_jsx():
+    return send_from_directory('templates', 'app.jsx', mimetype='text/javascript')
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -259,8 +263,8 @@ def get_rooms():
 @app.route('/api/calendar-events', methods=['GET'])
 @login_required
 def get_calendar_events():
-    # Return all approved, non-archived reservations for the calendar
-    reservations = Reservation.query.filter_by(status='approved').filter(Reservation.archived_at == None).all()
+    # Return all approved reservations for the calendar (including archived approved events)
+    reservations = Reservation.query.filter_by(status='approved').all()
     events_list = [{
         'id': r.id,
         'room_id': r.room_id,
@@ -485,7 +489,7 @@ def archive_reservation(id):
     if not reservation:
         return jsonify({'error': 'Reservation not found'}), 404
     
-    reservation.status = 'archived'
+    # Only set archived_at, keep status as 'approved' so it stays on calendar
     reservation.archived_at = datetime.now()
     
     db.session.commit()
@@ -510,10 +514,22 @@ def delete_reservation(id):
 @app.route('/api/archive', methods=['GET'])
 @login_required
 def get_archive():
+    from sqlalchemy import or_
     if current_user.role in ['admin', 'admin_phase1']:
-        archived = Reservation.query.filter(Reservation.status.in_(['denied', 'deleted', 'archived'])).all()
+        # Include denied, deleted, or any reservation with archived_at set
+        archived = Reservation.query.filter(
+            or_(
+                Reservation.status.in_(['denied', 'deleted']),
+                Reservation.archived_at != None
+            )
+        ).all()
     else:
-        archived = Reservation.query.filter_by(user_id=current_user.id).filter(Reservation.status.in_(['denied', 'deleted', 'archived'])).all()
+        archived = Reservation.query.filter_by(user_id=current_user.id).filter(
+            or_(
+                Reservation.status.in_(['denied', 'deleted']),
+                Reservation.archived_at != None
+            )
+        ).all()
     
     archive_list = [{
         'id': r.id,

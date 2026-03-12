@@ -2,6 +2,36 @@
 
 const { useState, useEffect } = React;
 
+// ==================== CONFIGURATION ====================
+// Hour options (6 AM to 10 PM)
+const HOUR_OPTIONS = [];
+for (let hour = 6; hour <= 22; hour++) {
+  HOUR_OPTIONS.push(hour.toString().padStart(2, '0'));
+}
+// Minute options (only 00 and 30)
+const MINUTE_OPTIONS = ['00', '30'];
+
+const EQUIPMENT_DATA = {
+  'Performing Arts Theatre': [
+    'Tables', 'Chairs', 'Philippine Flag', 'University Flag', 'TV', 
+    'Still Camera', 'Video Camera', 'Sound System', 'Microphone', 
+    'Speaker', 'Lights Set-Up', 'Podium'
+  ],
+  'Quadrangle': [
+    'Tables', 'Chairs', 'Philippine Flag', 'University Flag', 
+    'Still Camera', 'Video Camera', 'Sound System', 'Microphone', 
+    'Speaker', 'Lights Set-Up'
+  ],
+  'Radio Room': [
+    'Tables', 'Chairs', 'LCD Projector', 'White Screen','Still Camera',
+    'Video Camera', 'Sound System', 'Microphone', 'Speaker'
+  ],
+  'TV Studio': [
+    'Tables', 'Chairs', 'LCD Projector', 'White Screen', 'TV', 'Still Camera',
+    'Video Camera', 'Sound System', 'Microphone', 'Speaker'
+  ]
+};
+
 // ==================== API SERVICE ====================
 // Use same origin as the page to ensure cookies work
 const API_BASE = window.location.origin + '/api';
@@ -159,6 +189,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [checkingSession, setCheckingSession] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [seenNotifications, setSeenNotifications] = useState(() => {
     try { return JSON.parse(localStorage.getItem('seenNotifications') || '[]'); } catch { return []; }
   });
@@ -329,8 +360,21 @@ function App() {
 
   // UI matching index-old.jsx (sidebar layout)
   return React.createElement('div', { className: 'flex h-screen bg-slate-50 overflow-hidden' },
+    // Mobile overlay
+    mobileMenuOpen && React.createElement('div', { 
+      className: 'fixed inset-0 bg-black/50 z-40 md:hidden',
+      onClick: () => setMobileMenuOpen(false)
+    }),
     // Sidebar
-    React.createElement(Sidebar, { currentView, setView: setCurrentView, user: currentUser, onLogout: handleLogout, isAdmin: isAdminOrPhase1 }),
+    React.createElement(Sidebar, { 
+      currentView, 
+      setView: (view) => { setCurrentView(view); setMobileMenuOpen(false); }, 
+      user: currentUser, 
+      onLogout: handleLogout, 
+      isAdmin: isAdminOrPhase1,
+      mobileMenuOpen,
+      onClose: () => setMobileMenuOpen(false)
+    }),
     // Main content area
     React.createElement('div', { className: 'flex-1 flex flex-col min-w-0' },
       // Header
@@ -339,15 +383,16 @@ function App() {
         onOpenProfile: () => setActiveModal('profile'), 
         onOpenNotifications: () => setActiveModal('notifications'),
         hasUnread,
-        user: currentUser 
+        user: currentUser,
+        onMenuClick: () => setMobileMenuOpen(true)
       }),
       // Error banner
-      error && React.createElement('div', { className: 'bg-red-100 text-red-700 px-4 py-2 mx-8 mt-4 rounded flex justify-between items-center' },
+      error && React.createElement('div', { className: 'bg-red-100 text-red-700 px-4 py-2 mx-4 md:mx-8 mt-4 rounded flex justify-between items-center text-sm' },
         React.createElement('span', {}, error),
         React.createElement('button', { onClick: () => setError(''), className: 'text-red-700 hover:text-red-900 font-bold' }, '×')
       ),
       // Main content
-      React.createElement('main', { className: 'flex-1 overflow-y-auto p-8' },
+      React.createElement('main', { className: 'flex-1 overflow-y-auto p-4 md:p-8' },
         currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
         currentView === 'calendar' && React.createElement(CalendarView, { events: calendarEvents, rooms, onViewEvent: (e) => { setSelectedRes(e); setActiveModal('eventDetails'); } }),
         currentView === 'facilities' && React.createElement(FacilitiesView, { rooms, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
@@ -476,13 +521,18 @@ function LoginPage({ onLogin, loading, error }) {
   );
 }
 
-function Sidebar({ currentView, setView, user, onLogout, isAdmin }) {
+function Sidebar({ currentView, setView, user, onLogout, isAdmin, mobileMenuOpen, onClose }) {
   const NavBtn = ({ id, label }) => React.createElement('button', { 
     onClick: () => setView(id), 
     className: `flex items-center gap-3 w-full p-3 rounded-xl transition font-medium ${currentView === id ? 'bg-sky-100 text-sky-600' : 'text-slate-500 hover:bg-slate-100'}` 
   }, label);
   
-  return React.createElement('aside', { className: 'w-72 bg-white border-r flex flex-col p-6 h-full' },
+  return React.createElement('aside', { className: `fixed md:relative z-50 w-72 bg-white border-r flex flex-col p-6 h-full transform transition-transform duration-300 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}` },
+    // Close button for mobile
+    React.createElement('button', { 
+      onClick: onClose, 
+      className: 'absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 md:hidden' 
+    }, '✕'),
     React.createElement('div', { className: 'text-2xl font-bold mb-10 text-sky-500' }, 'VacanSee'),
     React.createElement('nav', { className: 'flex-1 space-y-2' },
       React.createElement(NavBtn, { id: 'dashboard', label: '📊 Dashboard' }),
@@ -505,9 +555,17 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin }) {
   );
 }
 
-function Header({ title, onOpenProfile, onOpenNotifications, hasUnread, user }) {
-  return React.createElement('header', { className: 'bg-white border-b px-8 py-4 flex justify-between items-center' },
-    React.createElement('h2', { className: 'text-xl font-bold text-slate-800 capitalize' }, title),
+function Header({ title, onOpenProfile, onOpenNotifications, hasUnread, user, onMenuClick }) {
+  return React.createElement('header', { className: 'bg-white border-b px-4 md:px-8 py-4 flex justify-between items-center' },
+    React.createElement('div', { className: 'flex items-center gap-3' },
+      // Hamburger menu for mobile
+      React.createElement('button', { 
+        onClick: onMenuClick, 
+        className: 'p-2 text-slate-500 hover:text-sky-500 md:hidden',
+        title: 'Menu'
+      }, '☰'),
+      React.createElement('h2', { className: 'text-lg md:text-xl font-bold text-slate-800 capitalize' }, title)
+    ),
     React.createElement('div', { className: 'flex gap-2 items-center' },
       // Notification bell
       React.createElement('button', { 
@@ -529,9 +587,9 @@ function Header({ title, onOpenProfile, onOpenNotifications, hasUnread, user }) 
 }
 
 function StatCard({ label, val }) {
-  return React.createElement('div', { className: 'bg-white p-4 rounded-2xl shadow-sm border text-center' },
-    React.createElement('p', { className: 'text-sm text-slate-500 mb-1' }, label),
-    React.createElement('p', { className: 'text-3xl font-bold text-sky-600' }, val)
+  return React.createElement('div', { className: 'bg-white p-3 md:p-4 rounded-xl md:rounded-2xl shadow-sm border text-center' },
+    React.createElement('p', { className: 'text-xs md:text-sm text-slate-500 mb-1' }, label),
+    React.createElement('p', { className: 'text-2xl md:text-3xl font-bold text-sky-600' }, val)
   );
 }
 
@@ -544,18 +602,18 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook }
   const userRes = reservations.filter(r => r.user_id === user.id && !r.archived_at);
   const approved = reservations.filter(r => r.status === 'approved' && !r.archived_at);
   
-  return React.createElement('div', { className: 'space-y-8' },
+  return React.createElement('div', { className: 'space-y-6 md:space-y-8' },
     // Stats row
-    React.createElement('div', { className: 'grid grid-cols-4 gap-4' },
+    React.createElement('div', { className: 'grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4' },
       React.createElement(StatCard, { label: 'My Reservations', val: userRes.length }),
       React.createElement(StatCard, { label: 'Approved', val: approved.length }),
       React.createElement(StatCard, { label: 'Pending', val: userRes.filter(r => r.status === 'pending').length }),
       React.createElement(StatCard, { label: 'Archived', val: archive.length })
     ),
     // Two-column layout
-    React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-3 gap-6' },
+    React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6' },
       // Recent reservations (2 cols)
-      React.createElement('div', { className: 'lg:col-span-2 bg-white p-6 rounded-3xl shadow-sm border' },
+      React.createElement('div', { className: 'lg:col-span-2 bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border' },
         React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, 'My Reservations'),
         userRes.length === 0 
           ? React.createElement('p', { className: 'text-slate-400 py-8 text-center' }, 'No reservations yet. Book a space to get started!')
@@ -570,7 +628,7 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook }
           ))
       ),
       // Quick book (1 col)
-      React.createElement('div', { className: 'bg-white p-6 rounded-3xl shadow-sm border' },
+      React.createElement('div', { className: 'bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border' },
         React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, 'Quick Book'),
         rooms.slice(0, 3).map(r => React.createElement('button', { 
           key: r.id, 
@@ -592,25 +650,46 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     person_in_charge: '',
     contact_number: '',
     event_date: '',
-    start_time: '',
-    end_time: '',
-    concept_paper_url: ''
+    start_hour: '',
+    start_minute: '',
+    end_hour: '',
+    end_minute: '',
+    concept_paper_url: '',
+    equipment: {}
   });
   const [localError, setLocalError] = useState('');
+
+  // Get available equipment based on selected room
+  const selectedRoomObj = rooms.find(r => r.id == form.room_id);
+  const availableEquip = selectedRoomObj ? EQUIPMENT_DATA[selectedRoomObj.name] : [];
+
+  const handleEquipChange = (item, qty) => {
+    setForm({
+      ...form,
+      equipment: {
+        ...form.equipment,
+        [item]: parseInt(qty) || 0
+      }
+    });
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     setLocalError('');
 
+    // Combine hour and minute into time string
+    const startTime = `${form.start_hour}:${form.start_minute}`;
+    const endTime = `${form.end_hour}:${form.end_minute}`;
+
     // Validate end time is after start time
-    if (form.start_time >= form.end_time) {
+    if (startTime >= endTime) {
       setLocalError('End time must be after start time.');
       return;
     }
 
     // Check for double booking against approved calendar events
-    const newStart = form.start_time;
-    const newEnd = form.end_time;
+    const newStart = startTime;
+    const newEnd = endTime;
     const newDate = form.event_date;
     const newRoomId = parseInt(form.room_id);
 
@@ -635,8 +714,9 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     // Combine date with times for the API
     const formData = {
       ...form,
-      start_time: `${form.event_date}T${form.start_time}`,
-      end_time: `${form.event_date}T${form.end_time}`
+      start_time: `${form.event_date}T${startTime}`,
+      end_time: `${form.event_date}T${endTime}`,
+      equipment_data: form.equipment
     };
     onSubmit(formData);
   };
@@ -653,7 +733,12 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
         React.createElement('p', {}, localError)
       ),
       React.createElement('form', { onSubmit: handleSubmit, className: 'space-y-3' },
-        React.createElement('select', { value: form.room_id, onChange: (e) => setForm({ ...form, room_id: e.target.value }), className: 'w-full p-2 border rounded', required: true },
+        React.createElement('select', { 
+          value: form.room_id, 
+          onChange: (e) => setForm({ ...form, room_id: e.target.value, equipment: {} }), 
+          className: 'w-full p-2 border rounded', 
+          required: true 
+        },
           React.createElement('option', { value: '' }, 'Select space'),
           rooms.map(r => React.createElement('option', { key: r.id, value: r.id }, `${r.name} (${r.capacity})`)
         )),
@@ -665,19 +750,78 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
           React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Event Date'),
           React.createElement('input', { type: 'date', value: form.event_date, onChange: (e) => setForm({ ...form, event_date: e.target.value }), className: 'w-full p-2 border rounded', required: true })
         ),
-        // Start and end times on same row
-        React.createElement('div', { className: 'grid grid-cols-2 gap-2' },
-          React.createElement('div', { className: 'space-y-1' },
-            React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Start Time'),
-            React.createElement('input', { type: 'time', value: form.start_time, onChange: (e) => setForm({ ...form, start_time: e.target.value }), className: 'w-full p-2 border rounded', required: true })
-          ),
-          React.createElement('div', { className: 'space-y-1' },
-            React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'End Time'),
-            React.createElement('input', { type: 'time', value: form.end_time, onChange: (e) => setForm({ ...form, end_time: e.target.value }), className: 'w-full p-2 border rounded', required: true })
+        // Start Time - separate hour and minute dropdowns
+        React.createElement('div', { className: 'space-y-1' },
+          React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Start Time'),
+          React.createElement('div', { className: 'flex gap-2 items-center' },
+            React.createElement('select', { 
+              value: form.start_hour, 
+              onChange: (e) => setForm({ ...form, start_hour: e.target.value }), 
+              className: 'flex-1 p-2 border rounded', 
+              required: true 
+            },
+              React.createElement('option', { value: '' }, 'Hour'),
+              HOUR_OPTIONS.map(h => React.createElement('option', { key: h, value: h }, h))
+            ),
+            React.createElement('span', { className: 'text-slate-500 font-bold' }, ':'),
+            React.createElement('select', { 
+              value: form.start_minute, 
+              onChange: (e) => setForm({ ...form, start_minute: e.target.value }), 
+              className: 'flex-1 p-2 border rounded', 
+              required: true 
+            },
+              React.createElement('option', { value: '' }, 'Min'),
+              MINUTE_OPTIONS.map(m => React.createElement('option', { key: m, value: m }, m))
+            )
+          )
+        ),
+        // End Time - separate hour and minute dropdowns
+        React.createElement('div', { className: 'space-y-1' },
+          React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'End Time'),
+          React.createElement('div', { className: 'flex gap-2 items-center' },
+            React.createElement('select', { 
+              value: form.end_hour, 
+              onChange: (e) => setForm({ ...form, end_hour: e.target.value }), 
+              className: 'flex-1 p-2 border rounded', 
+              required: true 
+            },
+              React.createElement('option', { value: '' }, 'Hour'),
+              HOUR_OPTIONS.map(h => React.createElement('option', { key: h, value: h }, h))
+            ),
+            React.createElement('span', { className: 'text-slate-500 font-bold' }, ':'),
+            React.createElement('select', { 
+              value: form.end_minute, 
+              onChange: (e) => setForm({ ...form, end_minute: e.target.value }), 
+              className: 'flex-1 p-2 border rounded', 
+              required: true 
+            },
+              React.createElement('option', { value: '' }, 'Min'),
+              MINUTE_OPTIONS.map(m => React.createElement('option', { key: m, value: m }, m))
+            )
           )
         ),
         React.createElement('input', { type: 'url', placeholder: 'Concept Paper Google Drive Link', value: form.concept_paper_url, onChange: (e) => setForm({ ...form, concept_paper_url: e.target.value }), className: 'w-full p-2 border rounded', required: true }),
-        React.createElement('button', { type: 'submit', disabled: loading, className: 'w-full bg-sky-500 text-white p-2 rounded font-bold' }, loading ? '...' : 'Create')
+        
+        // EQUIPMENT SECTION
+        availableEquip && availableEquip.length > 0 && React.createElement('div', { className: 'mt-4 border-t pt-4' },
+          React.createElement('p', { className: 'text-sm font-bold text-slate-700 mb-2' }, 'Equipment / Services Provided:'),
+          React.createElement('div', { className: 'grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-1' },
+            availableEquip.map(item => 
+              React.createElement('div', { key: item, className: 'flex items-center justify-between bg-slate-50 p-2 rounded border' },
+                React.createElement('span', { className: 'text-[10px] text-slate-600 font-medium' }, item),
+                React.createElement('input', { 
+                  type: 'number', 
+                  min: '0',
+                  value: form.equipment[item] || 0,
+                  onChange: (e) => handleEquipChange(item, e.target.value),
+                  className: 'w-12 p-1 text-xs border rounded text-center bg-white'
+                })
+              )
+            )
+          )
+        ),
+        
+        React.createElement('button', { type: 'submit', disabled: loading, className: 'w-full bg-sky-500 text-white p-2 rounded font-bold mt-4' }, loading ? '...' : 'Create')
       )
     )
   );
@@ -705,6 +849,9 @@ function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onD
   const isAdmin = user.role === 'admin';
   const isPhase1Admin = user.role === 'admin_phase1';
   const isOwner = res.user_id === user.id;
+
+  // Get requested equipment (filter items with quantity > 0)
+  const requestedEquip = res.equipment_data ? Object.entries(res.equipment_data).filter(([_, qty]) => qty > 0) : [];
 
   // Format datetime to readable 12-hour format
   const formatDateTime = (isoString) => {
@@ -770,6 +917,10 @@ function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onD
             React.createElement('h4', { className: 'font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider' }, '👤 Identification'),
             React.createElement('div', { className: 'grid grid-cols-2 gap-3' },
               React.createElement('div', {},
+                React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'Requester'),
+                React.createElement('p', { className: 'font-medium text-slate-700' }, res.user || 'N/A')
+              ),
+              React.createElement('div', {},
                 React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'Person in Charge'),
                 React.createElement('p', { className: 'font-medium text-slate-700' }, res.person_in_charge || 'N/A')
               ),
@@ -789,16 +940,23 @@ function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onD
               React.createElement('div', {},
                 React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'End Time'),
                 React.createElement('p', { className: 'font-medium text-slate-700' }, formatDateTime(res.end_time))
-              ),
-              React.createElement('div', {},
-                React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'Attendees'),
-                React.createElement('p', { className: 'font-medium text-slate-700' }, res.attendees || 'N/A')
-              ),
-              React.createElement('div', {},
-                React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'Requester'),
-                React.createElement('p', { className: 'font-medium text-slate-700' }, res.user || 'N/A')
               )
             )
+          ),
+          
+          // Equipment Requested Section
+          React.createElement('div', { className: 'space-y-3' },
+            React.createElement('h4', { className: 'font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider' }, '🛠️ Equipment Requested'),
+            requestedEquip.length > 0 
+              ? React.createElement('div', { className: 'grid gap-2' },
+                  requestedEquip.map(([item, qty]) => 
+                    React.createElement('div', { key: item, className: 'flex justify-between bg-slate-50 px-3 py-2 rounded border border-slate-100' },
+                      React.createElement('span', { className: 'text-slate-600 font-medium text-xs' }, item),
+                      React.createElement('span', { className: 'font-bold text-sky-600 text-xs' }, `x${qty}`)
+                    )
+                  )
+                )
+              : React.createElement('p', { className: 'text-slate-400 italic text-xs' }, 'No equipment requested.')
           )
         ),
 
