@@ -1,6 +1,6 @@
 // VacanSee - Campus Space Reservation System
 
-const { useState, useEffect } = React;
+const { useState, useEffect, useRef } = React;
 
 // ==================== CONFIGURATION ====================
 // Hour options (6 AM to 10 PM)
@@ -173,6 +173,14 @@ const apiService = {
     });
     if (!response.ok) throw new Error('Failed to archive reservation');
     return response.json();
+  },
+
+  async getDataMiningAnalytics() {
+    const response = await fetch(`${API_BASE}/data-mining/analytics`, { credentials: 'include' });
+    if (!response.ok) throw new Error('Failed to fetch analytics');
+    const payload = await response.json();
+    if (payload.status !== 'success') throw new Error(payload.message || 'Analytics fetch failed');
+    return payload.data;
   }
 };
 
@@ -1103,30 +1111,335 @@ function ProfileModal({ user, onClose, onLogout }) {
   );
 }
 
-function AnalyticsView({ reservations }) {
-  const pending = reservations.filter(r => r.status === 'pending').length;
-  const approved = reservations.filter(r => r.status === 'approved').length;
-  const denied = reservations.filter(r => r.status === 'denied').length;
-  const total = reservations.length;
-  
-  return React.createElement('div', { className: 'space-y-8' },
-    React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-4 gap-6' },
-      React.createElement('div', { className: 'bg-white p-6 rounded-3xl shadow-sm border text-center' },
-        React.createElement('p', { className: 'text-4xl font-bold text-slate-800' }, total),
-        React.createElement('p', { className: 'text-sm text-slate-500 mt-2' }, 'Total Reservations')
+function ChartCanvas({ type, data, options }) {
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+
+  useEffect(() => {
+    if (!canvasRef.current || !window.Chart) return;
+
+    if (chartRef.current) {
+      chartRef.current.destroy();
+      chartRef.current = null;
+    }
+
+    chartRef.current = new window.Chart(canvasRef.current, {
+      type,
+      data,
+      options
+    });
+
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+    };
+  }, [type, JSON.stringify(data), JSON.stringify(options)]);
+
+  return React.createElement('div', { className: 'h-[300px]' },
+    React.createElement('canvas', { ref: canvasRef })
+  );
+}
+
+function AnalyticsKpiCard({ label, value, detail }) {
+  return React.createElement('div', { className: 'bg-white border rounded-3xl p-5 shadow-sm' },
+    React.createElement('p', { className: 'text-xs font-bold uppercase tracking-wider text-slate-400 mb-3' }, label),
+    React.createElement('p', { className: 'text-2xl font-bold text-slate-800 leading-tight break-words' }, value),
+    React.createElement('p', { className: 'text-sm text-slate-500 mt-2' }, detail)
+  );
+}
+
+function HeatmapChart({ data }) {
+  const days = data?.days || [];
+  const hours = data?.hours || [];
+  const values = data?.values || [];
+  const maxValue = data?.max_value || 0;
+
+  const getCellStyle = (value) => {
+    if (!maxValue || !value) return { backgroundColor: '#f8fafc', color: '#94a3b8' };
+    const alpha = 0.2 + (value / maxValue) * 0.8;
+    return {
+      backgroundColor: `rgba(14, 165, 233, ${alpha.toFixed(2)})`,
+      color: value / maxValue > 0.55 ? '#ffffff' : '#0f172a'
+    };
+  };
+
+  return React.createElement('div', { className: 'overflow-x-auto' },
+    React.createElement('div', { className: 'min-w-[820px]' },
+      React.createElement('div', {
+        className: 'grid gap-2 items-center',
+        style: { gridTemplateColumns: `120px repeat(${hours.length}, minmax(40px, 1fr))` }
+      },
+        React.createElement('div', { className: 'text-xs font-bold uppercase tracking-wider text-slate-400 px-2' }, 'Day / Time'),
+        hours.map(hour => React.createElement('div', { key: hour, className: 'text-[10px] text-center font-bold text-slate-400' }, hour)),
+        days.flatMap((day, dayIndex) => [
+          React.createElement('div', { key: `${day}-label`, className: 'text-xs font-semibold text-slate-600 px-2 py-2' }, day),
+          ...hours.map((hour, hourIndex) => {
+            const cellValue = values?.[dayIndex]?.[hourIndex] || 0;
+            return React.createElement('div', {
+              key: `${day}-${hour}`,
+              className: 'h-10 rounded-lg flex items-center justify-center text-[11px] font-bold border border-white/60',
+              style: getCellStyle(cellValue),
+              title: `${day} ${hour}: ${cellValue} reservation slot${cellValue === 1 ? '' : 's'}`
+            }, cellValue);
+          })
+        ])
       ),
-      React.createElement('div', { className: 'bg-yellow-50 p-6 rounded-3xl shadow-sm border border-yellow-100 text-center' },
-        React.createElement('p', { className: 'text-4xl font-bold text-yellow-600' }, pending),
-        React.createElement('p', { className: 'text-sm text-yellow-700 mt-2' }, 'Pending')
-      ),
-      React.createElement('div', { className: 'bg-green-50 p-6 rounded-3xl shadow-sm border border-green-100 text-center' },
-        React.createElement('p', { className: 'text-4xl font-bold text-green-600' }, approved),
-        React.createElement('p', { className: 'text-sm text-green-700 mt-2' }, 'Approved')
-      ),
-      React.createElement('div', { className: 'bg-red-50 p-6 rounded-3xl shadow-sm border border-red-100 text-center' },
-        React.createElement('p', { className: 'text-4xl font-bold text-red-600' }, denied),
-        React.createElement('p', { className: 'text-sm text-red-700 mt-2' }, 'Denied')
+      React.createElement('div', { className: 'flex items-center justify-end gap-3 mt-4 text-xs text-slate-500' },
+        React.createElement('span', {}, 'Lower activity'),
+        React.createElement('div', { className: 'w-28 h-3 rounded-full bg-gradient-to-r from-slate-100 to-sky-500' }),
+        React.createElement('span', {}, 'Higher activity')
       )
+    )
+  );
+}
+
+function AnalyticsView({ reservations }) {
+  const [analytics, setAnalytics] = useState(null);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState('');
+
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      setLoadingAnalytics(true);
+      setAnalyticsError('');
+      try {
+        const data = await apiService.getDataMiningAnalytics();
+        if (isMounted) setAnalytics(data);
+      } catch (err) {
+        if (isMounted) setAnalyticsError(err.message || 'Failed to load analytics data');
+      } finally {
+        if (isMounted) setLoadingAnalytics(false);
+      }
+    })();
+
+    return () => { isMounted = false; };
+  }, [reservations.length]);
+
+  const fallback = {
+    total_reservations: reservations.length,
+    most_booked_venue: 'No Data',
+    most_booked_venue_count: 0,
+    peak_usage_time: 'No Data',
+    peak_usage_count: 0,
+    busiest_day: 'No Data',
+    busiest_day_count: 0,
+    top_user_type: 'No Data',
+    top_user_type_count: 0,
+    dominant_status: 'No Data',
+    dominant_status_count: 0,
+    average_lead_time_days: 0,
+    lead_time_samples: 0
+  };
+
+  const kpis = analytics?.kpis || fallback;
+  const charts = analytics?.charts || {
+    top_venues: { labels: [], values: [] },
+    peak_usage_heatmap: { days: [], hours: [], values: [], max_value: 0 },
+    reservations_over_time: { labels: [], values: [] },
+    events_by_day_of_week: { labels: [], values: [] },
+    reservations_by_user_type: { labels: [], values: [] },
+    booking_status_overview: { labels: [], values: [] },
+    average_lead_time_histogram: { labels: [], values: [] }
+  };
+
+  const topVenuesChartData = {
+    labels: charts.top_venues.labels,
+    datasets: [{
+      label: 'Reservations',
+      data: charts.top_venues.values,
+      backgroundColor: '#0ea5e9',
+      borderRadius: 10
+    }]
+  };
+
+  const reservationsOverTimeChartData = {
+    labels: charts.reservations_over_time.labels,
+    datasets: [{
+      label: 'Reservations',
+      data: charts.reservations_over_time.values,
+      borderColor: '#0284c7',
+      backgroundColor: 'rgba(14,165,233,0.18)',
+      tension: 0.35,
+      fill: true,
+      pointRadius: 3
+    }]
+  };
+
+  const dayOfWeekChartData = {
+    labels: charts.events_by_day_of_week.labels,
+    datasets: [{
+      label: 'Events',
+      data: charts.events_by_day_of_week.values,
+      backgroundColor: 'rgba(56, 189, 248, 0.2)',
+      borderColor: '#0369a1',
+      pointBackgroundColor: '#0ea5e9',
+      pointBorderColor: '#ffffff'
+    }]
+  };
+
+  const userTypeChartData = {
+    labels: charts.reservations_by_user_type.labels,
+    datasets: [{
+      data: charts.reservations_by_user_type.values,
+      backgroundColor: ['#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#64748b'],
+      borderWidth: 0
+    }]
+  };
+
+  const statusOverviewChartData = {
+    labels: charts.booking_status_overview.labels,
+    datasets: [{
+      data: charts.booking_status_overview.values,
+      backgroundColor: ['#facc15', '#60a5fa', '#22c55e', '#ef4444', '#94a3b8'],
+      borderWidth: 0
+    }]
+  };
+
+  const leadTimeChartData = {
+    labels: charts.average_lead_time_histogram.labels,
+    datasets: [{
+      label: 'Reservations',
+      data: charts.average_lead_time_histogram.values,
+      backgroundColor: '#f97316',
+      borderRadius: 8,
+      barPercentage: 0.9,
+      categoryPercentage: 0.9
+    }]
+  };
+
+  if (loadingAnalytics) {
+    return React.createElement('div', { className: 'bg-white border rounded-3xl p-8 text-center text-slate-500' }, 'Loading analytics...');
+  }
+
+  return React.createElement('div', { className: 'space-y-6' },
+    analyticsError && React.createElement('div', { className: 'bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-xl text-sm' },
+      'Showing fallback metrics. ', analyticsError
+    ),
+
+    React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4' },
+      React.createElement(AnalyticsKpiCard, {
+        label: 'Most Booked Venue',
+        value: kpis.most_booked_venue || 'No Data',
+        detail: `${kpis.most_booked_venue_count || 0} reservations`
+      }),
+      React.createElement(AnalyticsKpiCard, {
+        label: 'Peak Usage Time',
+        value: kpis.peak_usage_time || 'No Data',
+        detail: `${kpis.peak_usage_count || 0} occupied slots`
+      }),
+      React.createElement(AnalyticsKpiCard, {
+        label: 'Busiest Day',
+        value: kpis.busiest_day || 'No Data',
+        detail: `${kpis.busiest_day_count || 0} events`
+      }),
+      React.createElement(AnalyticsKpiCard, {
+        label: 'Top User Type',
+        value: kpis.top_user_type || 'No Data',
+        detail: `${kpis.top_user_type_count || 0} reservations`
+      }),
+      React.createElement(AnalyticsKpiCard, {
+        label: 'Booking Status Leader',
+        value: kpis.dominant_status || 'No Data',
+        detail: `${kpis.dominant_status_count || 0} records`
+      }),
+      React.createElement(AnalyticsKpiCard, {
+        label: 'Average Lead Time',
+        value: `${kpis.average_lead_time_days || 0} days`,
+        detail: `${kpis.lead_time_samples || 0} reservations analyzed`
+      })
+    ),
+
+    React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
+      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Most Booked Venues'),
+        React.createElement(ChartCanvas, {
+          type: 'bar',
+          data: topVenuesChartData,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+          }
+        })
+      ),
+      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Peak Usage Time Heatmap'),
+        React.createElement(HeatmapChart, { data: charts.peak_usage_heatmap })
+      )
+    ),
+
+    React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
+      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Reservations Over Time'),
+        React.createElement(ChartCanvas, {
+          type: 'line',
+          data: reservationsOverTimeChartData,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+          }
+        })
+      ),
+      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Events by Day of the Week'),
+        React.createElement(ChartCanvas, {
+          type: 'radar',
+          data: dayOfWeekChartData,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { r: { beginAtZero: true, ticks: { precision: 0 } } }
+          }
+        })
+      )
+    ),
+
+    React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
+      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Reservations by User Type'),
+        React.createElement(ChartCanvas, {
+          type: 'doughnut',
+          data: userTypeChartData,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom' } }
+          }
+        })
+      ),
+      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Booking Status Overview'),
+        React.createElement(ChartCanvas, {
+          type: 'pie',
+          data: statusOverviewChartData,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom' } }
+          }
+        })
+      )
+    ),
+
+    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+      React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Average Lead Time Histogram'),
+      React.createElement(ChartCanvas, {
+        type: 'bar',
+        data: leadTimeChartData,
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+      })
     )
   );
 }
