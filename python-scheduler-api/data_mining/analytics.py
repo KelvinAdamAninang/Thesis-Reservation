@@ -1,0 +1,202 @@
+from collections import Counter
+from datetime import datetime, timedelta
+
+from sqlalchemy.orm import joinedload
+
+from models import Reservation, Room
+
+
+DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+HOUR_LABELS = [f'{hour:02d}:00' for hour in range(6, 23)]
+LEAD_TIME_BUCKETS = [
+    ('0-1 day', 0, 1),
+    ('2-3 days', 2, 3),
+    ('4-7 days', 4, 7),
+    ('8-14 days', 8, 14),
+    ('15-30 days', 15, 30),
+    ('31+ days', 31, None),
+]
+
+
+def _safe_pct(numerator, denominator):
+    if not denominator:
+        return 0.0
+    return round((numerator / denominator) * 100.0, 2)
+
+
+def _format_status(status):
+    return (status or 'unknown').replace('-', ' ').title()
+
+
+def _format_month_label(month_key):
+    return datetime.strptime(month_key, '%Y-%m').strftime('%b %Y')
+
+
+def _last_month_keys(months):
+    now = datetime.now()
+    month_keys = []
+    for offset in range(months - 1, -1, -1):
+        month_index = now.month - offset
+        year = now.year
+        while month_index <= 0:
+            month_index += 12
+            year -= 1
+        month_keys.append(f'{year:04d}-{month_index:02d}')
+    return month_keys
+
+
+def _normalize_user_type(reservation):
+    participant_type = (reservation.participant_type or '').strip()
+    if participant_type:
+        return participant_type.title()
+
+    requester = getattr(reservation, 'requester', None)
+    if requester and requester.role:
+        return requester.role.replace('_', ' ').title()
+
+    return 'Unknown'
+
+
+def _iter_hour_slots(start_time, end_time):
+    if not start_time or not end_time or end_time <= start_time:
+        return
+
+    current = start_time.replace(minute=0, second=0, microsecond=0)
+    while current < end_time:
+        if 6 <= current.hour <= 22:
+            yield current.weekday(), current.hour
+        current += timedelta(hours=1)
+
+
+def _bucket_lead_time(days):
+    for label, min_days, max_days in LEAD_TIME_BUCKETS:
+        if max_days is None and days >= min_days:
+            return label
+        if min_days <= days <= max_days:
+            return label
+    return 'Unknown'
+
+
+def build_analytics_snapshot(months=6):
+    """Build KPI and chart datasets for the admin analytics dashboard."""
+    reservations = Reservation.query.options(joinedload(Reservation.requester)).all()
+    room_lookup = {room.id: room.name for room in Room.query.all()}
+
+    total = len(reservations)
+    status_counter = Counter()
+    room_counter = Counter()
+    day_counter = Counter({day: 0 for day in DAY_LABELS})
+    user_type_counter = Counter()
+    monthly_counter = Counter()
+    lead_time_counter = Counter({label: 0 for label, _, _ in LEAD_TIME_BUCKETS})
+    lead_time_values = []
+    heatmap_counts = {day: {hour: 0 for hour in HOUR_LABELS} for day in DAY_LABELS}
+
+    for reservation in reservations:
+        status_counter[_format_status(reservation.status)] += 1
+
+        room_name = room_lookup.get(reservation.room_id, 'Unknown Venue')
+        room_counter[room_name] += 1
+
+        if reservation.start_time:
+            day_label = DAY_LABELS[reservation.start_time.weekday()]
+            day_counter[day_label] += 1
+            monthly_counter[reservation.start_time.strftime('%Y-%m')] += 1
+
+        user_type_counter[_normalize_user_type(reservation)] += 1
+
+        if reservation.start_time and reservation.end_time:
+            for weekday_index, hour in _iter_hour_slots(reservation.start_time, reservation.end_time) or []:
+                heatmap_counts[DAY_LABELS[weekday_index]][f'{hour:02d}:00'] += 1
+
+        if reservation.date_filed and reservation.start_time:
+            lead_days = (reservation.start_time - reservation.date_filed).total_seconds() / 86400
+            if lead_days >= 0:
+                rounded_days = round(lead_days, 1)
+                lead_time_values.append(rounded_days)
+                lead_time_counter[_bucket_lead_time(int(lead_days))] += 1
+
+    top_rooms = room_counter.most_common(5)
+    most_booked_venue, most_booked_venue_count = top_rooms[0] if top_rooms else ('No Data', 0)
+
+    peak_usage_time = 'No Data'
+    peak_usage_count = 0
+    for day in DAY_LABELS:
+        for hour in HOUR_LABELS:
+            slot_count = heatmap_counts[day][hour]
+            if slot_count > peak_usage_count:
+                peak_usage_count = slot_count
+                peak_usage_time = f'{day} {hour}'
+
+    busiest_day, busiest_day_count = day_counter.most_common(1)[0] if total else ('No Data', 0)
+    top_user_type, top_user_type_count = user_type_counter.most_common(1)[0] if total else ('No Data', 0)
+    dominant_status, dominant_status_count = status_counter.most_common(1)[0] if total else ('No Data', 0)
+    average_lead_time_days = round(sum(lead_time_values) / len(lead_time_values), 1) if lead_time_values else 0
+
+    status_values = [status_counter.get(label, 0) for label in ['Pending', 'Concept Approved', 'Approved', 'Denied', 'Deleted']]
+    approval_rate = _safe_pct(status_counter.get('Approved', 0), total)
+    denial_rate = _safe_pct(status_counter.get('Denied', 0), total)
+
+    month_keys = _last_month_keys(months)
+    monthly_labels = [_format_month_label(key) for key in month_keys]
+    monthly_values = [monthly_counter.get(key, 0) for key in month_keys]
+
+    heatmap_matrix = [[heatmap_counts[day][hour] for hour in HOUR_LABELS] for day in DAY_LABELS]
+    max_heatmap_value = max((max(row) for row in heatmap_matrix), default=0)
+
+    return {
+        'kpis': {
+            'total_reservations': total,
+            'pending': status_counter.get('Pending', 0),
+            'concept_approved': status_counter.get('Concept Approved', 0),
+            'approved': status_counter.get('Approved', 0),
+            'denied': status_counter.get('Denied', 0),
+            'deleted': status_counter.get('Deleted', 0),
+            'approval_rate': approval_rate,
+            'denial_rate': denial_rate,
+            'most_booked_venue': most_booked_venue,
+            'most_booked_venue_count': most_booked_venue_count,
+            'peak_usage_time': peak_usage_time,
+            'peak_usage_count': peak_usage_count,
+            'busiest_day': busiest_day,
+            'busiest_day_count': busiest_day_count,
+            'top_user_type': top_user_type,
+            'top_user_type_count': top_user_type_count,
+            'dominant_status': dominant_status,
+            'dominant_status_count': dominant_status_count,
+            'average_lead_time_days': average_lead_time_days,
+            'lead_time_samples': len(lead_time_values),
+        },
+        'charts': {
+            'top_venues': {
+                'labels': [label for label, _ in top_rooms],
+                'values': [value for _, value in top_rooms],
+            },
+            'peak_usage_heatmap': {
+                'days': DAY_LABELS,
+                'hours': HOUR_LABELS,
+                'values': heatmap_matrix,
+                'max_value': max_heatmap_value,
+            },
+            'reservations_over_time': {
+                'labels': monthly_labels,
+                'values': monthly_values,
+            },
+            'events_by_day_of_week': {
+                'labels': DAY_LABELS,
+                'values': [day_counter[day] for day in DAY_LABELS],
+            },
+            'reservations_by_user_type': {
+                'labels': list(user_type_counter.keys()),
+                'values': list(user_type_counter.values()),
+            },
+            'booking_status_overview': {
+                'labels': ['Pending', 'Concept Approved', 'Approved', 'Denied', 'Deleted'],
+                'values': status_values,
+            },
+            'average_lead_time_histogram': {
+                'labels': [label for label, _, _ in LEAD_TIME_BUCKETS],
+                'values': [lead_time_counter[label] for label, _, _ in LEAD_TIME_BUCKETS],
+            },
+        },
+    }

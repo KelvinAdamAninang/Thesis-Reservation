@@ -6,6 +6,7 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from flask_cors import CORS
 from datetime import datetime
 from models import db, User, Room, Reservation 
+from data_mining.analytics import build_analytics_snapshot
 
 app = Flask(__name__)
 
@@ -551,22 +552,35 @@ def get_archive():
 @app.route('/api/analytics', methods=['GET'])
 @login_required
 def get_analytics():
-    if current_user.role != 'admin':
+    if current_user.role not in ['admin', 'admin_phase1']:
         return jsonify({'error': 'Admin access required'}), 403
-    
-    total = Reservation.query.count()
-    pending = Reservation.query.filter_by(status='pending').count()
-    concept_approved = Reservation.query.filter_by(status='concept-approved').count()
-    approved = Reservation.query.filter_by(status='approved').count()
-    denied = Reservation.query.filter_by(status='denied').count()
-    
+
+    analytics_data = build_analytics_snapshot()
+    kpis = analytics_data.get('kpis', {})
+
+    # Backward-compatible response shape for older frontend calls.
     return jsonify({
-        'total': total,
-        'pending': pending,
-        'concept_approved': concept_approved,
-        'approved': approved,
-        'denied': denied
+        'total': kpis.get('total_reservations', 0),
+        'pending': kpis.get('pending', 0),
+        'concept_approved': kpis.get('concept_approved', 0),
+        'approved': kpis.get('approved', 0),
+        'denied': kpis.get('denied', 0)
     })
+
+
+# New data mining endpoint for KPI + charts used by Analytics dashboard
+@app.route('/api/data-mining/analytics', methods=['GET'])
+@login_required
+def get_data_mining_analytics():
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        payload = build_analytics_snapshot()
+        return jsonify({'status': 'success', 'data': payload})
+    except Exception as e:
+        app.logger.exception("Failed to build analytics snapshot")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
