@@ -3,13 +3,14 @@
 const { useState, useEffect, useRef } = React;
 
 // ==================== CONFIGURATION ====================
-// Hour options (6 AM to 10 PM)
+// Hour options (1 to 12 for 12-hour picker)
 const HOUR_OPTIONS = [];
-for (let hour = 6; hour <= 22; hour++) {
-  HOUR_OPTIONS.push(hour.toString().padStart(2, '0'));
+for (let hour = 1; hour <= 12; hour++) {
+  HOUR_OPTIONS.push(hour.toString());
 }
 // Minute options (only 00 and 30)
 const MINUTE_OPTIONS = ['00', '30'];
+const AM_PM_OPTIONS = ['AM', 'PM'];
 
 const EQUIPMENT_DATA = {
   'Performing Arts Theatre': [
@@ -404,7 +405,7 @@ function App() {
         currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
         currentView === 'calendar' && React.createElement(CalendarView, { events: calendarEvents, rooms, onViewEvent: (e) => { setSelectedRes(e); setActiveModal('eventDetails'); } }),
         currentView === 'facilities' && React.createElement(FacilitiesView, { rooms, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
-        currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
+        currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at && r.user_id !== currentUser.id), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
         currentView === 'analytics' && isAdminOrPhase1 && React.createElement(AnalyticsView, { reservations }),
         currentView === 'archive' && React.createElement(ArchiveView, { archive, user: currentUser, isAdmin: isAdminOrPhase1, onDelete: async (id) => { if (window.confirm('Delete?')) { await apiService.deleteReservation(id); setReservations(reservations.filter(r => r.id !== id)); } } })
       )
@@ -625,15 +626,17 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook }
         React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, 'My Reservations'),
         userRes.length === 0 
           ? React.createElement('p', { className: 'text-slate-400 py-8 text-center' }, 'No reservations yet. Book a space to get started!')
-          : userRes.slice(0, 5).map(r => React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-slate-50 rounded-xl mb-2 cursor-pointer hover:bg-sky-50 transition' },
-            React.createElement('div', { className: 'flex justify-between items-center' },
-              React.createElement('div', {}, 
-                React.createElement('p', { className: 'font-bold text-slate-800' }, r.activity_purpose), 
-                React.createElement('p', { className: 'text-sm text-slate-500' }, r.start_time)
-              ),
-              React.createElement(Badge, { status: r.status })
+          : React.createElement('div', { className: 'max-h-72 overflow-y-auto space-y-2 pr-1' },
+              userRes.map(r => React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-slate-50 rounded-xl cursor-pointer hover:bg-sky-50 transition' },
+                React.createElement('div', { className: 'flex justify-between items-center' },
+                  React.createElement('div', {}, 
+                    React.createElement('p', { className: 'font-bold text-slate-800' }, r.activity_purpose), 
+                    React.createElement('p', { className: 'text-sm text-slate-500' }, r.start_time)
+                  ),
+                  React.createElement(Badge, { status: r.status })
+                )
+              ))
             )
-          ))
       ),
       // Quick book (1 col)
       React.createElement('div', { className: 'bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border' },
@@ -660,9 +663,15 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     event_date: '',
     start_hour: '',
     start_minute: '',
+    start_period: '',
     end_hour: '',
     end_minute: '',
+    end_period: '',
     concept_paper_url: '',
+    division: '',
+    num_attendees: '',
+    attendee_types: [],
+    activity_classification: '',
     equipment: {}
   });
   const [localError, setLocalError] = useState('');
@@ -685,9 +694,51 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     e.preventDefault();
     setLocalError('');
 
+    const missingFields = [];
+    if (!form.room_id) missingFields.push('Space');
+    if (!form.activity_purpose?.trim()) missingFields.push('Activity Purpose');
+    if (!form.person_in_charge?.trim()) missingFields.push('Person In Charge');
+    if (!form.contact_number?.trim()) missingFields.push('Contact');
+    if (!form.event_date) missingFields.push('Event Date');
+    if (!form.concept_paper_url?.trim()) missingFields.push('Concept Paper Link');
+    if (!form.division?.trim()) missingFields.push('Division');
+    if (!form.num_attendees || Number(form.num_attendees) < 1) missingFields.push('Number of Attendees');
+    if (!form.attendee_types || form.attendee_types.length === 0) missingFields.push('Requester Type (Student / Employee / Other)');
+    if (!form.activity_classification) missingFields.push('Activity Classification');
+
+    if (!form.start_hour || !form.start_minute || !form.start_period || !form.end_hour || !form.end_minute || !form.end_period) {
+      missingFields.push('Complete Start/End Time (Hour, Min, AM/PM)');
+    }
+
+    if (missingFields.length > 0) {
+      setLocalError(`Please complete the following required fields: ${missingFields.join(', ')}.`);
+      return;
+    }
+
+    const convertTo24Hour = (hourString, period) => {
+      const hour12 = Number(hourString);
+      if (!hour12 || !period) return null;
+      if (period === 'AM') return hour12 === 12 ? 0 : hour12;
+      return hour12 === 12 ? 12 : hour12 + 12;
+    };
+
+    const startHour24 = convertTo24Hour(form.start_hour, form.start_period);
+    const endHour24 = convertTo24Hour(form.end_hour, form.end_period);
+
+    if (startHour24 === null || endHour24 === null) {
+      setLocalError('Please select complete start and end times.');
+      return;
+    }
+
+    // Preserve allowed booking window from the previous form (6:00 to 22:30)
+    if (startHour24 < 6 || startHour24 > 22 || endHour24 < 6 || endHour24 > 22) {
+      setLocalError('Reservation time must be between 6:00 AM and 10:30 PM.');
+      return;
+    }
+
     // Combine hour and minute into time string
-    const startTime = `${form.start_hour}:${form.start_minute}`;
-    const endTime = `${form.end_hour}:${form.end_minute}`;
+    const startTime = `${String(startHour24).padStart(2, '0')}:${form.start_minute}`;
+    const endTime = `${String(endHour24).padStart(2, '0')}:${form.end_minute}`;
 
     // Validate end time is after start time
     if (startTime >= endTime) {
@@ -724,7 +775,11 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
       ...form,
       start_time: `${form.event_date}T${startTime}`,
       end_time: `${form.event_date}T${endTime}`,
-      equipment_data: form.equipment
+      equipment_data: form.equipment,
+      // Map frontend field names to backend column names
+      attendees: form.num_attendees,
+      participant_type: form.attendee_types.join(', '),
+      classification: form.activity_classification
     };
     onSubmit(formData);
   };
@@ -753,19 +808,54 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
         React.createElement('input', { placeholder: 'Activity Purpose', value: form.activity_purpose, onChange: (e) => setForm({ ...form, activity_purpose: e.target.value }), className: 'w-full p-2 border rounded', required: true }),
         React.createElement('input', { placeholder: 'Person In Charge', value: form.person_in_charge, onChange: (e) => setForm({ ...form, person_in_charge: e.target.value }), className: 'w-full p-2 border rounded' }),
         React.createElement('input', { placeholder: 'Contact', value: form.contact_number, onChange: (e) => setForm({ ...form, contact_number: e.target.value }), className: 'w-full p-2 border rounded' }),
+        React.createElement('input', { placeholder: 'Division', value: form.division, onChange: (e) => setForm({ ...form, division: e.target.value }), className: 'w-full p-2 border rounded' }),
+        React.createElement('input', { type: 'number', placeholder: 'Number of Attendees', min: '1', value: form.num_attendees, onChange: (e) => setForm({ ...form, num_attendees: e.target.value }), className: 'w-full p-2 border rounded' }),
+        // Requester Type checklist
+        React.createElement('div', { className: 'space-y-1' },
+          React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Requester Type'),
+          React.createElement('div', { className: 'flex gap-4 flex-wrap' },
+            ['Student', 'Employee', 'Other'].map(type =>
+              React.createElement('label', { key: type, className: 'flex items-center gap-2 cursor-pointer text-sm text-slate-700' },
+                React.createElement('input', {
+                  type: 'checkbox',
+                  checked: form.attendee_types.includes(type),
+                  onChange: (e) => {
+                    const updated = e.target.checked
+                      ? [...form.attendee_types, type]
+                      : form.attendee_types.filter(t => t !== type);
+                    setForm({ ...form, attendee_types: updated });
+                  },
+                  className: 'w-4 h-4 accent-sky-500'
+                }),
+                type
+              )
+            )
+          )
+        ),
+        // Activity Classification dropdown
+        React.createElement('select', {
+          value: form.activity_classification,
+          onChange: (e) => setForm({ ...form, activity_classification: e.target.value }),
+          className: 'w-full p-2 border rounded'
+        },
+          React.createElement('option', { value: '' }, 'Activity Classification'),
+          ['Institutional', 'Curricular', 'Outside Group', 'Co-Curricular', 'Extra-Curricular'].map(c =>
+            React.createElement('option', { key: c, value: c }, c)
+          )
+        ),
         // Event date (single day)
         React.createElement('div', { className: 'space-y-1' },
           React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Event Date'),
           React.createElement('input', { type: 'date', value: form.event_date, onChange: (e) => setForm({ ...form, event_date: e.target.value }), className: 'w-full p-2 border rounded', required: true })
         ),
-        // Start Time - separate hour and minute dropdowns
+        // Start Time - separate hour, minute, and AM/PM dropdowns
         React.createElement('div', { className: 'space-y-1' },
           React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Start Time'),
           React.createElement('div', { className: 'flex gap-2 items-center' },
             React.createElement('select', { 
               value: form.start_hour, 
               onChange: (e) => setForm({ ...form, start_hour: e.target.value }), 
-              className: 'flex-1 p-2 border rounded', 
+              className: 'w-1/3 p-2 border rounded', 
               required: true 
             },
               React.createElement('option', { value: '' }, 'Hour'),
@@ -775,22 +865,31 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             React.createElement('select', { 
               value: form.start_minute, 
               onChange: (e) => setForm({ ...form, start_minute: e.target.value }), 
-              className: 'flex-1 p-2 border rounded', 
+              className: 'w-1/3 p-2 border rounded', 
               required: true 
             },
               React.createElement('option', { value: '' }, 'Min'),
               MINUTE_OPTIONS.map(m => React.createElement('option', { key: m, value: m }, m))
+            ),
+            React.createElement('select', {
+              value: form.start_period,
+              onChange: (e) => setForm({ ...form, start_period: e.target.value }),
+              className: 'w-1/3 p-2 border rounded',
+              required: true
+            },
+              React.createElement('option', { value: '' }, 'AM/PM'),
+              AM_PM_OPTIONS.map(period => React.createElement('option', { key: period, value: period }, period))
             )
           )
         ),
-        // End Time - separate hour and minute dropdowns
+        // End Time - separate hour, minute, and AM/PM dropdowns
         React.createElement('div', { className: 'space-y-1' },
           React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'End Time'),
           React.createElement('div', { className: 'flex gap-2 items-center' },
             React.createElement('select', { 
               value: form.end_hour, 
               onChange: (e) => setForm({ ...form, end_hour: e.target.value }), 
-              className: 'flex-1 p-2 border rounded', 
+              className: 'w-1/3 p-2 border rounded', 
               required: true 
             },
               React.createElement('option', { value: '' }, 'Hour'),
@@ -800,11 +899,20 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             React.createElement('select', { 
               value: form.end_minute, 
               onChange: (e) => setForm({ ...form, end_minute: e.target.value }), 
-              className: 'flex-1 p-2 border rounded', 
+              className: 'w-1/3 p-2 border rounded', 
               required: true 
             },
               React.createElement('option', { value: '' }, 'Min'),
               MINUTE_OPTIONS.map(m => React.createElement('option', { key: m, value: m }, m))
+            ),
+            React.createElement('select', {
+              value: form.end_period,
+              onChange: (e) => setForm({ ...form, end_period: e.target.value }),
+              className: 'w-1/3 p-2 border rounded',
+              required: true
+            },
+              React.createElement('option', { value: '' }, 'AM/PM'),
+              AM_PM_OPTIONS.map(period => React.createElement('option', { key: period, value: period }, period))
             )
           )
         ),
