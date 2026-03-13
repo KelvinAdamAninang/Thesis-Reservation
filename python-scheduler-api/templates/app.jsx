@@ -670,7 +670,6 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     concept_paper_url: '',
     division: '',
     num_attendees: '',
-    attendee_types: [],
     activity_classification: '',
     equipment: {}
   });
@@ -703,7 +702,6 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     if (!form.concept_paper_url?.trim()) missingFields.push('Concept Paper Link');
     if (!form.division?.trim()) missingFields.push('Division');
     if (!form.num_attendees || Number(form.num_attendees) < 1) missingFields.push('Number of Attendees');
-    if (!form.attendee_types || form.attendee_types.length === 0) missingFields.push('Requester Type (Student / Employee / Other)');
     if (!form.activity_classification) missingFields.push('Activity Classification');
 
     if (!form.start_hour || !form.start_minute || !form.start_period || !form.end_hour || !form.end_minute || !form.end_period) {
@@ -778,7 +776,6 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
       equipment_data: form.equipment,
       // Map frontend field names to backend column names
       attendees: form.num_attendees,
-      participant_type: form.attendee_types.join(', '),
       classification: form.activity_classification
     };
     onSubmit(formData);
@@ -810,28 +807,6 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
         React.createElement('input', { placeholder: 'Contact', value: form.contact_number, onChange: (e) => setForm({ ...form, contact_number: e.target.value }), className: 'w-full p-2 border rounded' }),
         React.createElement('input', { placeholder: 'Division', value: form.division, onChange: (e) => setForm({ ...form, division: e.target.value }), className: 'w-full p-2 border rounded' }),
         React.createElement('input', { type: 'number', placeholder: 'Number of Attendees', min: '1', value: form.num_attendees, onChange: (e) => setForm({ ...form, num_attendees: e.target.value }), className: 'w-full p-2 border rounded' }),
-        // Requester Type checklist
-        React.createElement('div', { className: 'space-y-1' },
-          React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Requester Type'),
-          React.createElement('div', { className: 'flex gap-4 flex-wrap' },
-            ['Student', 'Employee', 'Other'].map(type =>
-              React.createElement('label', { key: type, className: 'flex items-center gap-2 cursor-pointer text-sm text-slate-700' },
-                React.createElement('input', {
-                  type: 'checkbox',
-                  checked: form.attendee_types.includes(type),
-                  onChange: (e) => {
-                    const updated = e.target.checked
-                      ? [...form.attendee_types, type]
-                      : form.attendee_types.filter(t => t !== type);
-                    setForm({ ...form, attendee_types: updated });
-                  },
-                  className: 'w-4 h-4 accent-sky-500'
-                }),
-                type
-              )
-            )
-          )
-        ),
         // Activity Classification dropdown
         React.createElement('select', {
           value: form.activity_classification,
@@ -1334,8 +1309,8 @@ function AnalyticsView({ reservations }) {
     peak_usage_count: 0,
     busiest_day: 'No Data',
     busiest_day_count: 0,
-    top_user_type: 'No Data',
-    top_user_type_count: 0,
+    top_department: 'No Data',
+    top_department_count: 0,
     dominant_status: 'No Data',
     dominant_status_count: 0,
     average_lead_time_days: 0,
@@ -1348,7 +1323,7 @@ function AnalyticsView({ reservations }) {
     peak_usage_heatmap: { days: [], hours: [], values: [], max_value: 0 },
     reservations_over_time: { labels: [], values: [] },
     events_by_day_of_week: { labels: [], values: [] },
-    reservations_by_user_type: { labels: [], values: [] },
+    reservations_by_department: { labels: [], values: [] },
     booking_status_overview: { labels: [], values: [] },
     average_lead_time_histogram: { labels: [], values: [] }
   };
@@ -1388,10 +1363,10 @@ function AnalyticsView({ reservations }) {
     }]
   };
 
-  const userTypeChartData = {
-    labels: charts.reservations_by_user_type.labels,
+  const departmentChartData = {
+    labels: charts.reservations_by_department.labels,
     datasets: [{
-      data: charts.reservations_by_user_type.values,
+      data: charts.reservations_by_department.values,
       backgroundColor: ['#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#64748b'],
       borderWidth: 0
     }]
@@ -1444,9 +1419,9 @@ function AnalyticsView({ reservations }) {
         detail: `${kpis.busiest_day_count || 0} events`
       }),
       React.createElement(AnalyticsKpiCard, {
-        label: 'Top User Type',
-        value: kpis.top_user_type || 'No Data',
-        detail: `${kpis.top_user_type_count || 0} reservations`
+        label: 'Top Department',
+        value: kpis.top_department || 'No Data',
+        detail: `${kpis.top_department_count || 0} reservations`
       }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Booking Status Leader',
@@ -1511,10 +1486,10 @@ function AnalyticsView({ reservations }) {
 
     React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
       React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Reservations by User Type'),
+        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Reservations by Department'),
         React.createElement(ChartCanvas, {
           type: 'doughnut',
-          data: userTypeChartData,
+          data: departmentChartData,
           options: {
             responsive: true,
             maintainAspectRatio: false,

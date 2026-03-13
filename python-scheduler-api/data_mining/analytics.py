@@ -45,15 +45,10 @@ def _last_month_keys(months):
     return month_keys
 
 
-def _normalize_user_type(reservation):
-    participant_type = (reservation.participant_type or '').strip()
-    if participant_type:
-        return participant_type.title()
-
+def _normalize_department(reservation):
     requester = getattr(reservation, 'requester', None)
-    if requester and requester.role:
-        return requester.role.replace('_', ' ').title()
-
+    if requester and requester.department:
+        return requester.department.strip().title()
     return 'Unknown'
 
 
@@ -86,7 +81,7 @@ def build_analytics_snapshot(months=6):
     status_counter = Counter()
     room_counter = Counter()
     day_counter = Counter({day: 0 for day in DAY_LABELS})
-    user_type_counter = Counter()
+    department_counter = Counter()
     monthly_counter = Counter()
     lead_time_counter = Counter({label: 0 for label, _, _ in LEAD_TIME_BUCKETS})
     lead_time_values = []
@@ -103,7 +98,7 @@ def build_analytics_snapshot(months=6):
             day_counter[day_label] += 1
             monthly_counter[reservation.start_time.strftime('%Y-%m')] += 1
 
-        user_type_counter[_normalize_user_type(reservation)] += 1
+        department_counter[_normalize_department(reservation)] += 1
 
         if reservation.start_time and reservation.end_time:
             for weekday_index, hour in _iter_hour_slots(reservation.start_time, reservation.end_time) or []:
@@ -129,7 +124,7 @@ def build_analytics_snapshot(months=6):
                 peak_usage_time = f'{day} {hour}'
 
     busiest_day, busiest_day_count = day_counter.most_common(1)[0] if total else ('No Data', 0)
-    top_user_type, top_user_type_count = user_type_counter.most_common(1)[0] if total else ('No Data', 0)
+    top_department, top_department_count = department_counter.most_common(1)[0] if total else ('No Data', 0)
     dominant_status, dominant_status_count = status_counter.most_common(1)[0] if total else ('No Data', 0)
     average_lead_time_days = round(sum(lead_time_values) / len(lead_time_values), 1) if lead_time_values else 0
 
@@ -160,8 +155,8 @@ def build_analytics_snapshot(months=6):
             'peak_usage_count': peak_usage_count,
             'busiest_day': busiest_day,
             'busiest_day_count': busiest_day_count,
-            'top_user_type': top_user_type,
-            'top_user_type_count': top_user_type_count,
+            'top_department': top_department,
+            'top_department_count': top_department_count,
             'dominant_status': dominant_status,
             'dominant_status_count': dominant_status_count,
             'average_lead_time_days': average_lead_time_days,
@@ -186,9 +181,9 @@ def build_analytics_snapshot(months=6):
                 'labels': DAY_LABELS,
                 'values': [day_counter[day] for day in DAY_LABELS],
             },
-            'reservations_by_user_type': {
-                'labels': list(user_type_counter.keys()),
-                'values': list(user_type_counter.values()),
+            'reservations_by_department': {
+                'labels': list(department_counter.keys()),
+                'values': list(department_counter.values()),
             },
             'booking_status_overview': {
                 'labels': ['Pending', 'Concept Approved', 'Approved', 'Denied', 'Deleted'],

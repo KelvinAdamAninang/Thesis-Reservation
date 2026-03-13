@@ -41,8 +41,6 @@ class Reservation(db.Model):
     activity_purpose = db.Column(db.String(150), nullable=False)
     division = db.Column(db.String(100), nullable=True)
     attendees = db.Column(db.Integer, nullable=True)
-    participant_type = db.Column(db.String(50), nullable=True)
-    participant_details = db.Column(db.String(100), nullable=True) 
     classification = db.Column(db.String(50), nullable=True)
 
     # NEW FIELDS FROM FRONTEND UPDATE
