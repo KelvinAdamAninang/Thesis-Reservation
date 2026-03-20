@@ -182,6 +182,92 @@ const apiService = {
     const payload = await response.json();
     if (payload.status !== 'success') throw new Error(payload.message || 'Analytics fetch failed');
     return payload.data;
+  },
+
+  async updateMyProfile(formData) {
+    const response = await fetch(`${API_BASE}/settings/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(formData)
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || 'Failed to update profile');
+    return payload;
+  },
+
+  async updateMyPassword(formData) {
+    const response = await fetch(`${API_BASE}/settings/password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(formData)
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || 'Failed to update password');
+    return payload;
+  },
+
+  async getAdminFacilities() {
+    const response = await fetch(`${API_BASE}/admin/facilities`, { credentials: 'include' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || 'Failed to fetch facilities');
+    return payload;
+  },
+
+  async createFacility(formData) {
+    const response = await fetch(`${API_BASE}/admin/facilities`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(formData)
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || 'Failed to create facility');
+    return payload;
+  },
+
+  async updateFacility(id, formData) {
+    const response = await fetch(`${API_BASE}/admin/facilities/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(formData)
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || 'Failed to update facility');
+    return payload;
+  },
+
+  async getAdminUsers() {
+    const response = await fetch(`${API_BASE}/admin/users`, { credentials: 'include' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || 'Failed to fetch users');
+    return payload;
+  },
+
+  async createAdminUser(formData) {
+    const response = await fetch(`${API_BASE}/admin/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(formData)
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || 'Failed to create user');
+    return payload;
+  },
+
+  async updateAdminUser(id, formData) {
+    const response = await fetch(`${API_BASE}/admin/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(formData)
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || 'Failed to update user');
+    return payload;
   }
 };
 
@@ -407,6 +493,7 @@ function App() {
         currentView === 'facilities' && React.createElement(FacilitiesView, { rooms, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
         currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at && r.user_id !== currentUser.id), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
         currentView === 'analytics' && isAdminOrPhase1 && React.createElement(AnalyticsView, { reservations }),
+        currentView === 'settings' && React.createElement(SettingsView, { user: currentUser, isAdmin: isAdminOrPhase1, onUserUpdated: setCurrentUser }),
         currentView === 'archive' && React.createElement(ArchiveView, { archive, user: currentUser, isAdmin: isAdminOrPhase1, onDelete: async (id) => { if (window.confirm('Delete?')) { await apiService.deleteReservation(id); setReservations(reservations.filter(r => r.id !== id)); } } })
       )
     ),
@@ -554,6 +641,7 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin, mobileMenuOpen
         React.createElement(NavBtn, { id: 'reservations', label: '📋 Requests' }), 
         React.createElement(NavBtn, { id: 'analytics', label: '📈 Analytics' })
       ),
+      React.createElement(NavBtn, { id: 'settings', label: '⚙️ Settings' }),
       React.createElement(NavBtn, { id: 'archive', label: '📦 Archive' })
     ),
     React.createElement('div', { className: 'pt-6 border-t flex items-center gap-3' },
@@ -1541,7 +1629,7 @@ function AnalyticsKpiCard({ label, value, detail, onClick, isActive }) {
   return React.createElement('button', {
     type: 'button',
     onClick,
-    className: `text-left bg-white border rounded-3xl p-5 shadow-sm transition w-full ${isActive ? 'border-sky-400 ring-2 ring-sky-200' : 'hover:border-sky-200 hover:shadow-md'}`
+    className: `text-left bg-white border rounded-3xl p-5 shadow-sm transition w-full ${isActive ? 'border-emerald-400 ring-2 ring-emerald-200' : 'hover:border-amber-200 hover:shadow-md'}`
   },
     React.createElement('p', { className: 'text-xs font-bold uppercase tracking-wider text-slate-400 mb-3' }, label),
     React.createElement('p', { className: 'text-2xl font-bold text-slate-800 leading-tight break-words' }, value),
@@ -1559,7 +1647,7 @@ function HeatmapChart({ data, onCellClick, activeCell }) {
     if (!maxValue || !value) return { backgroundColor: '#f8fafc', color: '#94a3b8' };
     const alpha = 0.2 + (value / maxValue) * 0.8;
     return {
-      backgroundColor: `rgba(14, 165, 233, ${alpha.toFixed(2)})`,
+      backgroundColor: `rgba(249, 115, 22, ${alpha.toFixed(2)})`,
       color: value / maxValue > 0.55 ? '#ffffff' : '#0f172a'
     };
   };
@@ -1580,7 +1668,7 @@ function HeatmapChart({ data, onCellClick, activeCell }) {
             const isActive = activeCell && activeCell.label === cellKey;
             return React.createElement('div', {
               key: `${day}-${hour}`,
-              className: `h-10 rounded-lg flex items-center justify-center text-[11px] font-bold border border-white/60 cursor-pointer transition ${isActive ? 'ring-2 ring-sky-500 scale-[1.02]' : 'hover:scale-[1.02]'}`,
+              className: `h-10 rounded-lg flex items-center justify-center text-[11px] font-bold border border-white/60 cursor-pointer transition ${isActive ? 'ring-2 ring-orange-500 scale-[1.02]' : 'hover:scale-[1.02]'}`,
               style: getCellStyle(cellValue),
               title: `${day} ${hour}: ${cellValue} reservation slot${cellValue === 1 ? '' : 's'}`,
               onClick: () => onCellClick && onCellClick({ label: cellKey, value: cellValue, chartType: 'heatmap' })
@@ -1590,7 +1678,7 @@ function HeatmapChart({ data, onCellClick, activeCell }) {
       ),
       React.createElement('div', { className: 'flex items-center justify-end gap-3 mt-4 text-xs text-slate-500' },
         React.createElement('span', {}, 'Lower activity'),
-        React.createElement('div', { className: 'w-28 h-3 rounded-full bg-gradient-to-r from-slate-100 to-sky-500' }),
+        React.createElement('div', { className: 'w-28 h-3 rounded-full bg-gradient-to-r from-slate-100 to-orange-500' }),
         React.createElement('span', {}, 'Higher activity')
       )
     )
@@ -1638,6 +1726,7 @@ function AnalyticsView({ reservations }) {
   const statusLabels = ['Pending', 'Concept Approved', 'Approved', 'Denied', 'Deleted'];
 
   const toStatusLabel = (statusCode) => (statusCode || 'unknown').replace('-', ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const normalizeText = (value) => (value || '').toString().trim().toLowerCase();
   const toDayLabel = (iso) => {
     if (!iso) return null;
     const d = new Date(iso);
@@ -1704,9 +1793,9 @@ function AnalyticsView({ reservations }) {
 
   const filter = insightToFilter(activeInsight);
   const filteredReservations = !filter ? reservations : reservations.filter(r => {
-    if (filter.type === 'venue') return (r.room_name || 'Unknown') === filter.value;
-    if (filter.type === 'department') return (r.department || 'Unknown') === filter.value;
-    if (filter.type === 'status') return toStatusLabel(r.status) === filter.value;
+    if (filter.type === 'venue') return normalizeText(r.room_name || 'Unknown') === normalizeText(filter.value);
+    if (filter.type === 'department') return normalizeText(r.department || 'Unknown') === normalizeText(filter.value);
+    if (filter.type === 'status') return normalizeText(toStatusLabel(r.status)) === normalizeText(filter.value);
     if (filter.type === 'day') return toDayLabel(r.start_time) === filter.value;
     if (filter.type === 'month') return toMonthLabel(r.start_time) === filter.value;
     if (filter.type === 'dayHour') return overlapsDayHour(r, filter.value);
@@ -1817,14 +1906,14 @@ function AnalyticsView({ reservations }) {
 
   const topVenuesChartData = {
     labels: displayCharts.top_venues.labels,
-    datasets: [{ label: 'Reservations', data: displayCharts.top_venues.values, backgroundColor: '#0ea5e9', borderRadius: 10 }]
+    datasets: [{ label: 'Reservations', data: displayCharts.top_venues.values, backgroundColor: '#f97316', borderRadius: 10 }]
   };
 
   const reservationsOverTimeChartData = {
     labels: displayCharts.reservations_over_time.labels,
     datasets: [{
       label: 'Reservations', data: displayCharts.reservations_over_time.values,
-      borderColor: '#0284c7', backgroundColor: 'rgba(14,165,233,0.18)', tension: 0.35, fill: true, pointRadius: 3
+      borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.2)', tension: 0.35, fill: true, pointRadius: 3
     }]
   };
 
@@ -1832,23 +1921,23 @@ function AnalyticsView({ reservations }) {
     labels: displayCharts.events_by_day_of_week.labels,
     datasets: [{
       label: 'Events', data: displayCharts.events_by_day_of_week.values,
-      backgroundColor: 'rgba(56, 189, 248, 0.2)', borderColor: '#0369a1', pointBackgroundColor: '#0ea5e9', pointBorderColor: '#ffffff'
+      backgroundColor: 'rgba(168, 85, 247, 0.18)', borderColor: '#7c3aed', pointBackgroundColor: '#f59e0b', pointBorderColor: '#ffffff'
     }]
   };
 
   const departmentChartData = {
     labels: displayCharts.reservations_by_department.labels,
-    datasets: [{ data: displayCharts.reservations_by_department.values, backgroundColor: ['#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#64748b'], borderWidth: 0 }]
+    datasets: [{ data: displayCharts.reservations_by_department.values, backgroundColor: ['#f97316', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#84cc16'], borderWidth: 0 }]
   };
 
   const statusOverviewChartData = {
     labels: displayCharts.booking_status_overview.labels,
-    datasets: [{ data: displayCharts.booking_status_overview.values, backgroundColor: ['#facc15', '#60a5fa', '#22c55e', '#ef4444', '#94a3b8'], borderWidth: 0 }]
+    datasets: [{ data: displayCharts.booking_status_overview.values, backgroundColor: ['#facc15', '#a78bfa', '#22c55e', '#ef4444', '#94a3b8'], borderWidth: 0 }]
   };
 
   const leadTimeChartData = {
     labels: displayCharts.average_lead_time_histogram.labels,
-    datasets: [{ label: 'Reservations', data: displayCharts.average_lead_time_histogram.values, backgroundColor: '#f97316', borderRadius: 8, barPercentage: 0.9, categoryPercentage: 0.9 }]
+    datasets: [{ label: 'Reservations', data: displayCharts.average_lead_time_histogram.values, backgroundColor: '#eab308', borderRadius: 8, barPercentage: 0.9, categoryPercentage: 0.9 }]
   };
 
   if (loadingAnalytics) {
@@ -2020,6 +2109,215 @@ function AnalyticsView({ reservations }) {
           scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
         }
       })
+    )
+  );
+}
+
+function SettingsView({ user, isAdmin, onUserUpdated }) {
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const [profileUsername, setProfileUsername] = useState(user.username || '');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const [facilities, setFacilities] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [newFacility, setNewFacility] = useState({ code: '', name: '', capacity: '', description: '', usual_activity: '' });
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'student', department: '' });
+
+  const loadAdminData = async () => {
+    if (!isAdmin) return;
+    try {
+      const [fList, uList] = await Promise.all([apiService.getAdminFacilities(), apiService.getAdminUsers()]);
+      setFacilities(fList);
+      setUsers(uList);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  useEffect(() => {
+    loadAdminData();
+  }, [isAdmin]);
+
+  const saveProfile = async () => {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const res = await apiService.updateMyProfile({ username: profileUsername });
+      if (res.user) onUserUpdated(res.user);
+      setMessage('Profile updated.');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const savePassword = async () => {
+    if (newPassword !== confirmPassword) {
+      setError('New password and confirmation do not match.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      await apiService.updateMyPassword({ current_password: currentPassword, new_password: newPassword });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setMessage('Password updated.');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addFacility = async () => {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      await apiService.createFacility({ ...newFacility, capacity: Number(newFacility.capacity) || 0 });
+      setNewFacility({ code: '', name: '', capacity: '', description: '', usual_activity: '' });
+      await loadAdminData();
+      setMessage('Facility added.');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updateFacilityRow = async (row) => {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      await apiService.updateFacility(row.id, { ...row, capacity: Number(row.capacity) || 0 });
+      setMessage('Facility updated.');
+      await loadAdminData();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addUser = async () => {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      await apiService.createAdminUser(newUser);
+      setNewUser({ username: '', password: '', role: 'student', department: '' });
+      await loadAdminData();
+      setMessage('User account created.');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updateUserRow = async (row) => {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      await apiService.updateAdminUser(row.id, {
+        username: row.username,
+        role: row.role,
+        department: row.department,
+        password: row.tempPassword || ''
+      });
+      setMessage('User account updated.');
+      await loadAdminData();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return React.createElement('div', { className: 'space-y-6' },
+    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+      React.createElement('h3', { className: 'font-bold text-lg text-slate-800 mb-4' }, 'My Account Settings'),
+      React.createElement('div', { className: 'grid md:grid-cols-2 gap-4' },
+        React.createElement('div', { className: 'space-y-2' },
+          React.createElement('label', { className: 'text-xs font-bold uppercase text-slate-400' }, 'Username'),
+          React.createElement('input', { value: profileUsername, onChange: (e) => setProfileUsername(e.target.value), className: 'w-full p-2 border rounded-lg' }),
+          React.createElement('button', { onClick: saveProfile, disabled: busy, className: 'mt-2 px-4 py-2 rounded-lg bg-sky-500 text-white font-semibold disabled:opacity-50' }, 'Save Profile')
+        ),
+        React.createElement('div', { className: 'space-y-2' },
+          React.createElement('label', { className: 'text-xs font-bold uppercase text-slate-400' }, 'Change Password'),
+          React.createElement('input', { type: 'password', value: currentPassword, onChange: (e) => setCurrentPassword(e.target.value), placeholder: 'Current password', className: 'w-full p-2 border rounded-lg' }),
+          React.createElement('input', { type: 'password', value: newPassword, onChange: (e) => setNewPassword(e.target.value), placeholder: 'New password', className: 'w-full p-2 border rounded-lg' }),
+          React.createElement('input', { type: 'password', value: confirmPassword, onChange: (e) => setConfirmPassword(e.target.value), placeholder: 'Confirm new password', className: 'w-full p-2 border rounded-lg' }),
+          React.createElement('button', { onClick: savePassword, disabled: busy, className: 'mt-2 px-4 py-2 rounded-lg bg-slate-800 text-white font-semibold disabled:opacity-50' }, 'Update Password')
+        )
+      ),
+      message && React.createElement('p', { className: 'text-green-600 text-sm mt-3' }, message),
+      error && React.createElement('p', { className: 'text-red-600 text-sm mt-2' }, error)
+    ),
+
+    isAdmin && React.createElement('div', { className: 'space-y-6' },
+      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+        React.createElement('h3', { className: 'font-bold text-lg text-slate-800 mb-4' }, 'Admin: Facility Management'),
+        React.createElement('div', { className: 'grid md:grid-cols-5 gap-2 mb-3' },
+          React.createElement('input', { placeholder: 'Code', value: newFacility.code, onChange: (e) => setNewFacility({ ...newFacility, code: e.target.value }), className: 'p-2 border rounded-lg' }),
+          React.createElement('input', { placeholder: 'Name', value: newFacility.name, onChange: (e) => setNewFacility({ ...newFacility, name: e.target.value }), className: 'p-2 border rounded-lg' }),
+          React.createElement('input', { placeholder: 'Capacity', type: 'number', value: newFacility.capacity, onChange: (e) => setNewFacility({ ...newFacility, capacity: e.target.value }), className: 'p-2 border rounded-lg' }),
+          React.createElement('input', { placeholder: 'Description', value: newFacility.description, onChange: (e) => setNewFacility({ ...newFacility, description: e.target.value }), className: 'p-2 border rounded-lg' }),
+          React.createElement('input', { placeholder: 'Usual Activity', value: newFacility.usual_activity, onChange: (e) => setNewFacility({ ...newFacility, usual_activity: e.target.value }), className: 'p-2 border rounded-lg' })
+        ),
+        React.createElement('button', { onClick: addFacility, disabled: busy, className: 'mb-4 px-4 py-2 rounded-lg bg-sky-500 text-white font-semibold disabled:opacity-50' }, 'Add Facility'),
+        React.createElement('div', { className: 'space-y-2' },
+          facilities.map((f, idx) => React.createElement('div', { key: f.id, className: 'grid md:grid-cols-6 gap-2 p-2 bg-slate-50 rounded-lg border' },
+            React.createElement('input', { value: f.code || '', onChange: (e) => setFacilities(facilities.map((r, i) => i === idx ? { ...r, code: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
+            React.createElement('input', { value: f.name || '', onChange: (e) => setFacilities(facilities.map((r, i) => i === idx ? { ...r, name: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
+            React.createElement('input', { type: 'number', value: f.capacity || 0, onChange: (e) => setFacilities(facilities.map((r, i) => i === idx ? { ...r, capacity: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
+            React.createElement('input', { value: f.description || '', onChange: (e) => setFacilities(facilities.map((r, i) => i === idx ? { ...r, description: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
+            React.createElement('input', { value: f.usual_activity || '', onChange: (e) => setFacilities(facilities.map((r, i) => i === idx ? { ...r, usual_activity: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
+            React.createElement('button', { onClick: () => updateFacilityRow(f), disabled: busy, className: 'px-3 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold disabled:opacity-50' }, 'Save')
+          ))
+        )
+      ),
+
+      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+        React.createElement('h3', { className: 'font-bold text-lg text-slate-800 mb-4' }, 'Admin: User Account Management'),
+        React.createElement('div', { className: 'grid md:grid-cols-5 gap-2 mb-3' },
+          React.createElement('input', { placeholder: 'Username', value: newUser.username, onChange: (e) => setNewUser({ ...newUser, username: e.target.value }), className: 'p-2 border rounded-lg' }),
+          React.createElement('input', { placeholder: 'Password', type: 'password', value: newUser.password, onChange: (e) => setNewUser({ ...newUser, password: e.target.value }), className: 'p-2 border rounded-lg' }),
+          React.createElement('select', { value: newUser.role, onChange: (e) => setNewUser({ ...newUser, role: e.target.value }), className: 'p-2 border rounded-lg' },
+            React.createElement('option', { value: 'student' }, 'student'),
+            React.createElement('option', { value: 'admin_phase1' }, 'admin_phase1'),
+            React.createElement('option', { value: 'admin' }, 'admin')
+          ),
+          React.createElement('input', { placeholder: 'Department', value: newUser.department, onChange: (e) => setNewUser({ ...newUser, department: e.target.value }), className: 'p-2 border rounded-lg' }),
+          React.createElement('button', { onClick: addUser, disabled: busy, className: 'px-4 py-2 rounded-lg bg-sky-500 text-white font-semibold disabled:opacity-50' }, 'Create User')
+        ),
+        React.createElement('div', { className: 'space-y-2' },
+          users.map((u, idx) => React.createElement('div', { key: u.id, className: 'grid md:grid-cols-6 gap-2 p-2 bg-slate-50 rounded-lg border' },
+            React.createElement('input', { value: u.username || '', onChange: (e) => setUsers(users.map((r, i) => i === idx ? { ...r, username: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
+            React.createElement('select', { value: u.role || 'student', onChange: (e) => setUsers(users.map((r, i) => i === idx ? { ...r, role: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' },
+              React.createElement('option', { value: 'student' }, 'student'),
+              React.createElement('option', { value: 'admin_phase1' }, 'admin_phase1'),
+              React.createElement('option', { value: 'admin' }, 'admin')
+            ),
+            React.createElement('input', { value: u.department || '', onChange: (e) => setUsers(users.map((r, i) => i === idx ? { ...r, department: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
+            React.createElement('input', { placeholder: 'New password (optional)', type: 'password', value: u.tempPassword || '', onChange: (e) => setUsers(users.map((r, i) => i === idx ? { ...r, tempPassword: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
+            React.createElement('div', { className: 'text-xs text-slate-500 flex items-center' }, `ID: ${u.id}`),
+            React.createElement('button', { onClick: () => updateUserRow(u), disabled: busy, className: 'px-3 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold disabled:opacity-50' }, 'Save')
+          ))
+        )
+      )
     )
   );
 }

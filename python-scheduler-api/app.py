@@ -583,5 +583,225 @@ def get_data_mining_analytics():
         app.logger.exception("Failed to build analytics snapshot")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+
+# ==================== SETTINGS ROUTES ====================
+
+@app.route('/api/settings/profile', methods=['PUT'])
+@login_required
+def update_my_profile():
+    data = request.get_json() or {}
+    username = (data.get('username') or '').strip()
+
+    if not username:
+        return jsonify({'status': 'error', 'message': 'Username is required'}), 400
+
+    existing = User.query.filter(User.username == username, User.id != current_user.id).first()
+    if existing:
+        return jsonify({'status': 'error', 'message': 'Username already taken'}), 409
+
+    current_user.username = username
+    db.session.commit()
+    return jsonify({
+        'status': 'success',
+        'message': 'Profile updated',
+        'user': {
+            'id': current_user.id,
+            'username': current_user.username,
+            'role': current_user.role,
+            'department': current_user.department
+        }
+    })
+
+
+@app.route('/api/settings/password', methods=['PUT'])
+@login_required
+def update_my_password():
+    data = request.get_json() or {}
+    current_password = data.get('current_password') or ''
+    new_password = data.get('new_password') or ''
+
+    if not current_password or not new_password:
+        return jsonify({'status': 'error', 'message': 'Current and new password are required'}), 400
+
+    if len(new_password) < 4:
+        return jsonify({'status': 'error', 'message': 'New password must be at least 4 characters'}), 400
+
+    if not current_user.check_password(current_password):
+        return jsonify({'status': 'error', 'message': 'Current password is incorrect'}), 401
+
+    current_user.set_password(new_password)
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Password updated'})
+
+
+def _require_admin_settings_access():
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'status': 'error', 'message': 'Admin access required'}), 403
+    return None
+
+
+@app.route('/api/admin/facilities', methods=['GET'])
+@login_required
+def admin_get_facilities():
+    denied = _require_admin_settings_access()
+    if denied:
+        return denied
+
+    rooms = Room.query.order_by(Room.name.asc()).all()
+    return jsonify([
+        {
+            'id': room.id,
+            'code': room.code,
+            'name': room.name,
+            'capacity': room.capacity,
+            'description': room.description,
+            'usual_activity': room.usual_activity
+        }
+        for room in rooms
+    ])
+
+
+@app.route('/api/admin/facilities', methods=['POST'])
+@login_required
+def admin_create_facility():
+    denied = _require_admin_settings_access()
+    if denied:
+        return denied
+
+    data = request.get_json() or {}
+    code = (data.get('code') or '').strip() or None
+    name = (data.get('name') or '').strip()
+    capacity = data.get('capacity')
+
+    if not name or capacity is None:
+        return jsonify({'status': 'error', 'message': 'Name and capacity are required'}), 400
+
+    if code and Room.query.filter_by(code=code).first():
+        return jsonify({'status': 'error', 'message': 'Facility code already exists'}), 409
+
+    room = Room(
+        code=code,
+        name=name,
+        capacity=int(capacity),
+        description=(data.get('description') or '').strip(),
+        usual_activity=(data.get('usual_activity') or '').strip()
+    )
+    db.session.add(room)
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Facility created', 'id': room.id})
+
+
+@app.route('/api/admin/facilities/<int:id>', methods=['PUT'])
+@login_required
+def admin_update_facility(id):
+    denied = _require_admin_settings_access()
+    if denied:
+        return denied
+
+    room = db.session.get(Room, id)
+    if not room:
+        return jsonify({'status': 'error', 'message': 'Facility not found'}), 404
+
+    data = request.get_json() or {}
+    code = (data.get('code') or '').strip() or None
+    name = (data.get('name') or '').strip()
+    capacity = data.get('capacity')
+
+    if not name or capacity is None:
+        return jsonify({'status': 'error', 'message': 'Name and capacity are required'}), 400
+
+    if code:
+        duplicate = Room.query.filter(Room.code == code, Room.id != id).first()
+        if duplicate:
+            return jsonify({'status': 'error', 'message': 'Facility code already exists'}), 409
+
+    room.code = code
+    room.name = name
+    room.capacity = int(capacity)
+    room.description = (data.get('description') or '').strip()
+    room.usual_activity = (data.get('usual_activity') or '').strip()
+
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Facility updated'})
+
+
+@app.route('/api/admin/users', methods=['GET'])
+@login_required
+def admin_get_users():
+    denied = _require_admin_settings_access()
+    if denied:
+        return denied
+
+    users = User.query.order_by(User.username.asc()).all()
+    return jsonify([
+        {
+            'id': user.id,
+            'username': user.username,
+            'role': user.role,
+            'department': user.department
+        }
+        for user in users
+    ])
+
+
+@app.route('/api/admin/users', methods=['POST'])
+@login_required
+def admin_create_user():
+    denied = _require_admin_settings_access()
+    if denied:
+        return denied
+
+    data = request.get_json() or {}
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    role = (data.get('role') or 'student').strip()
+    department = (data.get('department') or '').strip()
+
+    if not username or not password:
+        return jsonify({'status': 'error', 'message': 'Username and password are required'}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({'status': 'error', 'message': 'Username already exists'}), 409
+
+    user = User(username=username, role=role, department=department)
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'User account created', 'id': user.id})
+
+
+@app.route('/api/admin/users/<int:id>', methods=['PUT'])
+@login_required
+def admin_update_user(id):
+    denied = _require_admin_settings_access()
+    if denied:
+        return denied
+
+    user = db.session.get(User, id)
+    if not user:
+        return jsonify({'status': 'error', 'message': 'User not found'}), 404
+
+    data = request.get_json() or {}
+    username = (data.get('username') or '').strip()
+    role = (data.get('role') or user.role).strip()
+    department = (data.get('department') or '').strip()
+    new_password = data.get('password') or ''
+
+    if not username:
+        return jsonify({'status': 'error', 'message': 'Username is required'}), 400
+
+    duplicate = User.query.filter(User.username == username, User.id != id).first()
+    if duplicate:
+        return jsonify({'status': 'error', 'message': 'Username already exists'}), 409
+
+    user.username = username
+    user.role = role
+    user.department = department
+    if new_password:
+        user.set_password(new_password)
+
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'User account updated'})
+
 if __name__ == '__main__':
     app.run(debug=True)
