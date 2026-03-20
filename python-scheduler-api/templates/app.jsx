@@ -415,6 +415,7 @@ function App() {
     activeModal === 'details' && React.createElement(DetailsModal, { 
       res: selectedRes, 
       user: currentUser, 
+      rooms,
       onClose: () => setActiveModal(null), 
       onApproveStage1: async () => { 
         setLoading(true); 
@@ -671,7 +672,14 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     division: '',
     num_attendees: '',
     activity_classification: '',
-    equipment: {}
+    equipment: {},
+    housekeeping_needed: false,
+    housekeeping_count: '',
+    security_guard_needed: false,
+    engineering_aircon: false,
+    engineering_elevator: false,
+    engineering_electrical_setup: false,
+    engineering_others: ''
   });
   const [localError, setLocalError] = useState('');
 
@@ -710,6 +718,11 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
 
     if (missingFields.length > 0) {
       setLocalError(`Please complete the following required fields: ${missingFields.join(', ')}.`);
+      return;
+    }
+
+    if (form.housekeeping_needed && (!form.housekeeping_count || Number(form.housekeeping_count) < 1)) {
+      setLocalError('Please enter how many housekeeping staff are needed.');
       return;
     }
 
@@ -769,11 +782,28 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     }
 
     // Combine date with times for the API
+    const servicesData = {
+      housekeeping: {
+        needed: !!form.housekeeping_needed,
+        count: form.housekeeping_needed ? Number(form.housekeeping_count || 0) : 0
+      },
+      security_guard: !!form.security_guard_needed,
+      engineering: {
+        aircon: !!form.engineering_aircon,
+        elevator: !!form.engineering_elevator,
+        electrical_setup: !!form.engineering_electrical_setup,
+        others: (form.engineering_others || '').trim()
+      }
+    };
+
     const formData = {
       ...form,
       start_time: `${form.event_date}T${startTime}`,
       end_time: `${form.event_date}T${endTime}`,
-      equipment_data: form.equipment,
+      equipment_data: {
+        ...form.equipment,
+        services: servicesData
+      },
       // Map frontend field names to backend column names
       attendees: form.num_attendees,
       classification: form.activity_classification
@@ -892,6 +922,76 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
           )
         ),
         React.createElement('input', { type: 'url', placeholder: 'Concept Paper Google Drive Link', value: form.concept_paper_url, onChange: (e) => setForm({ ...form, concept_paper_url: e.target.value }), className: 'w-full p-2 border rounded', required: true }),
+
+        // SERVICES SECTION
+        React.createElement('div', { className: 'mt-4 border-t pt-4 space-y-3' },
+          React.createElement('p', { className: 'text-sm font-bold text-slate-700' }, 'Services Needed'),
+
+          React.createElement('div', { className: 'bg-slate-50 border rounded p-3 space-y-2' },
+            React.createElement('label', { className: 'flex items-center gap-2 text-sm font-medium text-slate-700' },
+              React.createElement('input', {
+                type: 'checkbox',
+                checked: form.housekeeping_needed,
+                onChange: (e) => setForm({ ...form, housekeeping_needed: e.target.checked, housekeeping_count: e.target.checked ? form.housekeeping_count : '' })
+              }),
+              'Housekeeping Staff Needed'
+            ),
+            form.housekeeping_needed && React.createElement('input', {
+              type: 'number',
+              min: '1',
+              placeholder: 'How many housekeeping staff?',
+              value: form.housekeeping_count,
+              onChange: (e) => setForm({ ...form, housekeeping_count: e.target.value }),
+              className: 'w-full p-2 border rounded bg-white text-sm'
+            })
+          ),
+
+          React.createElement('div', { className: 'bg-slate-50 border rounded p-3' },
+            React.createElement('label', { className: 'flex items-center gap-2 text-sm font-medium text-slate-700' },
+              React.createElement('input', {
+                type: 'checkbox',
+                checked: form.security_guard_needed,
+                onChange: (e) => setForm({ ...form, security_guard_needed: e.target.checked })
+              }),
+              'Security Guard Needed'
+            )
+          ),
+
+          React.createElement('div', { className: 'bg-slate-50 border rounded p-3 space-y-2' },
+            React.createElement('p', { className: 'text-sm font-medium text-slate-700' }, 'Engineering Services'),
+            React.createElement('label', { className: 'flex items-center gap-2 text-sm text-slate-700' },
+              React.createElement('input', {
+                type: 'checkbox',
+                checked: form.engineering_aircon,
+                onChange: (e) => setForm({ ...form, engineering_aircon: e.target.checked })
+              }),
+              'Aircon'
+            ),
+            React.createElement('label', { className: 'flex items-center gap-2 text-sm text-slate-700' },
+              React.createElement('input', {
+                type: 'checkbox',
+                checked: form.engineering_elevator,
+                onChange: (e) => setForm({ ...form, engineering_elevator: e.target.checked })
+              }),
+              'Elevator'
+            ),
+            React.createElement('label', { className: 'flex items-center gap-2 text-sm text-slate-700' },
+              React.createElement('input', {
+                type: 'checkbox',
+                checked: form.engineering_electrical_setup,
+                onChange: (e) => setForm({ ...form, engineering_electrical_setup: e.target.checked })
+              }),
+              'Electrical Set-up'
+            ),
+            React.createElement('input', {
+              type: 'text',
+              placeholder: 'Others (please specify)',
+              value: form.engineering_others,
+              onChange: (e) => setForm({ ...form, engineering_others: e.target.value }),
+              className: 'w-full p-2 border rounded bg-white text-sm'
+            })
+          )
+        ),
         
         // EQUIPMENT SECTION
         availableEquip && availableEquip.length > 0 && React.createElement('div', { className: 'mt-4 border-t pt-4' },
@@ -935,14 +1035,17 @@ function AdminRequests({ reservations, onViewDetails }) {
   );
 }
 
-function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onDenyClick, onUploadFinalForm, onArchive, loading }) {
+function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFinal, onDenyClick, onUploadFinalForm, onArchive, loading }) {
   const [finalFormLink, setFinalFormLink] = useState('');
   const isAdmin = user.role === 'admin';
   const isPhase1Admin = user.role === 'admin_phase1';
   const isOwner = res.user_id === user.id;
 
-  // Get requested equipment (filter items with quantity > 0)
-  const requestedEquip = res.equipment_data ? Object.entries(res.equipment_data).filter(([_, qty]) => qty > 0) : [];
+  // Get requested equipment (filter numeric quantities > 0 and ignore non-qty entries like services)
+  const requestedEquip = res.equipment_data
+    ? Object.entries(res.equipment_data).filter(([key, qty]) => key !== 'services' && typeof qty === 'number' && qty > 0)
+    : [];
+  const requestedServices = res.equipment_data?.services || {};
 
   // Format datetime to readable 12-hour format
   const formatDateTime = (isoString) => {
@@ -959,34 +1062,202 @@ function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onD
   };
 
   const handlePrint = () => {
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-      <html><head><title>Facility Reservation Form</title>
-      <style>
-        body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
-        h1 { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; }
-        .field { margin: 15px 0; display: flex; }
-        .label { font-weight: bold; width: 200px; }
-        .value { flex: 1; border-bottom: 1px solid #999; min-height: 20px; padding-left: 10px; }
-        .signature-box { margin-top: 60px; display: flex; justify-content: space-between; }
-        .sig { text-align: center; width: 200px; }
-        .sig-line { border-top: 1px solid #333; margin-top: 60px; padding-top: 5px; }
-      </style></head><body>
-      <h1>FACILITY RESERVATION FORM</h1>
-      <div class="field"><span class="label">Activity/Purpose:</span><span class="value">${res.activity_purpose || ''}</span></div>
-      <div class="field"><span class="label">Person in Charge:</span><span class="value">${res.person_in_charge || ''}</span></div>
-      <div class="field"><span class="label">Contact Number:</span><span class="value">${res.contact_number || ''}</span></div>
-      <div class="field"><span class="label">Department:</span><span class="value">${res.department || ''}</span></div>
-      <div class="field"><span class="label">Date & Time:</span><span class="value">${res.start_time || ''} to ${res.end_time || ''}</span></div>
-      <div class="field"><span class="label">Number of Attendees:</span><span class="value">${res.attendees || ''}</span></div>
-      <div class="signature-box">
-        <div class="sig"><div class="sig-line">Requestor Signature</div></div>
-        <div class="sig"><div class="sig-line">Approved By</div></div>
-      </div>
-      </body></html>
-    `);
-    printWindow.document.close();
-    printWindow.print();
+    try {
+    const escapeHtml = (value) => String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+
+    const start = res.start_time ? new Date(res.start_time) : null;
+    const end = res.end_time ? new Date(res.end_time) : null;
+    const dateNeeded = start ? start.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+    const startTime = start ? start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+    const endTime = end ? end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+    const dateFiled = res.date_filed ? new Date(res.date_filed).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+    const roomName = rooms?.find(r => Number(r.id) === Number(res.room_id))?.name || '';
+
+    const equipRows = requestedEquip.length > 0
+      ? requestedEquip.map(([item, qty]) => `
+          <div class="line-row"><span class="line-label">${escapeHtml(item)}</span><span class="line-value">${escapeHtml(qty)}</span></div>
+        `).join('')
+      : '<div class="muted">No equipment requested.</div>';
+
+    const engineeringText = [
+      requestedServices.engineering?.aircon ? 'Aircon' : null,
+      requestedServices.engineering?.elevator ? 'Elevator' : null,
+      requestedServices.engineering?.electrical_setup ? 'Electrical Set-up' : null,
+      requestedServices.engineering?.others ? `Others: ${requestedServices.engineering.others}` : null
+    ].filter(Boolean).join(', ') || 'None';
+
+    const htmlContent = `
+      <html>
+      <head>
+        <title>Common Facility Request Form</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; margin: 0; padding: 18px; color: #111; }
+          .page { max-width: 920px; margin: 0 auto; border: 2px solid #111; }
+          .top { background: #f3f4f6; border-bottom: 2px solid #111; padding: 10px 16px; text-align: center; }
+          .top h1 { margin: 0; font-size: 22px; letter-spacing: .2px; }
+          .top p { margin: 3px 0 0; font-size: 12px; }
+          .title-wrap { display: grid; grid-template-columns: 1fr 170px; border-bottom: 2px solid #111; }
+          .title { padding: 10px 14px; font-size: 32px; font-weight: 800; text-align: center; }
+          .code { border-left: 2px solid #111; padding: 8px; font-size: 11px; text-align: center; }
+          .section { padding: 10px 14px; border-bottom: 1px solid #111; }
+          .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+          .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+          .field { margin: 6px 0; font-size: 13px; display: flex; gap: 6px; align-items: baseline; }
+          .field b { min-width: 145px; }
+          .answer { display: inline-block; min-width: 160px; border-bottom: 1px solid #666; padding: 0 4px 1px; font-weight: 600; }
+          .subhead { text-align: center; font-weight: 800; font-size: 18px; margin: 4px 0 8px; }
+          .box { border: 1px solid #111; padding: 8px; }
+          .line-row { display: grid; grid-template-columns: 1fr 80px; border-bottom: 1px solid #ddd; padding: 4px 0; font-size: 12px; }
+          .line-label { font-weight: 600; }
+          .line-value { text-align: right; font-weight: 700; }
+          .muted { color: #666; font-style: italic; font-size: 12px; }
+          .service-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 8px; }
+          .service-col { border: 1px solid #111; min-height: 86px; padding: 8px; }
+          .service-col h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; }
+          .service-col p { margin: 3px 0; font-size: 12px; }
+          .approval { display: grid; grid-template-columns: 1fr 1fr 1fr; border-top: 1px solid #111; }
+          .approval .col { padding: 8px; border-left: 1px solid #111; min-height: 90px; }
+          .approval .col:first-child { border-left: 0; }
+          .line { border-bottom: 1px solid #666; height: 18px; margin-top: 8px; }
+          .small { font-size: 11px; }
+          @media print { body { padding: 0; } .page { border-width: 1px; } }
+        </style>
+      </head>
+      <body>
+        <div class="page">
+          <div class="top">
+            <h1>University of Perpetual Help System Laguna</h1>
+            <p>City of Binan, Laguna, Philippines</p>
+          </div>
+
+          <div class="title-wrap">
+            <div class="title">COMMON FACILITY REQUEST FORM</div>
+            <div class="code">
+              <div><b>UPHS/JH-CFRF-01</b></div>
+              <div>Clean Template</div>
+            </div>
+          </div>
+
+          <div class="section grid-2">
+            <div>
+              <div class="field"><b>Activity/Purpose:</b><span class="answer">${escapeHtml(res.activity_purpose)}</span></div>
+              <div class="field"><b>Division:</b><span class="answer">${escapeHtml(res.division)}</span></div>
+              <div class="field"><b>No. of Attendees:</b><span class="answer">${escapeHtml(res.attendees)}</span></div>
+              <div class="field"><b>Date Filed:</b><span class="answer">${escapeHtml(dateFiled)}</span></div>
+            </div>
+            <div>
+              <div class="field"><b>Department:</b><span class="answer">${escapeHtml(res.department)}</span></div>
+              <div class="field"><b>Classification:</b><span class="answer">${escapeHtml(res.classification)}</span></div>
+              <div class="field"><b>Date Needed:</b><span class="answer">${escapeHtml(dateNeeded)}</span></div>
+              <div class="field"><b>Time Needed:</b><span class="answer">${escapeHtml(startTime)} to ${escapeHtml(endTime)}</span></div>
+            </div>
+          </div>
+
+          <div class="section grid-2">
+            <div class="field"><b>Person in Charge:</b><span class="answer">${escapeHtml(res.person_in_charge)}</span></div>
+            <div class="field"><b>Contact Number:</b><span class="answer">${escapeHtml(res.contact_number)}</span></div>
+          </div>
+
+          <div class="section">
+            <div class="subhead">FACILITY REQUEST</div>
+            <div class="field"><b>Requested Facility:</b><span class="answer" style="min-width: 380px;">${escapeHtml(roomName)}</span></div>
+          </div>
+
+          <div class="section">
+            <div class="subhead">EQUIPMENT / SERVICES TO BE PROVIDED</div>
+            <div class="box">
+              ${equipRows}
+            </div>
+
+            <div class="service-grid">
+              <div class="service-col">
+                <h4>Housekeeping</h4>
+                <p>Need HK Staff: <b>${requestedServices.housekeeping?.needed ? 'Yes' : 'No'}</b></p>
+                <p>How Many: <b>${escapeHtml(requestedServices.housekeeping?.count || '')}</b></p>
+              </div>
+              <div class="service-col">
+                <h4>Security</h4>
+                <p>Need Security Guard: <b>${requestedServices.security_guard ? 'Yes' : 'No'}</b></p>
+              </div>
+              <div class="service-col">
+                <h4>Engineering Services</h4>
+                <p><b>${escapeHtml(engineeringText)}</b></p>
+              </div>
+            </div>
+          </div>
+
+          <div class="section small">
+            NOTE: This clean print form intentionally excludes pre-filled checks/signatures so it can be signed manually.
+          </div>
+
+          <div class="approval">
+            <div class="col">
+              <b>Noted by:</b>
+              <div class="line"></div>
+              <div class="small">Dean / Department Head</div>
+            </div>
+            <div class="col">
+              <b>Recommending Approval:</b>
+              <div class="line"></div>
+              <div class="small">Head, Facilities Office</div>
+            </div>
+            <div class="col">
+              <b>Approved by:</b>
+              <div class="line"></div>
+              <div class="small">Authorized Signatory</div>
+            </div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const printFromIframe = () => {
+      const frame = document.createElement('iframe');
+      frame.style.position = 'fixed';
+      frame.style.right = '0';
+      frame.style.bottom = '0';
+      frame.style.width = '0';
+      frame.style.height = '0';
+      frame.style.border = '0';
+      document.body.appendChild(frame);
+
+      const frameWindow = frame.contentWindow;
+      const doc = frameWindow?.document;
+      if (!doc || !frameWindow) {
+        alert('Unable to open print preview in this browser.');
+        return;
+      }
+
+      doc.open();
+      doc.write(htmlContent);
+      doc.close();
+
+      // Give Chrome a short moment to lay out the iframe content before printing.
+      try {
+        setTimeout(() => {
+          frameWindow.focus();
+          frameWindow.print();
+        }, 120);
+      } catch (e) {
+        alert('Printing was blocked. Please allow pop-ups/printing for this site.');
+      } finally {
+        setTimeout(() => frame.remove(), 1000);
+      }
+    };
+
+    // Chrome-safe strategy: print directly from hidden iframe (no new tab).
+    printFromIframe();
+    } catch (err) {
+      console.error('Print form failed:', err);
+      alert('Print failed. Please refresh and try again.');
+    }
   };
 
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
@@ -1035,9 +1306,9 @@ function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onD
             )
           ),
           
-          // Equipment Requested Section
+          // Equipment and Services Requested Section
           React.createElement('div', { className: 'space-y-3' },
-            React.createElement('h4', { className: 'font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider' }, '🛠️ Equipment Requested'),
+            React.createElement('h4', { className: 'font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider' }, '🛠️ Equipment / Services Requested'),
             requestedEquip.length > 0 
               ? React.createElement('div', { className: 'grid gap-2' },
                   requestedEquip.map(([item, qty]) => 
@@ -1048,6 +1319,32 @@ function DetailsModal({ res, user, onClose, onApproveStage1, onApproveFinal, onD
                   )
                 )
               : React.createElement('p', { className: 'text-slate-400 italic text-xs' }, 'No equipment requested.')
+            ,
+            React.createElement('div', { className: 'grid gap-2 mt-2' },
+              React.createElement('div', { className: 'flex justify-between bg-slate-50 px-3 py-2 rounded border border-slate-100' },
+                React.createElement('span', { className: 'text-slate-600 font-medium text-xs' }, 'Housekeeping'),
+                React.createElement('span', { className: 'font-bold text-slate-700 text-xs' },
+                  requestedServices.housekeeping?.needed
+                    ? `Yes${requestedServices.housekeeping.count ? ` (${requestedServices.housekeeping.count})` : ''}`
+                    : 'No'
+                )
+              ),
+              React.createElement('div', { className: 'flex justify-between bg-slate-50 px-3 py-2 rounded border border-slate-100' },
+                React.createElement('span', { className: 'text-slate-600 font-medium text-xs' }, 'Security Guard'),
+                React.createElement('span', { className: 'font-bold text-slate-700 text-xs' }, requestedServices.security_guard ? 'Yes' : 'No')
+              ),
+              React.createElement('div', { className: 'bg-slate-50 px-3 py-2 rounded border border-slate-100' },
+                React.createElement('p', { className: 'text-slate-600 font-medium text-xs mb-1' }, 'Engineering Services'),
+                React.createElement('p', { className: 'text-xs text-slate-700' },
+                  [
+                    requestedServices.engineering?.aircon ? 'Aircon' : null,
+                    requestedServices.engineering?.elevator ? 'Elevator' : null,
+                    requestedServices.engineering?.electrical_setup ? 'Electrical Set-up' : null,
+                    requestedServices.engineering?.others ? `Others: ${requestedServices.engineering.others}` : null
+                  ].filter(Boolean).join(', ') || 'None'
+                )
+              )
+            )
           )
         ),
 

@@ -1,12 +1,11 @@
 """
-Script to seed 100 reservations into the database.
+Script to seed reservations into the database.
 Run this script from the python-scheduler-api directory.
 """
 import os
 import sys
 import random
 from datetime import datetime, timedelta
-import json
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -54,14 +53,9 @@ DIVISIONS = [
     "Human Resources", "IT Services", "Library Services"
 ]
 
-PARTICIPANT_TYPES = [
-    "Students Only", "Faculty Only", "Staff Only", 
-    "Mixed (Students & Faculty)", "External Guests", "General Public"
-]
-
 CLASSIFICATIONS = [
-    "Academic", "Co-curricular", "Extra-curricular", 
-    "Administrative", "Community Service", "Social"
+    "Institutional", "Curricular", "Outside Group",
+    "Co-Curricular", "Extra-Curricular"
 ]
 
 PERSON_NAMES = [
@@ -93,8 +87,14 @@ EQUIPMENT_OPTIONS = {
     ]
 }
 
-# Status distribution: 40% approved, 30% pending, 15% concept-approved, 15% denied
-STATUS_WEIGHTS = ['approved'] * 40 + ['pending'] * 30 + ['concept-approved'] * 15 + ['denied'] * 15
+# Status distribution for the current workflow, including deleted records for archive/status analytics.
+STATUS_WEIGHTS = (
+    ['approved'] * 35 +
+    ['pending'] * 30 +
+    ['concept-approved'] * 18 +
+    ['denied'] * 12 +
+    ['deleted'] * 5
+)
 
 
 def generate_contact_number():
@@ -117,6 +117,11 @@ def generate_equipment(room_name):
     return equipment
 
 
+def generate_drive_url(prefix, index):
+    """Generate a stable-looking Google Drive URL for seeded records."""
+    return f"https://drive.google.com/file/d/{prefix}_{index:03d}/view"
+
+
 def generate_random_datetime(start_date, end_date):
     """Generate a random datetime between start_date and end_date."""
     delta = end_date - start_date
@@ -135,11 +140,11 @@ def seed_reservations(count=100):
     """Seed the database with sample reservations."""
     with app.app_context():
         # Get existing users and rooms
-        users = User.query.filter(User.role != 'admin').all()
+        users = User.query.filter(~User.role.in_(['admin', 'admin_phase1'])).all()
         rooms = Room.query.all()
         
         if not users:
-            print("Error: No non-admin users found. Please run /setup first.")
+            print("Error: No student users found. Please run /setup first.")
             return
         
         if not rooms:
@@ -169,7 +174,7 @@ def seed_reservations(count=100):
             duration_hours = random.randint(1, 4)
             end_time = start_time + timedelta(hours=duration_hours)
             
-            # Date filed: before start_time (for future events) or random past date
+            # Date filed: always before the event start so lead-time analytics remain valid.
             if start_time > today:
                 days_before = random.randint(7, 60)
                 date_filed = start_time - timedelta(days=days_before)
@@ -185,10 +190,8 @@ def seed_reservations(count=100):
                 'user_id': user.id,
                 'room_id': room.id,
                 'activity_purpose': random.choice(ACTIVITY_PURPOSES),
-                'division': random.choice(DIVISIONS),
+                'division': random.choice([user.department, *DIVISIONS]),
                 'attendees': random.randint(10, min(500, room.capacity)),
-                'participant_type': random.choice(PARTICIPANT_TYPES),
-                'participant_details': f"Approximately {random.randint(10, 100)} participants expected",
                 'classification': random.choice(CLASSIFICATIONS),
                 'person_in_charge': random.choice(PERSON_NAMES),
                 'contact_number': generate_contact_number(),
@@ -196,13 +199,20 @@ def seed_reservations(count=100):
                 'end_time': end_time,
                 'date_filed': date_filed,
                 'status': status,
-                'concept_paper_url': f"https://drive.google.com/file/d/sample_{i+1}/view" if status != 'pending' else "",
-                'final_form_url': f"https://drive.google.com/file/d/final_{i+1}/view" if status == 'approved' else "",
-                'final_form_uploaded': status == 'approved',
+                'concept_paper_url': generate_drive_url('concept', i + 1),
+                'final_form_url': '',
+                'final_form_uploaded': False,
             }
+
+            if status == 'approved':
+                reservation_data['final_form_url'] = generate_drive_url('final', i + 1)
+                reservation_data['final_form_uploaded'] = True
+            elif status == 'concept-approved' and random.random() < 0.45:
+                reservation_data['final_form_url'] = generate_drive_url('final-pending', i + 1)
+                reservation_data['final_form_uploaded'] = True
             
-            # Add denial reason for denied reservations
-            if status == 'denied':
+            # Add denial/deletion reason and archive timestamp where applicable.
+            if status in ['denied', 'deleted']:
                 denial_reasons = [
                     "Schedule conflict with another approved event.",
                     "Incomplete documentation submitted.",
@@ -213,6 +223,8 @@ def seed_reservations(count=100):
                 ]
                 reservation_data['denial_reason'] = random.choice(denial_reasons)
                 reservation_data['archived_at'] = date_filed + timedelta(days=random.randint(1, 5))
+            elif status == 'approved' and start_time < today and random.random() < 0.35:
+                reservation_data['archived_at'] = end_time + timedelta(days=random.randint(1, 10))
             
             # Create reservation
             reservation = Reservation(**reservation_data)
@@ -230,11 +242,11 @@ def seed_reservations(count=100):
         # Commit all reservations
         db.session.commit()
         
-        print(f"\n✅ Successfully created {reservations_created} reservations!")
+        print(f"\nSuccessfully created {reservations_created} reservations.")
         
         # Print summary
-        print("\n📊 Reservation Summary:")
-        for status in ['pending', 'concept-approved', 'approved', 'denied']:
+        print("\nReservation Summary:")
+        for status in ['pending', 'concept-approved', 'approved', 'denied', 'deleted']:
             count_status = Reservation.query.filter_by(status=status).count()
             print(f"   - {status}: {count_status}")
         
@@ -243,6 +255,6 @@ def seed_reservations(count=100):
 
 
 if __name__ == '__main__':
-    print("🚀 Seeding 100 reservations into the database...\n")
+    print("Seeding 100 reservations into the database...\n")
     seed_reservations(100)
-    print("\n🎉 Done! Start the Flask app to see the reservations.")
+    print("\nDone. Start the Flask app to see the reservations.")

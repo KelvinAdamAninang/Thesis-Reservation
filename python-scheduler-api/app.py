@@ -101,7 +101,12 @@ def index():
 
 @app.route('/app.jsx')
 def serve_app_jsx():
-    return send_from_directory('templates', 'app.jsx', mimetype='text/javascript')
+    response = send_from_directory('templates', 'app.jsx', mimetype='text/javascript')
+    # Prevent stale browser cache from serving an older frontend bundle.
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 @app.route('/login', methods=['POST'])
 def login():
