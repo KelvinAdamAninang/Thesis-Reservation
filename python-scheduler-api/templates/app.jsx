@@ -508,7 +508,8 @@ function App() {
         finally { setLoading(false); }
       },
       loading
-    })
+    }),
+    React.createElement(AIChatbotWidget, { user: currentUser, rooms })
   );
 }
 
@@ -1491,7 +1492,7 @@ function ProfileModal({ user, onClose, onLogout }) {
   );
 }
 
-function ChartCanvas({ type, data, options }) {
+function ChartCanvas({ type, data, options, onElementClick }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
 
@@ -1503,10 +1504,24 @@ function ChartCanvas({ type, data, options }) {
       chartRef.current = null;
     }
 
+    const mergedOptions = {
+      ...(options || {}),
+      onClick: (event, elements, chart) => {
+        if (!onElementClick || !elements || elements.length === 0) return;
+        const index = elements[0].index;
+        const datasetIndex = elements[0].datasetIndex || 0;
+        const label = chart?.data?.labels?.[index];
+        const value = chart?.data?.datasets?.[datasetIndex]?.data?.[index];
+        if (label !== undefined && value !== undefined) {
+          onElementClick({ label, value, chartType: type });
+        }
+      }
+    };
+
     chartRef.current = new window.Chart(canvasRef.current, {
       type,
       data,
-      options
+      options: mergedOptions
     });
 
     return () => {
@@ -1515,22 +1530,26 @@ function ChartCanvas({ type, data, options }) {
         chartRef.current = null;
       }
     };
-  }, [type, JSON.stringify(data), JSON.stringify(options)]);
+  }, [type, JSON.stringify(data), JSON.stringify(options), onElementClick]);
 
   return React.createElement('div', { className: 'h-[300px]' },
     React.createElement('canvas', { ref: canvasRef })
   );
 }
 
-function AnalyticsKpiCard({ label, value, detail }) {
-  return React.createElement('div', { className: 'bg-white border rounded-3xl p-5 shadow-sm' },
+function AnalyticsKpiCard({ label, value, detail, onClick, isActive }) {
+  return React.createElement('button', {
+    type: 'button',
+    onClick,
+    className: `text-left bg-white border rounded-3xl p-5 shadow-sm transition w-full ${isActive ? 'border-sky-400 ring-2 ring-sky-200' : 'hover:border-sky-200 hover:shadow-md'}`
+  },
     React.createElement('p', { className: 'text-xs font-bold uppercase tracking-wider text-slate-400 mb-3' }, label),
     React.createElement('p', { className: 'text-2xl font-bold text-slate-800 leading-tight break-words' }, value),
     React.createElement('p', { className: 'text-sm text-slate-500 mt-2' }, detail)
   );
 }
 
-function HeatmapChart({ data }) {
+function HeatmapChart({ data, onCellClick, activeCell }) {
   const days = data?.days || [];
   const hours = data?.hours || [];
   const values = data?.values || [];
@@ -1557,11 +1576,14 @@ function HeatmapChart({ data }) {
           React.createElement('div', { key: `${day}-label`, className: 'text-xs font-semibold text-slate-600 px-2 py-2' }, day),
           ...hours.map((hour, hourIndex) => {
             const cellValue = values?.[dayIndex]?.[hourIndex] || 0;
+            const cellKey = `${day} ${hour}`;
+            const isActive = activeCell && activeCell.label === cellKey;
             return React.createElement('div', {
               key: `${day}-${hour}`,
-              className: 'h-10 rounded-lg flex items-center justify-center text-[11px] font-bold border border-white/60',
+              className: `h-10 rounded-lg flex items-center justify-center text-[11px] font-bold border border-white/60 cursor-pointer transition ${isActive ? 'ring-2 ring-sky-500 scale-[1.02]' : 'hover:scale-[1.02]'}`,
               style: getCellStyle(cellValue),
-              title: `${day} ${hour}: ${cellValue} reservation slot${cellValue === 1 ? '' : 's'}`
+              title: `${day} ${hour}: ${cellValue} reservation slot${cellValue === 1 ? '' : 's'}`,
+              onClick: () => onCellClick && onCellClick({ label: cellKey, value: cellValue, chartType: 'heatmap' })
             }, cellValue);
           })
         ])
@@ -1579,6 +1601,7 @@ function AnalyticsView({ reservations }) {
   const [analytics, setAnalytics] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const [analyticsError, setAnalyticsError] = useState('');
+  const [activeInsight, setActiveInsight] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -1694,41 +1717,69 @@ function AnalyticsView({ reservations }) {
     return React.createElement('div', { className: 'bg-white border rounded-3xl p-8 text-center text-slate-500' }, 'Loading analytics...');
   }
 
+  const summaryText = activeInsight
+    ? `${activeInsight.source}: ${activeInsight.label} (${activeInsight.value})`
+    : 'Click a KPI card, chart element, or heatmap cell to inspect a specific metric.';
+
   return React.createElement('div', { className: 'space-y-6' },
     analyticsError && React.createElement('div', { className: 'bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-xl text-sm' },
       'Showing fallback metrics. ', analyticsError
+    ),
+
+    React.createElement('div', { className: 'bg-white border rounded-2xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3' },
+      React.createElement('div', {},
+        React.createElement('p', { className: 'text-xs font-bold uppercase tracking-wider text-slate-400' }, 'Interactive Selection'),
+        React.createElement('p', { className: 'text-sm text-slate-700 mt-1' }, summaryText)
+      ),
+      activeInsight && React.createElement('button', {
+        type: 'button',
+        onClick: () => setActiveInsight(null),
+        className: 'px-4 py-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 text-sm font-semibold'
+      }, 'Clear Selection')
     ),
 
     React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4' },
       React.createElement(AnalyticsKpiCard, {
         label: 'Most Booked Venue',
         value: kpis.most_booked_venue || 'No Data',
-        detail: `${kpis.most_booked_venue_count || 0} reservations`
+        detail: `${kpis.most_booked_venue_count || 0} reservations`,
+        isActive: activeInsight?.source === 'KPI' && activeInsight?.label === 'Most Booked Venue',
+        onClick: () => setActiveInsight({ source: 'KPI', label: 'Most Booked Venue', value: `${kpis.most_booked_venue || 'No Data'} (${kpis.most_booked_venue_count || 0})` })
       }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Peak Usage Time',
         value: kpis.peak_usage_time || 'No Data',
-        detail: `${kpis.peak_usage_count || 0} occupied slots`
+        detail: `${kpis.peak_usage_count || 0} occupied slots`,
+        isActive: activeInsight?.source === 'KPI' && activeInsight?.label === 'Peak Usage Time',
+        onClick: () => setActiveInsight({ source: 'KPI', label: 'Peak Usage Time', value: `${kpis.peak_usage_time || 'No Data'} (${kpis.peak_usage_count || 0})` })
       }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Busiest Day',
         value: kpis.busiest_day || 'No Data',
-        detail: `${kpis.busiest_day_count || 0} events`
+        detail: `${kpis.busiest_day_count || 0} events`,
+        isActive: activeInsight?.source === 'KPI' && activeInsight?.label === 'Busiest Day',
+        onClick: () => setActiveInsight({ source: 'KPI', label: 'Busiest Day', value: `${kpis.busiest_day || 'No Data'} (${kpis.busiest_day_count || 0})` })
       }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Top Department',
         value: kpis.top_department || 'No Data',
-        detail: `${kpis.top_department_count || 0} reservations`
+        detail: `${kpis.top_department_count || 0} reservations`,
+        isActive: activeInsight?.source === 'KPI' && activeInsight?.label === 'Top Department',
+        onClick: () => setActiveInsight({ source: 'KPI', label: 'Top Department', value: `${kpis.top_department || 'No Data'} (${kpis.top_department_count || 0})` })
       }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Booking Status Leader',
         value: kpis.dominant_status || 'No Data',
-        detail: `${kpis.dominant_status_count || 0} records`
+        detail: `${kpis.dominant_status_count || 0} records`,
+        isActive: activeInsight?.source === 'KPI' && activeInsight?.label === 'Booking Status Leader',
+        onClick: () => setActiveInsight({ source: 'KPI', label: 'Booking Status Leader', value: `${kpis.dominant_status || 'No Data'} (${kpis.dominant_status_count || 0})` })
       }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Average Lead Time',
         value: `${kpis.average_lead_time_days || 0} days`,
-        detail: `${kpis.lead_time_samples || 0} reservations analyzed`
+        detail: `${kpis.lead_time_samples || 0} reservations analyzed`,
+        isActive: activeInsight?.source === 'KPI' && activeInsight?.label === 'Average Lead Time',
+        onClick: () => setActiveInsight({ source: 'KPI', label: 'Average Lead Time', value: `${kpis.average_lead_time_days || 0} days` })
       })
     ),
 
@@ -1738,6 +1789,7 @@ function AnalyticsView({ reservations }) {
         React.createElement(ChartCanvas, {
           type: 'bar',
           data: topVenuesChartData,
+          onElementClick: (payload) => setActiveInsight({ source: 'Most Booked Venues', ...payload }),
           options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -1748,7 +1800,11 @@ function AnalyticsView({ reservations }) {
       ),
       React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
         React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Peak Usage Time Heatmap'),
-        React.createElement(HeatmapChart, { data: charts.peak_usage_heatmap })
+        React.createElement(HeatmapChart, {
+          data: charts.peak_usage_heatmap,
+          activeCell: activeInsight?.chartType === 'heatmap' ? activeInsight : null,
+          onCellClick: (payload) => setActiveInsight({ source: 'Peak Usage Heatmap', ...payload })
+        })
       )
     ),
 
@@ -1758,6 +1814,7 @@ function AnalyticsView({ reservations }) {
         React.createElement(ChartCanvas, {
           type: 'line',
           data: reservationsOverTimeChartData,
+          onElementClick: (payload) => setActiveInsight({ source: 'Reservations Over Time', ...payload }),
           options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -1771,6 +1828,7 @@ function AnalyticsView({ reservations }) {
         React.createElement(ChartCanvas, {
           type: 'radar',
           data: dayOfWeekChartData,
+          onElementClick: (payload) => setActiveInsight({ source: 'Events by Day', ...payload }),
           options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -1787,6 +1845,7 @@ function AnalyticsView({ reservations }) {
         React.createElement(ChartCanvas, {
           type: 'doughnut',
           data: departmentChartData,
+          onElementClick: (payload) => setActiveInsight({ source: 'Reservations by Department', ...payload }),
           options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -1799,6 +1858,7 @@ function AnalyticsView({ reservations }) {
         React.createElement(ChartCanvas, {
           type: 'pie',
           data: statusOverviewChartData,
+          onElementClick: (payload) => setActiveInsight({ source: 'Booking Status Overview', ...payload }),
           options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -1813,6 +1873,7 @@ function AnalyticsView({ reservations }) {
       React.createElement(ChartCanvas, {
         type: 'bar',
         data: leadTimeChartData,
+        onElementClick: (payload) => setActiveInsight({ source: 'Lead Time Histogram', ...payload }),
         options: {
           responsive: true,
           maintainAspectRatio: false,
@@ -2131,6 +2192,122 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           disabled: loading,
           className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2' 
         }, '🗑️ Delete Event')
+      )
+    )
+  );
+}
+
+function AIChatbotWidget({ user, rooms }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const [messages, setMessages] = useState([
+    {
+      role: 'assistant',
+      text: `Hi ${user?.username || 'there'}! I can help with booking spaces, approvals, and calendar questions.`
+    }
+  ]);
+  const listRef = useRef(null);
+
+  const quickPrompts = [
+    'How do I book a room?',
+    'What are available facilities?',
+    'How does approval work?'
+  ];
+
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, [messages, isTyping]);
+
+  const buildReply = (question) => {
+    const text = (question || '').toLowerCase();
+    const roomNames = (rooms || []).slice(0, 4).map(r => r.name);
+
+    if (!text.trim()) {
+      return 'Ask me anything about reservations, forms, and facility usage.';
+    }
+    if (text.includes('book') || text.includes('reserve') || text.includes('reservation')) {
+      return 'To book a space, open Facilities or Dashboard, click Book This Space, complete the reservation form, then submit your concept paper link.';
+    }
+    if (text.includes('facility') || text.includes('room') || text.includes('space')) {
+      return roomNames.length > 0
+        ? `Current facilities include: ${roomNames.join(', ')}. You can open Facilities to view details and capacity.`
+        : 'You can view all spaces from the Facilities tab and book directly from there.';
+    }
+    if (text.includes('approve') || text.includes('approval') || text.includes('status')) {
+      return 'Approval has two steps: Stage 1 approves the concept paper, then Stage 2 reviews your signed facility form before final approval.';
+    }
+    if (text.includes('calendar') || text.includes('event')) {
+      return 'Approved reservations appear in the Event Calendar view, where you can filter by facility and open event details.';
+    }
+    if (text.includes('hello') || text.includes('hi') || text.includes('hey')) {
+      return 'Hello! Need help with booking, forms, or reservation tracking?';
+    }
+    return 'I can help with booking steps, available facilities, approval flow, and calendar events. Try one of the quick prompts below.';
+  };
+
+  const sendMessage = (rawText) => {
+    const text = (rawText || '').trim();
+    if (!text || isTyping) return;
+
+    setMessages(prev => [...prev, { role: 'user', text }]);
+    setInput('');
+    setIsTyping(true);
+
+    window.setTimeout(() => {
+      setMessages(prev => [...prev, { role: 'assistant', text: buildReply(text) }]);
+      setIsTyping(false);
+    }, 500);
+  };
+
+  if (!isOpen) {
+    return React.createElement('button', {
+      onClick: () => setIsOpen(true),
+      className: 'fixed bottom-5 right-5 z-[70] bg-sky-500 hover:bg-sky-600 text-white px-4 py-3 rounded-full shadow-xl font-bold text-sm'
+    }, 'AI Assistant');
+  }
+
+  return React.createElement('div', { className: 'fixed bottom-5 right-5 z-[70] w-[340px] max-w-[calc(100vw-1.5rem)] bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden' },
+    React.createElement('div', { className: 'bg-sky-500 text-white px-4 py-3 flex justify-between items-center' },
+      React.createElement('div', {},
+        React.createElement('p', { className: 'font-bold text-sm' }, 'VacanSee AI Assistant'),
+        React.createElement('p', { className: 'text-[10px] text-sky-100' }, 'Frontend demo chatbot')
+      ),
+      React.createElement('button', {
+        onClick: () => setIsOpen(false),
+        className: 'text-white/90 hover:text-white text-lg leading-none'
+      }, '✕')
+    ),
+    React.createElement('div', { ref: listRef, className: 'h-64 overflow-y-auto p-3 bg-slate-50 space-y-2' },
+      messages.map((m, idx) => React.createElement('div', {
+        key: idx,
+        className: `max-w-[85%] px-3 py-2 rounded-xl text-xs leading-relaxed ${m.role === 'assistant' ? 'bg-white border border-slate-200 text-slate-700' : 'ml-auto bg-sky-500 text-white'}`
+      }, m.text)),
+      isTyping && React.createElement('div', { className: 'max-w-[85%] px-3 py-2 rounded-xl text-xs bg-white border border-slate-200 text-slate-500' }, 'Typing...')
+    ),
+    React.createElement('div', { className: 'px-3 pt-2 pb-1 border-t bg-white' },
+      React.createElement('div', { className: 'flex flex-wrap gap-1 mb-2' },
+        quickPrompts.map(prompt => React.createElement('button', {
+          key: prompt,
+          onClick: () => sendMessage(prompt),
+          className: 'text-[10px] px-2 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100'
+        }, prompt))
+      ),
+      React.createElement('div', { className: 'flex gap-2 pb-2' },
+        React.createElement('input', {
+          value: input,
+          onChange: (e) => setInput(e.target.value),
+          onKeyDown: (e) => { if (e.key === 'Enter') sendMessage(input); },
+          placeholder: 'Ask about reservations...',
+          className: 'flex-1 border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400'
+        }),
+        React.createElement('button', {
+          onClick: () => sendMessage(input),
+          disabled: isTyping || !input.trim(),
+          className: 'bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold px-3 rounded-lg disabled:opacity-50'
+        }, 'Send')
       )
     )
   );
