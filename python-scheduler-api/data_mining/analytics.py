@@ -6,8 +6,10 @@ from sqlalchemy.orm import joinedload
 from models import Reservation, Room
 
 
+# Fixed axes used by multiple chart datasets.
 DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 HOUR_LABELS = [f'{hour:02d}:00' for hour in range(6, 23)]
+# Lead-time buckets in days (date filed -> event start).
 LEAD_TIME_BUCKETS = [
     ('0-1 day', 0, 1),
     ('2-3 days', 2, 3),
@@ -19,20 +21,24 @@ LEAD_TIME_BUCKETS = [
 
 
 def _safe_pct(numerator, denominator):
+    # Guard against division-by-zero when there are no reservations.
     if not denominator:
         return 0.0
     return round((numerator / denominator) * 100.0, 2)
 
 
 def _format_status(status):
+    # Normalize raw status values to consistent display labels.
     return (status or 'unknown').replace('-', ' ').title()
 
 
 def _format_month_label(month_key):
+    # Convert YYYY-MM into dashboard label format (e.g., Mar 2026).
     return datetime.strptime(month_key, '%Y-%m').strftime('%b %Y')
 
 
 def _last_month_keys(months):
+    # Build chronological month keys ending at current month.
     now = datetime.now()
     month_keys = []
     for offset in range(months - 1, -1, -1):
@@ -46,6 +52,7 @@ def _last_month_keys(months):
 
 
 def _normalize_department(reservation):
+    # Standardize department values so grouping remains stable.
     requester = getattr(reservation, 'requester', None)
     if requester and requester.department:
         return requester.department.strip().title()
@@ -53,6 +60,7 @@ def _normalize_department(reservation):
 
 
 def _iter_hour_slots(start_time, end_time):
+    # Yield hourly slots occupied by a reservation, bounded to dashboard hours.
     if not start_time or not end_time or end_time <= start_time:
         return
 
@@ -64,6 +72,7 @@ def _iter_hour_slots(start_time, end_time):
 
 
 def _bucket_lead_time(days):
+    # Map numeric lead-time into configured bucket label.
     for label, min_days, max_days in LEAD_TIME_BUCKETS:
         if max_days is None and days >= min_days:
             return label
@@ -74,9 +83,11 @@ def _bucket_lead_time(days):
 
 def build_analytics_snapshot(months=6):
     """Build KPI and chart datasets for the admin analytics dashboard."""
+    # Eager-load requester to avoid N+1 queries while aggregating departments.
     reservations = Reservation.query.options(joinedload(Reservation.requester)).all()
     room_lookup = {room.id: room.name for room in Room.query.all()}
 
+    # Accumulators used to compute KPI values and chart series in one pass.
     total = len(reservations)
     status_counter = Counter()
     room_counter = Counter()
@@ -87,6 +98,7 @@ def build_analytics_snapshot(months=6):
     lead_time_values = []
     heatmap_counts = {day: {hour: 0 for hour in HOUR_LABELS} for day in DAY_LABELS}
 
+    # Single-pass aggregation over reservations for all dashboard widgets.
     for reservation in reservations:
         status_counter[_format_status(reservation.status)] += 1
 
@@ -100,10 +112,12 @@ def build_analytics_snapshot(months=6):
 
         department_counter[_normalize_department(reservation)] += 1
 
+        # Expand each reservation into occupied hour slots for heatmap density.
         if reservation.start_time and reservation.end_time:
             for weekday_index, hour in _iter_hour_slots(reservation.start_time, reservation.end_time) or []:
                 heatmap_counts[DAY_LABELS[weekday_index]][f'{hour:02d}:00'] += 1
 
+        # Lead time is measured as event start minus filing timestamp.
         if reservation.date_filed and reservation.start_time:
             lead_days = (reservation.start_time - reservation.date_filed).total_seconds() / 86400
             if lead_days >= 0:
@@ -114,6 +128,7 @@ def build_analytics_snapshot(months=6):
     top_rooms = room_counter.most_common(5)
     most_booked_venue, most_booked_venue_count = top_rooms[0] if top_rooms else ('No Data', 0)
 
+    # Find the day/hour slot with the highest heatmap count.
     peak_usage_time = 'No Data'
     peak_usage_count = 0
     for day in DAY_LABELS:
@@ -128,6 +143,7 @@ def build_analytics_snapshot(months=6):
     dominant_status, dominant_status_count = status_counter.most_common(1)[0] if total else ('No Data', 0)
     average_lead_time_days = round(sum(lead_time_values) / len(lead_time_values), 1) if lead_time_values else 0
 
+    # Keep status order stable to match frontend chart labels.
     status_values = [status_counter.get(label, 0) for label in ['Pending', 'Concept Approved', 'Approved', 'Denied', 'Deleted']]
     approval_rate = _safe_pct(status_counter.get('Approved', 0), total)
     denial_rate = _safe_pct(status_counter.get('Denied', 0), total)
@@ -136,6 +152,7 @@ def build_analytics_snapshot(months=6):
     monthly_labels = [_format_month_label(key) for key in month_keys]
     monthly_values = [monthly_counter.get(key, 0) for key in month_keys]
 
+    # Convert nested day/hour map into matrix expected by the heatmap UI.
     heatmap_matrix = [[heatmap_counts[day][hour] for hour in HOUR_LABELS] for day in DAY_LABELS]
     max_heatmap_value = max((max(row) for row in heatmap_matrix), default=0)
 
