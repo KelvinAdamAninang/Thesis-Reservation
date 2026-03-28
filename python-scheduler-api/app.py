@@ -577,7 +577,18 @@ def get_data_mining_analytics():
         return jsonify({'error': 'Admin access required'}), 403
 
     try:
-        payload = build_analytics_snapshot()
+        department = (request.args.get('department') or '').strip() or None
+        heatmap_month = (request.args.get('heatmap_month') or '').strip() or None
+        try:
+            months = int(request.args.get('months', 6))
+        except (TypeError, ValueError):
+            months = 6
+
+        payload = build_analytics_snapshot(
+            months=months,
+            department=department,
+            heatmap_month=heatmap_month,
+        )
         return jsonify({'status': 'success', 'data': payload})
     except Exception as e:
         app.logger.exception("Failed to build analytics snapshot")

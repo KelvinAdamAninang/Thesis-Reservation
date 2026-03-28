@@ -176,98 +176,18 @@ const apiService = {
     return response.json();
   },
 
-  async getDataMiningAnalytics() {
-    const response = await fetch(`${API_BASE}/data-mining/analytics`, { credentials: 'include' });
+  async getDataMiningAnalytics(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.department && filters.department !== 'All') params.set('department', filters.department);
+    if (filters.heatmapMonth && filters.heatmapMonth !== 'all') params.set('heatmap_month', filters.heatmapMonth);
+    const queryString = params.toString();
+    const endpoint = queryString ? `${API_BASE}/data-mining/analytics?${queryString}` : `${API_BASE}/data-mining/analytics`;
+
+    const response = await fetch(endpoint, { credentials: 'include' });
     if (!response.ok) throw new Error('Failed to fetch analytics');
     const payload = await response.json();
     if (payload.status !== 'success') throw new Error(payload.message || 'Analytics fetch failed');
     return payload.data;
-  },
-
-  async updateMyProfile(formData) {
-    const response = await fetch(`${API_BASE}/settings/profile`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(formData)
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || 'Failed to update profile');
-    return payload;
-  },
-
-  async updateMyPassword(formData) {
-    const response = await fetch(`${API_BASE}/settings/password`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(formData)
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || 'Failed to update password');
-    return payload;
-  },
-
-  async getAdminFacilities() {
-    const response = await fetch(`${API_BASE}/admin/facilities`, { credentials: 'include' });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || 'Failed to fetch facilities');
-    return payload;
-  },
-
-  async createFacility(formData) {
-    const response = await fetch(`${API_BASE}/admin/facilities`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(formData)
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || 'Failed to create facility');
-    return payload;
-  },
-
-  async updateFacility(id, formData) {
-    const response = await fetch(`${API_BASE}/admin/facilities/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(formData)
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || 'Failed to update facility');
-    return payload;
-  },
-
-  async getAdminUsers() {
-    const response = await fetch(`${API_BASE}/admin/users`, { credentials: 'include' });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || 'Failed to fetch users');
-    return payload;
-  },
-
-  async createAdminUser(formData) {
-    const response = await fetch(`${API_BASE}/admin/users`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(formData)
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || 'Failed to create user');
-    return payload;
-  },
-
-  async updateAdminUser(id, formData) {
-    const response = await fetch(`${API_BASE}/admin/users/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(formData)
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || 'Failed to update user');
-    return payload;
   }
 };
 
@@ -493,7 +413,6 @@ function App() {
         currentView === 'facilities' && React.createElement(FacilitiesView, { rooms, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
         currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at && r.user_id !== currentUser.id), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
         currentView === 'analytics' && isAdminOrPhase1 && React.createElement(AnalyticsView, { reservations }),
-        currentView === 'settings' && React.createElement(SettingsView, { user: currentUser, isAdmin: isAdminOrPhase1, onUserUpdated: setCurrentUser }),
         currentView === 'archive' && React.createElement(ArchiveView, { archive, user: currentUser, isAdmin: isAdminOrPhase1, onDelete: async (id) => { if (window.confirm('Delete?')) { await apiService.deleteReservation(id); setReservations(reservations.filter(r => r.id !== id)); } } })
       )
     ),
@@ -641,7 +560,6 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin, mobileMenuOpen
         React.createElement(NavBtn, { id: 'reservations', label: '📋 Requests' }), 
         React.createElement(NavBtn, { id: 'analytics', label: '📈 Analytics' })
       ),
-      React.createElement(NavBtn, { id: 'settings', label: '⚙️ Settings' }),
       React.createElement(NavBtn, { id: 'archive', label: '📦 Archive' })
     ),
     React.createElement('div', { className: 'pt-6 border-t flex items-center gap-3' },
@@ -1580,7 +1498,7 @@ function ProfileModal({ user, onClose, onLogout }) {
   );
 }
 
-function ChartCanvas({ type, data, options, onElementClick }) {
+function ChartCanvas({ type, data, options }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
 
@@ -1592,24 +1510,10 @@ function ChartCanvas({ type, data, options, onElementClick }) {
       chartRef.current = null;
     }
 
-    const mergedOptions = {
-      ...(options || {}),
-      onClick: (event, elements, chart) => {
-        if (!onElementClick || !elements || elements.length === 0) return;
-        const index = elements[0].index;
-        const datasetIndex = elements[0].datasetIndex || 0;
-        const label = chart?.data?.labels?.[index];
-        const value = chart?.data?.datasets?.[datasetIndex]?.data?.[index];
-        if (label !== undefined && value !== undefined) {
-          onElementClick({ label, value, chartType: type });
-        }
-      }
-    };
-
     chartRef.current = new window.Chart(canvasRef.current, {
       type,
       data,
-      options: mergedOptions
+      options
     });
 
     return () => {
@@ -1618,26 +1522,26 @@ function ChartCanvas({ type, data, options, onElementClick }) {
         chartRef.current = null;
       }
     };
-  }, [type, JSON.stringify(data), JSON.stringify(options), onElementClick]);
+  }, [type, JSON.stringify(data), JSON.stringify(options)]);
 
   return React.createElement('div', { className: 'h-[300px]' },
     React.createElement('canvas', { ref: canvasRef })
   );
 }
 
-function AnalyticsKpiCard({ label, value, detail, onClick, isActive }) {
-  return React.createElement('button', {
-    type: 'button',
-    onClick,
-    className: `text-left bg-white border rounded-3xl p-5 shadow-sm transition w-full ${isActive ? 'border-emerald-400 ring-2 ring-emerald-200' : 'hover:border-amber-200 hover:shadow-md'}`
+function AnalyticsKpiCard({ label, value, detail, onClick, children }) {
+  return React.createElement('div', {
+    className: `bg-white border rounded-3xl p-5 shadow-sm ${onClick ? 'cursor-pointer hover:border-sky-300 transition' : ''}`,
+    onClick
   },
     React.createElement('p', { className: 'text-xs font-bold uppercase tracking-wider text-slate-400 mb-3' }, label),
     React.createElement('p', { className: 'text-2xl font-bold text-slate-800 leading-tight break-words' }, value),
-    React.createElement('p', { className: 'text-sm text-slate-500 mt-2' }, detail)
+    React.createElement('p', { className: 'text-sm text-slate-500 mt-2' }, detail),
+    children
   );
 }
 
-function HeatmapChart({ data, onCellClick, activeCell }) {
+function HeatmapChart({ data }) {
   const days = data?.days || [];
   const hours = data?.hours || [];
   const values = data?.values || [];
@@ -1647,7 +1551,7 @@ function HeatmapChart({ data, onCellClick, activeCell }) {
     if (!maxValue || !value) return { backgroundColor: '#f8fafc', color: '#94a3b8' };
     const alpha = 0.2 + (value / maxValue) * 0.8;
     return {
-      backgroundColor: `rgba(249, 115, 22, ${alpha.toFixed(2)})`,
+      backgroundColor: `rgba(14, 165, 233, ${alpha.toFixed(2)})`,
       color: value / maxValue > 0.55 ? '#ffffff' : '#0f172a'
     };
   };
@@ -1664,21 +1568,18 @@ function HeatmapChart({ data, onCellClick, activeCell }) {
           React.createElement('div', { key: `${day}-label`, className: 'text-xs font-semibold text-slate-600 px-2 py-2' }, day),
           ...hours.map((hour, hourIndex) => {
             const cellValue = values?.[dayIndex]?.[hourIndex] || 0;
-            const cellKey = `${day} ${hour}`;
-            const isActive = activeCell && activeCell.label === cellKey;
             return React.createElement('div', {
               key: `${day}-${hour}`,
-              className: `h-10 rounded-lg flex items-center justify-center text-[11px] font-bold border border-white/60 cursor-pointer transition ${isActive ? 'ring-2 ring-orange-500 scale-[1.02]' : 'hover:scale-[1.02]'}`,
+              className: 'h-10 rounded-lg flex items-center justify-center text-[11px] font-bold border border-white/60',
               style: getCellStyle(cellValue),
-              title: `${day} ${hour}: ${cellValue} reservation slot${cellValue === 1 ? '' : 's'}`,
-              onClick: () => onCellClick && onCellClick({ label: cellKey, value: cellValue, chartType: 'heatmap' })
+              title: `${day} ${hour}: ${cellValue} reservation slot${cellValue === 1 ? '' : 's'}`
             }, cellValue);
           })
         ])
       ),
       React.createElement('div', { className: 'flex items-center justify-end gap-3 mt-4 text-xs text-slate-500' },
         React.createElement('span', {}, 'Lower activity'),
-        React.createElement('div', { className: 'w-28 h-3 rounded-full bg-gradient-to-r from-slate-100 to-orange-500' }),
+        React.createElement('div', { className: 'w-28 h-3 rounded-full bg-gradient-to-r from-slate-100 to-sky-500' }),
         React.createElement('span', {}, 'Higher activity')
       )
     )
@@ -1689,7 +1590,17 @@ function AnalyticsView({ reservations }) {
   const [analytics, setAnalytics] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const [analyticsError, setAnalyticsError] = useState('');
-  const [activeInsight, setActiveInsight] = useState(null);
+  const [selectedDepartment, setSelectedDepartment] = useState('All');
+  const [selectedHeatmapMonth, setSelectedHeatmapMonth] = useState('all');
+  const [showDepartmentPicker, setShowDepartmentPicker] = useState(false);
+
+  const formatMonthOption = (monthKey) => {
+    if (!monthKey || monthKey === 'all') return 'All Months';
+    const [year, month] = monthKey.split('-');
+    const parsed = new Date(Number(year), Number(month) - 1, 1);
+    if (Number.isNaN(parsed.getTime())) return monthKey;
+    return parsed.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -1697,8 +1608,18 @@ function AnalyticsView({ reservations }) {
       setLoadingAnalytics(true);
       setAnalyticsError('');
       try {
-        const data = await apiService.getDataMiningAnalytics();
-        if (isMounted) setAnalytics(data);
+        const data = await apiService.getDataMiningAnalytics({
+          department: selectedDepartment,
+          heatmapMonth: selectedHeatmapMonth
+        });
+        if (isMounted) {
+          setAnalytics(data);
+
+          const serverDepartment = data?.filters?.selected_department || 'All';
+          const serverHeatmapMonth = data?.filters?.selected_heatmap_month || 'all';
+          setSelectedDepartment(prev => prev === serverDepartment ? prev : serverDepartment);
+          setSelectedHeatmapMonth(prev => prev === serverHeatmapMonth ? prev : serverHeatmapMonth);
+        }
       } catch (err) {
         if (isMounted) setAnalyticsError(err.message || 'Failed to load analytics data');
       } finally {
@@ -1707,307 +1628,172 @@ function AnalyticsView({ reservations }) {
     })();
 
     return () => { isMounted = false; };
-  }, [reservations.length]);
+  }, [reservations.length, selectedDepartment, selectedHeatmapMonth]);
 
-  const baseCharts = analytics?.charts || {
+  const fallback = {
+    total_reservations: reservations.length,
+    most_booked_venue: 'No Data',
+    most_booked_venue_count: 0,
+    peak_usage_time: 'No Data',
+    peak_usage_count: 0,
+    busiest_day: 'No Data',
+    busiest_day_count: 0,
+    top_department: 'No Data',
+    top_department_count: 0,
+    dominant_status: 'No Data',
+    dominant_status_count: 0,
+    average_lead_time_days: 0,
+    lead_time_samples: 0
+  };
+
+  const kpis = analytics?.kpis || fallback;
+  const filters = analytics?.filters || {
+    departments: ['All'],
+    selected_department: selectedDepartment,
+    heatmap_months: ['all'],
+    selected_heatmap_month: selectedHeatmapMonth,
+    selected_heatmap_month_label: formatMonthOption(selectedHeatmapMonth)
+  };
+  const charts = analytics?.charts || {
     top_venues: { labels: [], values: [] },
-    peak_usage_heatmap: { days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], hours: [], values: [], max_value: 0 },
+    peak_usage_heatmap: { days: [], hours: [], values: [], max_value: 0 },
     reservations_over_time: { labels: [], values: [] },
-    events_by_day_of_week: { labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], values: [] },
+    events_by_day_of_week: { labels: [], values: [] },
     reservations_by_department: { labels: [], values: [] },
-    booking_status_overview: { labels: ['Pending', 'Concept Approved', 'Approved', 'Denied', 'Deleted'], values: [] },
-    average_lead_time_histogram: { labels: ['0-1 day', '2-3 days', '4-7 days', '8-14 days', '15-30 days', '31+ days'], values: [] }
-  };
-
-  const dayLabels = baseCharts.events_by_day_of_week.labels.length ? baseCharts.events_by_day_of_week.labels : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const hourLabels = baseCharts.peak_usage_heatmap.hours.length ? baseCharts.peak_usage_heatmap.hours : ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00'];
-  const monthLabels = baseCharts.reservations_over_time.labels || [];
-  const leadBucketLabels = baseCharts.average_lead_time_histogram.labels.length ? baseCharts.average_lead_time_histogram.labels : ['0-1 day', '2-3 days', '4-7 days', '8-14 days', '15-30 days', '31+ days'];
-  const statusLabels = ['Pending', 'Concept Approved', 'Approved', 'Denied', 'Deleted'];
-
-  const toStatusLabel = (statusCode) => (statusCode || 'unknown').replace('-', ' ').replace(/\b\w/g, c => c.toUpperCase());
-  const normalizeText = (value) => (value || '').toString().trim().toLowerCase();
-  const toDayLabel = (iso) => {
-    if (!iso) return null;
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return null;
-    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
-  };
-  const toMonthLabel = (iso) => {
-    if (!iso) return null;
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return null;
-    return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-  };
-  const toLeadDays = (dateFiledIso, startIso) => {
-    if (!dateFiledIso || !startIso) return null;
-    const filed = new Date(dateFiledIso);
-    const start = new Date(startIso);
-    if (Number.isNaN(filed.getTime()) || Number.isNaN(start.getTime())) return null;
-    const diff = (start - filed) / (1000 * 60 * 60 * 24);
-    return diff >= 0 ? diff : null;
-  };
-  const leadBucket = (days) => {
-    if (days == null) return null;
-    if (days <= 1) return '0-1 day';
-    if (days <= 3) return '2-3 days';
-    if (days <= 7) return '4-7 days';
-    if (days <= 14) return '8-14 days';
-    if (days <= 30) return '15-30 days';
-    return '31+ days';
-  };
-  const overlapsDayHour = (reservation, dayHourLabel) => {
-    const [targetDay, targetHour] = (dayHourLabel || '').split(' ');
-    if (!targetDay || !targetHour || !reservation.start_time || !reservation.end_time) return false;
-    const start = new Date(reservation.start_time);
-    const end = new Date(reservation.end_time);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return false;
-    const current = new Date(start);
-    current.setMinutes(0, 0, 0);
-    while (current < end) {
-      const d = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][current.getDay()];
-      const h = `${String(current.getHours()).padStart(2, '0')}:00`;
-      if (d === targetDay && h === targetHour) return true;
-      current.setHours(current.getHours() + 1);
-    }
-    return false;
-  };
-
-  const insightToFilter = (insight) => {
-    if (!insight) return null;
-    if (insight.source === 'KPI' && insight.label === 'Most Booked Venue') return { type: 'venue', value: analytics?.kpis?.most_booked_venue };
-    if (insight.source === 'KPI' && insight.label === 'Peak Usage Time') return { type: 'dayHour', value: analytics?.kpis?.peak_usage_time };
-    if (insight.source === 'KPI' && insight.label === 'Busiest Day') return { type: 'day', value: analytics?.kpis?.busiest_day };
-    if (insight.source === 'KPI' && insight.label === 'Top Department') return { type: 'department', value: analytics?.kpis?.top_department };
-    if (insight.source === 'KPI' && insight.label === 'Booking Status Leader') return { type: 'status', value: analytics?.kpis?.dominant_status };
-    if (insight.source === 'KPI' && insight.label === 'Average Lead Time') return { type: 'leadDaysMin', value: analytics?.kpis?.average_lead_time_days || 0 };
-    if (insight.source === 'Most Booked Venues') return { type: 'venue', value: insight.label };
-    if (insight.source === 'Peak Usage Heatmap') return { type: 'dayHour', value: insight.label };
-    if (insight.source === 'Reservations Over Time') return { type: 'month', value: insight.label };
-    if (insight.source === 'Events by Day') return { type: 'day', value: insight.label };
-    if (insight.source === 'Reservations by Department') return { type: 'department', value: insight.label };
-    if (insight.source === 'Booking Status Overview') return { type: 'status', value: insight.label };
-    if (insight.source === 'Lead Time Histogram') return { type: 'leadBucket', value: insight.label };
-    return null;
-  };
-
-  const filter = insightToFilter(activeInsight);
-  const filteredReservations = !filter ? reservations : reservations.filter(r => {
-    if (filter.type === 'venue') return normalizeText(r.room_name || 'Unknown') === normalizeText(filter.value);
-    if (filter.type === 'department') return normalizeText(r.department || 'Unknown') === normalizeText(filter.value);
-    if (filter.type === 'status') return normalizeText(toStatusLabel(r.status)) === normalizeText(filter.value);
-    if (filter.type === 'day') return toDayLabel(r.start_time) === filter.value;
-    if (filter.type === 'month') return toMonthLabel(r.start_time) === filter.value;
-    if (filter.type === 'dayHour') return overlapsDayHour(r, filter.value);
-    if (filter.type === 'leadBucket') return leadBucket(toLeadDays(r.date_filed, r.start_time)) === filter.value;
-    if (filter.type === 'leadDaysMin') {
-      const ld = toLeadDays(r.date_filed, r.start_time);
-      return ld != null && ld >= filter.value;
-    }
-    return true;
-  });
-
-  const roomCount = {};
-  const dayCount = Object.fromEntries(dayLabels.map(d => [d, 0]));
-  const deptCount = {};
-  const statusCount = Object.fromEntries(statusLabels.map(s => [s, 0]));
-  const monthCount = Object.fromEntries(monthLabels.map(m => [m, 0]));
-  const leadCount = Object.fromEntries(leadBucketLabels.map(b => [b, 0]));
-  const heatmap = dayLabels.map(() => hourLabels.map(() => 0));
-  const leadSamples = [];
-
-  filteredReservations.forEach(r => {
-    const roomName = r.room_name || 'Unknown';
-    roomCount[roomName] = (roomCount[roomName] || 0) + 1;
-
-    const d = toDayLabel(r.start_time);
-    if (d && dayCount[d] != null) dayCount[d] += 1;
-
-    const dept = r.department || 'Unknown';
-    deptCount[dept] = (deptCount[dept] || 0) + 1;
-
-    const s = toStatusLabel(r.status);
-    if (statusCount[s] != null) statusCount[s] += 1;
-
-    const m = toMonthLabel(r.start_time);
-    if (m && monthCount[m] != null) monthCount[m] += 1;
-
-    const ld = toLeadDays(r.date_filed, r.start_time);
-    const lb = leadBucket(ld);
-    if (lb && leadCount[lb] != null) leadCount[lb] += 1;
-    if (ld != null) leadSamples.push(ld);
-
-    if (r.start_time && r.end_time) {
-      const start = new Date(r.start_time);
-      const end = new Date(r.end_time);
-      if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && end > start) {
-        const current = new Date(start);
-        current.setMinutes(0, 0, 0);
-        while (current < end) {
-          const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][current.getDay()];
-          const hour = `${String(current.getHours()).padStart(2, '0')}:00`;
-          const di = dayLabels.indexOf(day);
-          const hi = hourLabels.indexOf(hour);
-          if (di >= 0 && hi >= 0) heatmap[di][hi] += 1;
-          current.setHours(current.getHours() + 1);
-        }
-      }
-    }
-  });
-
-  const topRooms = Object.entries(roomCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  const topDept = Object.entries(deptCount).sort((a, b) => b[1] - a[1])[0] || ['No Data', 0];
-  const dominantStatus = Object.entries(statusCount).sort((a, b) => b[1] - a[1])[0] || ['No Data', 0];
-  const busiestDay = Object.entries(dayCount).sort((a, b) => b[1] - a[1])[0] || ['No Data', 0];
-
-  let peakUsageTime = 'No Data';
-  let peakUsageCount = 0;
-  heatmap.forEach((row, di) => {
-    row.forEach((val, hi) => {
-      if (val > peakUsageCount) {
-        peakUsageCount = val;
-        peakUsageTime = `${dayLabels[di]} ${hourLabels[hi]}`;
-      }
-    });
-  });
-
-  const displayKpis = {
-    most_booked_venue: topRooms[0]?.[0] || 'No Data',
-    most_booked_venue_count: topRooms[0]?.[1] || 0,
-    peak_usage_time: peakUsageTime,
-    peak_usage_count: peakUsageCount,
-    busiest_day: busiestDay[0],
-    busiest_day_count: busiestDay[1],
-    top_department: topDept[0],
-    top_department_count: topDept[1],
-    dominant_status: dominantStatus[0],
-    dominant_status_count: dominantStatus[1],
-    average_lead_time_days: leadSamples.length ? (leadSamples.reduce((a, b) => a + b, 0) / leadSamples.length).toFixed(1) : 0,
-    lead_time_samples: leadSamples.length
-  };
-
-  const displayCharts = {
-    top_venues: { labels: topRooms.map(r => r[0]), values: topRooms.map(r => r[1]) },
-    peak_usage_heatmap: {
-      days: dayLabels,
-      hours: hourLabels,
-      values: heatmap,
-      max_value: Math.max(0, ...heatmap.flat())
-    },
-    reservations_over_time: { labels: monthLabels, values: monthLabels.map(m => monthCount[m] || 0) },
-    events_by_day_of_week: { labels: dayLabels, values: dayLabels.map(d => dayCount[d] || 0) },
-    reservations_by_department: {
-      labels: Object.keys(deptCount),
-      values: Object.keys(deptCount).map(k => deptCount[k])
-    },
-    booking_status_overview: { labels: statusLabels, values: statusLabels.map(s => statusCount[s] || 0) },
-    average_lead_time_histogram: { labels: leadBucketLabels, values: leadBucketLabels.map(b => leadCount[b] || 0) }
+    booking_status_overview: { labels: [], values: [] },
+    average_lead_time_histogram: { labels: [], values: [] }
   };
 
   const topVenuesChartData = {
-    labels: displayCharts.top_venues.labels,
-    datasets: [{ label: 'Reservations', data: displayCharts.top_venues.values, backgroundColor: '#f97316', borderRadius: 10 }]
+    labels: charts.top_venues.labels,
+    datasets: [{
+      label: 'Reservations',
+      data: charts.top_venues.values,
+      backgroundColor: '#0ea5e9',
+      borderRadius: 10
+    }]
   };
 
   const reservationsOverTimeChartData = {
-    labels: displayCharts.reservations_over_time.labels,
+    labels: charts.reservations_over_time.labels,
     datasets: [{
-      label: 'Reservations', data: displayCharts.reservations_over_time.values,
-      borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.2)', tension: 0.35, fill: true, pointRadius: 3
+      label: 'Reservations',
+      data: charts.reservations_over_time.values,
+      borderColor: '#0284c7',
+      backgroundColor: 'rgba(14,165,233,0.18)',
+      tension: 0.35,
+      fill: true,
+      pointRadius: 3
     }]
   };
 
   const dayOfWeekChartData = {
-    labels: displayCharts.events_by_day_of_week.labels,
+    labels: charts.events_by_day_of_week.labels,
     datasets: [{
-      label: 'Events', data: displayCharts.events_by_day_of_week.values,
-      backgroundColor: 'rgba(168, 85, 247, 0.18)', borderColor: '#7c3aed', pointBackgroundColor: '#f59e0b', pointBorderColor: '#ffffff'
+      label: 'Events',
+      data: charts.events_by_day_of_week.values,
+      backgroundColor: 'rgba(56, 189, 248, 0.2)',
+      borderColor: '#0369a1',
+      pointBackgroundColor: '#0ea5e9',
+      pointBorderColor: '#ffffff'
     }]
   };
 
   const departmentChartData = {
-    labels: displayCharts.reservations_by_department.labels,
-    datasets: [{ data: displayCharts.reservations_by_department.values, backgroundColor: ['#f97316', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#84cc16'], borderWidth: 0 }]
+    labels: charts.reservations_by_department.labels,
+    datasets: [{
+      data: charts.reservations_by_department.values,
+      backgroundColor: ['#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#64748b'],
+      borderWidth: 0
+    }]
   };
 
   const statusOverviewChartData = {
-    labels: displayCharts.booking_status_overview.labels,
-    datasets: [{ data: displayCharts.booking_status_overview.values, backgroundColor: ['#facc15', '#a78bfa', '#22c55e', '#ef4444', '#94a3b8'], borderWidth: 0 }]
+    labels: charts.booking_status_overview.labels,
+    datasets: [{
+      data: charts.booking_status_overview.values,
+      backgroundColor: ['#facc15', '#60a5fa', '#22c55e', '#ef4444', '#94a3b8'],
+      borderWidth: 0
+    }]
   };
 
   const leadTimeChartData = {
-    labels: displayCharts.average_lead_time_histogram.labels,
-    datasets: [{ label: 'Reservations', data: displayCharts.average_lead_time_histogram.values, backgroundColor: '#eab308', borderRadius: 8, barPercentage: 0.9, categoryPercentage: 0.9 }]
+    labels: charts.average_lead_time_histogram.labels,
+    datasets: [{
+      label: 'Reservations',
+      data: charts.average_lead_time_histogram.values,
+      backgroundColor: '#f97316',
+      borderRadius: 8,
+      barPercentage: 0.9,
+      categoryPercentage: 0.9
+    }]
   };
 
   if (loadingAnalytics) {
     return React.createElement('div', { className: 'bg-white border rounded-3xl p-8 text-center text-slate-500' }, 'Loading analytics...');
   }
 
-  const summaryText = activeInsight
-    ? `${activeInsight.source}: ${activeInsight.label} (${activeInsight.value})`
-    : 'Click a KPI card, chart element, or heatmap cell to filter all analytics.';
-
   return React.createElement('div', { className: 'space-y-6' },
     analyticsError && React.createElement('div', { className: 'bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-xl text-sm' },
       'Showing fallback metrics. ', analyticsError
     ),
 
-    React.createElement('div', { className: 'bg-white border rounded-2xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3' },
-      React.createElement('div', {},
-        React.createElement('p', { className: 'text-xs font-bold uppercase tracking-wider text-slate-400' }, 'Interactive Selection'),
-        React.createElement('p', { className: 'text-sm text-slate-700 mt-1' }, summaryText),
-        React.createElement('p', { className: 'text-xs text-slate-500 mt-1' }, `Showing ${filteredReservations.length} of ${reservations.length} reservations`)
-      ),
-      activeInsight && React.createElement('button', {
-        type: 'button',
-        onClick: () => setActiveInsight(null),
-        className: 'px-4 py-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 text-sm font-semibold'
-      }, 'Clear Selection')
-    ),
-
     React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4' },
       React.createElement(AnalyticsKpiCard, {
         label: 'Most Booked Venue',
-        value: displayKpis.most_booked_venue || 'No Data',
-        detail: `${displayKpis.most_booked_venue_count || 0} reservations`,
-        isActive: activeInsight?.source === 'KPI' && activeInsight?.label === 'Most Booked Venue',
-        onClick: () => setActiveInsight({ source: 'KPI', label: 'Most Booked Venue', value: `${displayKpis.most_booked_venue || 'No Data'} (${displayKpis.most_booked_venue_count || 0})` })
+        value: kpis.most_booked_venue || 'No Data',
+        detail: `${kpis.most_booked_venue_count || 0} reservations`
       }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Peak Usage Time',
-        value: displayKpis.peak_usage_time || 'No Data',
-        detail: `${displayKpis.peak_usage_count || 0} occupied slots`,
-        isActive: activeInsight?.source === 'KPI' && activeInsight?.label === 'Peak Usage Time',
-        onClick: () => setActiveInsight({ source: 'KPI', label: 'Peak Usage Time', value: `${displayKpis.peak_usage_time || 'No Data'} (${displayKpis.peak_usage_count || 0})` })
+        value: kpis.peak_usage_time || 'No Data',
+        detail: `${kpis.peak_usage_count || 0} occupied slots`
       }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Busiest Day',
-        value: displayKpis.busiest_day || 'No Data',
-        detail: `${displayKpis.busiest_day_count || 0} events`,
-        isActive: activeInsight?.source === 'KPI' && activeInsight?.label === 'Busiest Day',
-        onClick: () => setActiveInsight({ source: 'KPI', label: 'Busiest Day', value: `${displayKpis.busiest_day || 'No Data'} (${displayKpis.busiest_day_count || 0})` })
+        value: kpis.busiest_day || 'No Data',
+        detail: `${kpis.busiest_day_count || 0} events`
       }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Top Department',
-        value: displayKpis.top_department || 'No Data',
-        detail: `${displayKpis.top_department_count || 0} reservations`,
-        isActive: activeInsight?.source === 'KPI' && activeInsight?.label === 'Top Department',
-        onClick: () => setActiveInsight({ source: 'KPI', label: 'Top Department', value: `${displayKpis.top_department || 'No Data'} (${displayKpis.top_department_count || 0})` })
-      }),
+        value: selectedDepartment === 'All' ? (kpis.top_department || 'No Data') : selectedDepartment,
+        detail: selectedDepartment === 'All'
+          ? `${kpis.top_department_count || 0} reservations • Click to filter`
+          : `${kpis.top_department_count || 0} reservations • Filter active`,
+        onClick: () => setShowDepartmentPicker((prev) => !prev)
+      },
+        showDepartmentPicker && React.createElement('div', {
+          className: 'mt-4 border-t pt-3 space-y-2',
+          onClick: (e) => e.stopPropagation()
+        },
+          React.createElement('button', {
+            type: 'button',
+            onClick: () => {
+              setSelectedDepartment('All');
+              setShowDepartmentPicker(false);
+            },
+            className: `w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${selectedDepartment === 'All' ? 'bg-sky-100 text-sky-700' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`
+          }, 'Back to Top Department'),
+          (filters.departments || []).filter(dep => dep !== 'All').map(dep => React.createElement('button', {
+            key: dep,
+            type: 'button',
+            onClick: () => {
+              setSelectedDepartment(dep);
+              setShowDepartmentPicker(false);
+            },
+            className: `w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${selectedDepartment === dep ? 'bg-sky-100 text-sky-700' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`
+          }, dep))
+        )
+      ),
       React.createElement(AnalyticsKpiCard, {
         label: 'Booking Status Leader',
-        value: displayKpis.dominant_status || 'No Data',
-        detail: `${displayKpis.dominant_status_count || 0} records`,
-        isActive: activeInsight?.source === 'KPI' && activeInsight?.label === 'Booking Status Leader',
-        onClick: () => setActiveInsight({ source: 'KPI', label: 'Booking Status Leader', value: `${displayKpis.dominant_status || 'No Data'} (${displayKpis.dominant_status_count || 0})` })
+        value: kpis.dominant_status || 'No Data',
+        detail: `${kpis.dominant_status_count || 0} records`
       }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Average Lead Time',
-        value: `${displayKpis.average_lead_time_days || 0} days`,
-        detail: `${displayKpis.lead_time_samples || 0} reservations analyzed`,
-        isActive: activeInsight?.source === 'KPI' && activeInsight?.label === 'Average Lead Time',
-        onClick: () => setActiveInsight({ source: 'KPI', label: 'Average Lead Time', value: `${displayKpis.average_lead_time_days || 0} days` })
+        value: `${kpis.average_lead_time_days || 0} days`,
+        detail: `${kpis.lead_time_samples || 0} reservations analyzed`
       })
     ),
 
@@ -2017,7 +1803,6 @@ function AnalyticsView({ reservations }) {
         React.createElement(ChartCanvas, {
           type: 'bar',
           data: topVenuesChartData,
-          onElementClick: (payload) => setActiveInsight({ source: 'Most Booked Venues', ...payload }),
           options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -2027,12 +1812,21 @@ function AnalyticsView({ reservations }) {
         })
       ),
       React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Peak Usage Time Heatmap'),
-        React.createElement(HeatmapChart, {
-          data: displayCharts.peak_usage_heatmap,
-          activeCell: activeInsight?.chartType === 'heatmap' ? activeInsight : null,
-          onCellClick: (payload) => setActiveInsight({ source: 'Peak Usage Heatmap', ...payload })
-        })
+        React.createElement('div', { className: 'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4' },
+          React.createElement('h3', { className: 'font-bold text-slate-800' }, `Peak Usage Time Heatmap (${filters.selected_heatmap_month_label || 'All Months'})`),
+          React.createElement('select', {
+            value: selectedHeatmapMonth,
+            onChange: (e) => setSelectedHeatmapMonth(e.target.value),
+            className: 'border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 bg-white min-w-[170px]'
+          },
+            (filters.heatmap_months || ['all']).map(monthKey => React.createElement(
+              'option',
+              { key: monthKey, value: monthKey },
+              formatMonthOption(monthKey)
+            ))
+          )
+        ),
+        React.createElement(HeatmapChart, { data: charts.peak_usage_heatmap })
       )
     ),
 
@@ -2042,7 +1836,6 @@ function AnalyticsView({ reservations }) {
         React.createElement(ChartCanvas, {
           type: 'line',
           data: reservationsOverTimeChartData,
-          onElementClick: (payload) => setActiveInsight({ source: 'Reservations Over Time', ...payload }),
           options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -2056,7 +1849,6 @@ function AnalyticsView({ reservations }) {
         React.createElement(ChartCanvas, {
           type: 'radar',
           data: dayOfWeekChartData,
-          onElementClick: (payload) => setActiveInsight({ source: 'Events by Day', ...payload }),
           options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -2073,7 +1865,6 @@ function AnalyticsView({ reservations }) {
         React.createElement(ChartCanvas, {
           type: 'doughnut',
           data: departmentChartData,
-          onElementClick: (payload) => setActiveInsight({ source: 'Reservations by Department', ...payload }),
           options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -2086,7 +1877,6 @@ function AnalyticsView({ reservations }) {
         React.createElement(ChartCanvas, {
           type: 'pie',
           data: statusOverviewChartData,
-          onElementClick: (payload) => setActiveInsight({ source: 'Booking Status Overview', ...payload }),
           options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -2101,7 +1891,6 @@ function AnalyticsView({ reservations }) {
       React.createElement(ChartCanvas, {
         type: 'bar',
         data: leadTimeChartData,
-        onElementClick: (payload) => setActiveInsight({ source: 'Lead Time Histogram', ...payload }),
         options: {
           responsive: true,
           maintainAspectRatio: false,
@@ -2109,215 +1898,6 @@ function AnalyticsView({ reservations }) {
           scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
         }
       })
-    )
-  );
-}
-
-function SettingsView({ user, isAdmin, onUserUpdated }) {
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const [profileUsername, setProfileUsername] = useState(user.username || '');
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-
-  const [facilities, setFacilities] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [newFacility, setNewFacility] = useState({ code: '', name: '', capacity: '', description: '', usual_activity: '' });
-  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'student', department: '' });
-
-  const loadAdminData = async () => {
-    if (!isAdmin) return;
-    try {
-      const [fList, uList] = await Promise.all([apiService.getAdminFacilities(), apiService.getAdminUsers()]);
-      setFacilities(fList);
-      setUsers(uList);
-    } catch (e) {
-      setError(e.message);
-    }
-  };
-
-  useEffect(() => {
-    loadAdminData();
-  }, [isAdmin]);
-
-  const saveProfile = async () => {
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const res = await apiService.updateMyProfile({ username: profileUsername });
-      if (res.user) onUserUpdated(res.user);
-      setMessage('Profile updated.');
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const savePassword = async () => {
-    if (newPassword !== confirmPassword) {
-      setError('New password and confirmation do not match.');
-      return;
-    }
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      await apiService.updateMyPassword({ current_password: currentPassword, new_password: newPassword });
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-      setMessage('Password updated.');
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const addFacility = async () => {
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      await apiService.createFacility({ ...newFacility, capacity: Number(newFacility.capacity) || 0 });
-      setNewFacility({ code: '', name: '', capacity: '', description: '', usual_activity: '' });
-      await loadAdminData();
-      setMessage('Facility added.');
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const updateFacilityRow = async (row) => {
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      await apiService.updateFacility(row.id, { ...row, capacity: Number(row.capacity) || 0 });
-      setMessage('Facility updated.');
-      await loadAdminData();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const addUser = async () => {
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      await apiService.createAdminUser(newUser);
-      setNewUser({ username: '', password: '', role: 'student', department: '' });
-      await loadAdminData();
-      setMessage('User account created.');
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const updateUserRow = async (row) => {
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      await apiService.updateAdminUser(row.id, {
-        username: row.username,
-        role: row.role,
-        department: row.department,
-        password: row.tempPassword || ''
-      });
-      setMessage('User account updated.');
-      await loadAdminData();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return React.createElement('div', { className: 'space-y-6' },
-    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-      React.createElement('h3', { className: 'font-bold text-lg text-slate-800 mb-4' }, 'My Account Settings'),
-      React.createElement('div', { className: 'grid md:grid-cols-2 gap-4' },
-        React.createElement('div', { className: 'space-y-2' },
-          React.createElement('label', { className: 'text-xs font-bold uppercase text-slate-400' }, 'Username'),
-          React.createElement('input', { value: profileUsername, onChange: (e) => setProfileUsername(e.target.value), className: 'w-full p-2 border rounded-lg' }),
-          React.createElement('button', { onClick: saveProfile, disabled: busy, className: 'mt-2 px-4 py-2 rounded-lg bg-sky-500 text-white font-semibold disabled:opacity-50' }, 'Save Profile')
-        ),
-        React.createElement('div', { className: 'space-y-2' },
-          React.createElement('label', { className: 'text-xs font-bold uppercase text-slate-400' }, 'Change Password'),
-          React.createElement('input', { type: 'password', value: currentPassword, onChange: (e) => setCurrentPassword(e.target.value), placeholder: 'Current password', className: 'w-full p-2 border rounded-lg' }),
-          React.createElement('input', { type: 'password', value: newPassword, onChange: (e) => setNewPassword(e.target.value), placeholder: 'New password', className: 'w-full p-2 border rounded-lg' }),
-          React.createElement('input', { type: 'password', value: confirmPassword, onChange: (e) => setConfirmPassword(e.target.value), placeholder: 'Confirm new password', className: 'w-full p-2 border rounded-lg' }),
-          React.createElement('button', { onClick: savePassword, disabled: busy, className: 'mt-2 px-4 py-2 rounded-lg bg-slate-800 text-white font-semibold disabled:opacity-50' }, 'Update Password')
-        )
-      ),
-      message && React.createElement('p', { className: 'text-green-600 text-sm mt-3' }, message),
-      error && React.createElement('p', { className: 'text-red-600 text-sm mt-2' }, error)
-    ),
-
-    isAdmin && React.createElement('div', { className: 'space-y-6' },
-      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-        React.createElement('h3', { className: 'font-bold text-lg text-slate-800 mb-4' }, 'Admin: Facility Management'),
-        React.createElement('div', { className: 'grid md:grid-cols-5 gap-2 mb-3' },
-          React.createElement('input', { placeholder: 'Code', value: newFacility.code, onChange: (e) => setNewFacility({ ...newFacility, code: e.target.value }), className: 'p-2 border rounded-lg' }),
-          React.createElement('input', { placeholder: 'Name', value: newFacility.name, onChange: (e) => setNewFacility({ ...newFacility, name: e.target.value }), className: 'p-2 border rounded-lg' }),
-          React.createElement('input', { placeholder: 'Capacity', type: 'number', value: newFacility.capacity, onChange: (e) => setNewFacility({ ...newFacility, capacity: e.target.value }), className: 'p-2 border rounded-lg' }),
-          React.createElement('input', { placeholder: 'Description', value: newFacility.description, onChange: (e) => setNewFacility({ ...newFacility, description: e.target.value }), className: 'p-2 border rounded-lg' }),
-          React.createElement('input', { placeholder: 'Usual Activity', value: newFacility.usual_activity, onChange: (e) => setNewFacility({ ...newFacility, usual_activity: e.target.value }), className: 'p-2 border rounded-lg' })
-        ),
-        React.createElement('button', { onClick: addFacility, disabled: busy, className: 'mb-4 px-4 py-2 rounded-lg bg-sky-500 text-white font-semibold disabled:opacity-50' }, 'Add Facility'),
-        React.createElement('div', { className: 'space-y-2' },
-          facilities.map((f, idx) => React.createElement('div', { key: f.id, className: 'grid md:grid-cols-6 gap-2 p-2 bg-slate-50 rounded-lg border' },
-            React.createElement('input', { value: f.code || '', onChange: (e) => setFacilities(facilities.map((r, i) => i === idx ? { ...r, code: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
-            React.createElement('input', { value: f.name || '', onChange: (e) => setFacilities(facilities.map((r, i) => i === idx ? { ...r, name: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
-            React.createElement('input', { type: 'number', value: f.capacity || 0, onChange: (e) => setFacilities(facilities.map((r, i) => i === idx ? { ...r, capacity: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
-            React.createElement('input', { value: f.description || '', onChange: (e) => setFacilities(facilities.map((r, i) => i === idx ? { ...r, description: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
-            React.createElement('input', { value: f.usual_activity || '', onChange: (e) => setFacilities(facilities.map((r, i) => i === idx ? { ...r, usual_activity: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
-            React.createElement('button', { onClick: () => updateFacilityRow(f), disabled: busy, className: 'px-3 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold disabled:opacity-50' }, 'Save')
-          ))
-        )
-      ),
-
-      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-        React.createElement('h3', { className: 'font-bold text-lg text-slate-800 mb-4' }, 'Admin: User Account Management'),
-        React.createElement('div', { className: 'grid md:grid-cols-5 gap-2 mb-3' },
-          React.createElement('input', { placeholder: 'Username', value: newUser.username, onChange: (e) => setNewUser({ ...newUser, username: e.target.value }), className: 'p-2 border rounded-lg' }),
-          React.createElement('input', { placeholder: 'Password', type: 'password', value: newUser.password, onChange: (e) => setNewUser({ ...newUser, password: e.target.value }), className: 'p-2 border rounded-lg' }),
-          React.createElement('select', { value: newUser.role, onChange: (e) => setNewUser({ ...newUser, role: e.target.value }), className: 'p-2 border rounded-lg' },
-            React.createElement('option', { value: 'student' }, 'student'),
-            React.createElement('option', { value: 'admin_phase1' }, 'admin_phase1'),
-            React.createElement('option', { value: 'admin' }, 'admin')
-          ),
-          React.createElement('input', { placeholder: 'Department', value: newUser.department, onChange: (e) => setNewUser({ ...newUser, department: e.target.value }), className: 'p-2 border rounded-lg' }),
-          React.createElement('button', { onClick: addUser, disabled: busy, className: 'px-4 py-2 rounded-lg bg-sky-500 text-white font-semibold disabled:opacity-50' }, 'Create User')
-        ),
-        React.createElement('div', { className: 'space-y-2' },
-          users.map((u, idx) => React.createElement('div', { key: u.id, className: 'grid md:grid-cols-6 gap-2 p-2 bg-slate-50 rounded-lg border' },
-            React.createElement('input', { value: u.username || '', onChange: (e) => setUsers(users.map((r, i) => i === idx ? { ...r, username: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
-            React.createElement('select', { value: u.role || 'student', onChange: (e) => setUsers(users.map((r, i) => i === idx ? { ...r, role: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' },
-              React.createElement('option', { value: 'student' }, 'student'),
-              React.createElement('option', { value: 'admin_phase1' }, 'admin_phase1'),
-              React.createElement('option', { value: 'admin' }, 'admin')
-            ),
-            React.createElement('input', { value: u.department || '', onChange: (e) => setUsers(users.map((r, i) => i === idx ? { ...r, department: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
-            React.createElement('input', { placeholder: 'New password (optional)', type: 'password', value: u.tempPassword || '', onChange: (e) => setUsers(users.map((r, i) => i === idx ? { ...r, tempPassword: e.target.value } : r)), className: 'p-2 border rounded-lg text-sm' }),
-            React.createElement('div', { className: 'text-xs text-slate-500 flex items-center' }, `ID: ${u.id}`),
-            React.createElement('button', { onClick: () => updateUserRow(u), disabled: busy, className: 'px-3 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold disabled:opacity-50' }, 'Save')
-          ))
-        )
-      )
     )
   );
 }

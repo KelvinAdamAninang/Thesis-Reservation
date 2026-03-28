@@ -59,6 +59,11 @@ def _normalize_department(reservation):
     return 'Unknown'
 
 
+def _normalize_department_value(value):
+    # Normalize incoming department filter values to match grouped labels.
+    return (value or '').strip().title()
+
+
 def _iter_hour_slots(start_time, end_time):
     # Yield hourly slots occupied by a reservation, bounded to dashboard hours.
     if not start_time or not end_time or end_time <= start_time:
@@ -81,10 +86,38 @@ def _bucket_lead_time(days):
     return 'Unknown'
 
 
-def build_analytics_snapshot(months=6):
+def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
     """Build KPI and chart datasets for the admin analytics dashboard."""
     # Eager-load requester to avoid N+1 queries while aggregating departments.
-    reservations = Reservation.query.options(joinedload(Reservation.requester)).all()
+    all_reservations = Reservation.query.options(joinedload(Reservation.requester)).all()
+
+    available_departments = sorted({
+        _normalize_department(reservation)
+        for reservation in all_reservations
+    })
+
+    department_filter = _normalize_department_value(department)
+    if department_filter and department_filter.lower() != 'all':
+        reservations = [
+            reservation
+            for reservation in all_reservations
+            if _normalize_department(reservation) == department_filter
+        ]
+    else:
+        department_filter = 'All'
+        reservations = all_reservations
+
+    available_heatmap_month_keys = sorted({
+        reservation.start_time.strftime('%Y-%m')
+        for reservation in reservations
+        if reservation.start_time
+    }, reverse=True)
+
+    if heatmap_month and heatmap_month in available_heatmap_month_keys:
+        selected_heatmap_month = heatmap_month
+    else:
+        selected_heatmap_month = 'all'
+
     room_lookup = {room.id: room.name for room in Room.query.all()}
 
     # Accumulators used to compute KPI values and chart series in one pass.
@@ -114,8 +147,13 @@ def build_analytics_snapshot(months=6):
 
         # Expand each reservation into occupied hour slots for heatmap density.
         if reservation.start_time and reservation.end_time:
-            for weekday_index, hour in _iter_hour_slots(reservation.start_time, reservation.end_time) or []:
-                heatmap_counts[DAY_LABELS[weekday_index]][f'{hour:02d}:00'] += 1
+            include_in_heatmap = (
+                selected_heatmap_month == 'all' or
+                reservation.start_time.strftime('%Y-%m') == selected_heatmap_month
+            )
+            if include_in_heatmap:
+                for weekday_index, hour in _iter_hour_slots(reservation.start_time, reservation.end_time) or []:
+                    heatmap_counts[DAY_LABELS[weekday_index]][f'{hour:02d}:00'] += 1
 
         # Lead time is measured as event start minus filing timestamp.
         if reservation.date_filed and reservation.start_time:
@@ -157,6 +195,13 @@ def build_analytics_snapshot(months=6):
     max_heatmap_value = max((max(row) for row in heatmap_matrix), default=0)
 
     return {
+        'filters': {
+            'departments': ['All'] + available_departments,
+            'selected_department': department_filter,
+            'heatmap_months': ['all'] + available_heatmap_month_keys,
+            'selected_heatmap_month': selected_heatmap_month,
+            'selected_heatmap_month_label': _format_month_label(selected_heatmap_month) if selected_heatmap_month != 'all' else 'All Months',
+        },
         'kpis': {
             'total_reservations': total,
             'pending': status_counter.get('Pending', 0),
