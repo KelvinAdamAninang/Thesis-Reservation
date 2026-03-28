@@ -1,6 +1,6 @@
 # VacanSee - Campus Space Reservation System
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - Python 3.8 or higher
@@ -28,11 +28,12 @@ python app.py
 
 Visit: **http://localhost:5000**
 
-## 📋 Test Accounts
+## Test Accounts
 
 | Role | Username | Password |
 |------|----------|----------|
 | Admin | admin | admin123 |
+| Admin | admin_phase1 | phase1 |
 | Student | ccs | 1234 |
 | Student | cas | 1234 |
 | Student | eng | 1234 |
@@ -104,12 +105,10 @@ python-scheduler-api/
 ├── start.sh                  # Linux/Mac startup script
 │
 ├── templates/
-│   ├── index.html           # Main HTML page
-│   └── index-old.jsx        # Original React component (backup)
+│   └── index.html           # Main HTML page
 │
 ├── static/
-│   ├── app.jsx              # Simplified React component
-│   └── uploads/             # (Legacy folder - no longer used)
+│   └── app.jsx              # Simplified React component
 │
 ├── instance/
 │   └── school.db            # SQLite database
