@@ -736,6 +736,26 @@ def admin_update_facility(id):
     return jsonify({'status': 'success', 'message': 'Facility updated'})
 
 
+@app.route('/api/admin/facilities/<int:id>', methods=['DELETE'])
+@login_required
+def admin_delete_facility(id):
+    denied = _require_admin_settings_access()
+    if denied:
+        return denied
+
+    room = db.session.get(Room, id)
+    if not room:
+        return jsonify({'status': 'error', 'message': 'Facility not found'}), 404
+
+    has_reservations = Reservation.query.filter_by(room_id=id).first()
+    if has_reservations:
+        return jsonify({'status': 'error', 'message': 'Cannot delete facility with existing reservations'}), 409
+
+    db.session.delete(room)
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Facility deleted'})
+
+
 @app.route('/api/admin/users', methods=['GET'])
 @login_required
 def admin_get_users():
