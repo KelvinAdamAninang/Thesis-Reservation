@@ -53,6 +53,12 @@ DIVISIONS = [
     "Human Resources", "IT Services", "Library Services"
 ]
 
+BED_DIVISIONS = [
+    "SHS",
+    "Junior High School",
+    "Grade School"
+]
+
 CLASSIFICATIONS = [
     "Institutional", "Curricular", "Outside Group",
     "Co-Curricular", "Extra-Curricular"
@@ -136,11 +142,31 @@ def generate_random_datetime(start_date, end_date):
     return random_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
 
+def get_division_for_user(user):
+    """Return a division based on the account's department rules."""
+    department = (user.department or '').strip()
+    department_key = department.lower()
+
+    # BED accounts should use BED-specific divisions.
+    if department_key in {'bed', 'basic education department'}:
+        return random.choice(BED_DIVISIONS)
+
+    # EMC/admin accounts can have random external-style divisions.
+    if user.role in {'admin', 'admin_phase1'} or department_key in {'emc', 'event management center'}:
+        return random.choice(DIVISIONS)
+
+    # Other departments should follow their own department name.
+    if department:
+        return department
+
+    return random.choice(DIVISIONS)
+
+
 def seed_reservations(count=100):
     """Seed the database with sample reservations."""
     with app.app_context():
         # Get existing users and rooms
-        users = User.query.filter(~User.role.in_(['admin', 'admin_phase1'])).all()
+        users = User.query.all()
         rooms = Room.query.all()
         
         if not users:
@@ -190,7 +216,7 @@ def seed_reservations(count=100):
                 'user_id': user.id,
                 'room_id': room.id,
                 'activity_purpose': random.choice(ACTIVITY_PURPOSES),
-                'division': random.choice([user.department, *DIVISIONS]),
+                'division': get_division_for_user(user),
                 'attendees': random.randint(10, min(500, room.capacity)),
                 'classification': random.choice(CLASSIFICATIONS),
                 'person_in_charge': random.choice(PERSON_NAMES),
