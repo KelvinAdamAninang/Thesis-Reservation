@@ -163,8 +163,8 @@ def setup():
             {'user': 'admin_phase1', 'pass': 'phase1', 'role': 'admin_phase1', 'dept': 'Administration'},
             {'user': 'ccs', 'pass': '1234', 'role': 'student', 'dept': 'College of Computer Studies'},
             {'user': 'cas', 'pass': '1234', 'role': 'student', 'dept': 'College of Arts & Sciences'},
-            {'user': 'eng', 'pass': '1234', 'role': 'student', 'dept': 'College of Engineering'},
-            {'user': 'avi', 'pass': '1234', 'role': 'student', 'dept': 'College of Nursing'},
+            {'user': 'ceaa', 'pass': '1234', 'role': 'student', 'dept': 'College of Engineering and Aviation'},
+            {'user': 'coc', 'pass': '1234', 'role': 'student', 'dept': 'College of Criminalogy'},
         ]
         
         for u_data in users_to_add:
