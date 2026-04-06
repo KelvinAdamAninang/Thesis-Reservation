@@ -41,6 +41,14 @@ login_manager.login_view = 'login'
 def load_user(user_id):
     return db.session.get(User, int(user_id))
 
+
+def _display_username(user):
+    if not user:
+        return 'Unknown'
+    if user.username == 'deleted_account':
+        return 'Deleted Account'
+    return user.username
+
 # Create tables
 with app.app_context():
     db.create_all()
@@ -295,7 +303,7 @@ def get_reservations():
     reservations_list = [{
         'id': r.id,
         'user_id': r.user_id,
-        'user': r.requester.username if r.requester else 'Unknown',
+        'user': _display_username(r.requester),
         'department': r.requester.department if r.requester else 'Unknown',
         'room_id': r.room_id,
         'room_name': db.session.get(Room, r.room_id).name if db.session.get(Room, r.room_id) else 'Unknown',
@@ -333,7 +341,7 @@ def get_reservation(id):
     return jsonify({
         'id': reservation.id,
         'user_id': reservation.user_id,
-        'user': reservation.requester.username if reservation.requester else 'Unknown',
+        'user': _display_username(reservation.requester),
         'department': reservation.requester.department if reservation.requester else 'Unknown',
         'room_id': reservation.room_id,
         'room_name': db.session.get(Room, reservation.room_id).name if db.session.get(Room, reservation.room_id) else 'Unknown',
@@ -536,7 +544,7 @@ def get_archive():
     archive_list = [{
         'id': r.id,
         'user_id': r.user_id,
-        'user': r.requester.username if r.requester else 'Unknown',
+        'user': _display_username(r.requester),
         'department': r.requester.department if r.requester else 'Unknown',
         'room_id': r.room_id,
         'activity_purpose': r.activity_purpose,
@@ -772,6 +780,7 @@ def admin_get_users():
             'department': user.department
         }
         for user in users
+        if user.username != 'deleted_account'
     ])
 
 
@@ -833,6 +842,49 @@ def admin_update_user(id):
 
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'User account updated'})
+
+
+@app.route('/api/admin/users/<int:id>', methods=['DELETE'])
+@login_required
+def admin_delete_user(id):
+    denied = _require_admin_settings_access()
+    if denied:
+        return denied
+
+    if current_user.id == id:
+        return jsonify({'status': 'error', 'message': 'You cannot delete your own account'}), 409
+
+    user = db.session.get(User, id)
+    if not user:
+        return jsonify({'status': 'error', 'message': 'User not found'}), 404
+
+    if user.username == 'deleted_account':
+        return jsonify({'status': 'error', 'message': 'System account cannot be deleted'}), 409
+
+    # Remove pending reservations owned by the account, but preserve calendar-visible
+    # reservations by reassigning them to a placeholder account.
+    pending_reservations = Reservation.query.filter_by(user_id=id, status='pending').all()
+    for reservation in pending_reservations:
+        db.session.delete(reservation)
+
+    remaining_reservations = Reservation.query.filter(
+        Reservation.user_id == id,
+        Reservation.status != 'pending'
+    ).all()
+
+    placeholder = User.query.filter_by(username='deleted_account').first()
+    if not placeholder:
+        placeholder = User(username='deleted_account', role='student', department='Archived Accounts')
+        placeholder.set_password('deleted_account')
+        db.session.add(placeholder)
+        db.session.flush()
+
+    for reservation in remaining_reservations:
+        reservation.user_id = placeholder.id
+
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'User account deleted'})
 
 if __name__ == '__main__':
     app.run(debug=True)
