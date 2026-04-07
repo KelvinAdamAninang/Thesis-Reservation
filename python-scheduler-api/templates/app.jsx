@@ -188,6 +188,112 @@ const apiService = {
     const payload = await response.json();
     if (payload.status !== 'success') throw new Error(payload.message || 'Analytics fetch failed');
     return payload.data;
+  },
+
+  async updateMyProfile(username) {
+    const response = await fetch(`${API_BASE}/settings/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ username })
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to update profile');
+    return payload;
+  },
+
+  async updateMyPassword(current_password, new_password) {
+    const response = await fetch(`${API_BASE}/settings/password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ current_password, new_password })
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to update password');
+    return payload;
+  },
+
+  async adminGetFacilities() {
+    const response = await fetch(`${API_BASE}/admin/facilities`, { credentials: 'include' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || 'Failed to fetch facilities');
+    return payload;
+  },
+
+  async adminGetUsers() {
+    const response = await fetch(`${API_BASE}/admin/users`, { credentials: 'include' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message || 'Failed to fetch users');
+    return payload;
+  },
+
+  async adminCreateFacility(data) {
+    const response = await fetch(`${API_BASE}/admin/facilities`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(data)
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to create facility');
+    return payload;
+  },
+
+  async adminUpdateFacility(id, data) {
+    const response = await fetch(`${API_BASE}/admin/facilities/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(data)
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to update facility');
+    return payload;
+  },
+
+  async adminDeleteFacility(id) {
+    const response = await fetch(`${API_BASE}/admin/facilities/${id}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to delete facility');
+    return payload;
+  },
+
+  async adminCreateUser(data) {
+    const response = await fetch(`${API_BASE}/admin/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(data)
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to create user');
+    return payload;
+  },
+
+  async adminUpdateUser(id, data) {
+    const response = await fetch(`${API_BASE}/admin/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(data)
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to update user');
+    return payload;
+  },
+
+  async adminDeleteUser(id) {
+    const response = await fetch(`${API_BASE}/admin/users/${id}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to delete user');
+    return payload;
   }
 };
 
@@ -307,22 +413,40 @@ function App() {
     })();
   }, []);
 
+  const refreshAppData = async (showError = true) => {
+    if (!currentUser) return;
+    try {
+      const [roomsData, reservationsData, eventsData] = await Promise.all([
+        apiService.getRooms(),
+        apiService.getReservations(),
+        apiService.getCalendarEvents()
+      ]);
+      setRooms(roomsData || []);
+      setReservations(reservationsData || []);
+      setCalendarEvents(eventsData || []);
+    } catch (err) {
+      if (showError) {
+        setError(err.message || 'Failed to refresh data');
+      }
+    }
+  };
+
   // Load data when user is set
   useEffect(() => {
     if (currentUser) {
-      (async () => {
-        try {
-          const data = await apiService.getRooms();
-          setRooms(data);
-          const res = await apiService.getReservations();
-          setReservations(res);
-          const events = await apiService.getCalendarEvents();
-          setCalendarEvents(events);
-        } catch (err) {
-          setError(err.message);
-        }
-      })();
+      refreshAppData(true);
     }
+  }, [currentUser]);
+
+  // Poll app data for all logged-in users so changes appear without manual refresh
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const interval = setInterval(() => {
+      refreshAppData(false);
+    }, 3000);
+
+    return () => clearInterval(interval);
   }, [currentUser]);
 
   const handleLogin = async (username, password) => {
@@ -413,6 +537,15 @@ function App() {
         currentView === 'facilities' && React.createElement(FacilitiesView, { rooms, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
         currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at && r.user_id !== currentUser.id), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
         currentView === 'analytics' && isAdminOrPhase1 && React.createElement(AnalyticsView, { reservations }),
+        currentView === 'settings' && isAdminOrPhase1 && React.createElement(SettingsView, {
+          user: currentUser,
+          onUserUpdated: (nextUser) => setCurrentUser(nextUser),
+          onNotify: (msg) => {
+            setNotification(msg);
+            setActiveModal('notification');
+          },
+          onError: (msg) => setError(msg)
+        }),
         currentView === 'archive' && React.createElement(ArchiveView, { archive, user: currentUser, isAdmin: isAdminOrPhase1, onDelete: async (id) => { if (window.confirm('Delete?')) { await apiService.deleteReservation(id); setReservations(reservations.filter(r => r.id !== id)); } } })
       )
     ),
@@ -558,7 +691,8 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin, mobileMenuOpen
       isAdmin && React.createElement('div', { className: 'pt-4 mt-4 border-t' }, 
         React.createElement('p', { className: 'text-xs font-bold text-slate-400 uppercase mb-2 px-3' }, 'Admin Panel'), 
         React.createElement(NavBtn, { id: 'reservations', label: '📋 Requests' }), 
-        React.createElement(NavBtn, { id: 'analytics', label: '📈 Analytics' })
+        React.createElement(NavBtn, { id: 'analytics', label: '📈 Analytics' }),
+        React.createElement(NavBtn, { id: 'settings', label: '⚙️ Settings' })
       ),
       React.createElement(NavBtn, { id: 'archive', label: '📦 Archive' })
     ),
@@ -1951,6 +2085,23 @@ function CalendarView({ events, rooms, onViewEvent }) {
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
+  const parseEventDate = (value) => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+    const fallback = new Date(String(value).replace(' ', 'T'));
+    return Number.isNaN(fallback.getTime()) ? null : fallback;
+  };
+
+  const now = new Date();
+  const upcomingEvents = (events || [])
+    .filter(e => {
+      const start = parseEventDate(e.start_time);
+      const matchesRoom = filterRoom === 'all' || e.room_id == filterRoom;
+      return !!start && start >= now && matchesRoom;
+    })
+    .sort((a, b) => parseEventDate(a.start_time) - parseEventDate(b.start_time));
+
   return React.createElement('div', { className: 'bg-white rounded-2xl border border-slate-200 p-8 shadow-sm relative' },
     // Header with controls
     React.createElement('div', { className: 'flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6' },
@@ -2043,10 +2194,10 @@ function CalendarView({ events, rooms, onViewEvent }) {
     // Events list below calendar
     React.createElement('div', { className: 'mt-6 pt-6 border-t' },
       React.createElement('h4', { className: 'font-bold text-slate-800 mb-4' }, '📋 Upcoming Approved Events'),
-      events.length === 0 
+      upcomingEvents.length === 0 
         ? React.createElement('p', { className: 'text-slate-400 py-4 text-center text-sm' }, 'No approved events yet.')
         : React.createElement('div', { className: 'space-y-2 max-h-[200px] overflow-y-auto' },
-            events.slice(0, 10).map(e =>
+            upcomingEvents.slice(0, 10).map(e =>
               React.createElement('div', { 
                 key: e.id, 
                 className: 'p-3 bg-slate-50 rounded-lg flex justify-between items-center cursor-pointer hover:bg-sky-50 transition',
@@ -2094,6 +2245,440 @@ function ArchiveView({ archive, user, isAdmin, onDelete }) {
           React.createElement('button', { onClick: () => onDelete(a.id), className: 'px-4 py-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 font-medium transition' }, 'Delete')
         );
       })
+  );
+}
+
+function SettingsView({ user, onUserUpdated, onNotify, onError }) {
+  const [username, setUsername] = useState(user?.username || '');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [facilities, setFacilities] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [loadingAdminData, setLoadingAdminData] = useState(false);
+  const [activeTab, setActiveTab] = useState('profile');
+
+  const [newFacility, setNewFacility] = useState({ code: '', name: '', capacity: '', description: '', usual_activity: '' });
+  const [editingFacilityId, setEditingFacilityId] = useState(null);
+  const [facilityDraft, setFacilityDraft] = useState({ code: '', name: '', capacity: '', description: '', usual_activity: '' });
+
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'student', department: '' });
+  const [editingUserId, setEditingUserId] = useState(null);
+  const [userDraft, setUserDraft] = useState({ username: '', password: '', role: 'student', department: '' });
+
+  const loadFacilitiesData = async () => {
+    try {
+      setLoadingAdminData(true);
+      const facilitiesData = await apiService.adminGetFacilities();
+      setFacilities(facilitiesData || []);
+    } catch (err) {
+      onError(err.message || 'Failed to load facilities');
+    } finally {
+      setLoadingAdminData(false);
+    }
+  };
+
+  const silentLoadFacilities = async () => {
+    try {
+      const facilitiesData = await apiService.adminGetFacilities();
+      setFacilities(facilitiesData || []);
+    } catch (err) {
+      // Silent fail - don't show error on polling
+    }
+  };
+
+  const loadUsersData = async () => {
+    try {
+      setLoadingAdminData(true);
+      const usersData = await apiService.adminGetUsers();
+      setUsers(usersData || []);
+    } catch (err) {
+      onError(err.message || 'Failed to load users');
+    } finally {
+      setLoadingAdminData(false);
+    }
+  };
+
+  const silentLoadUsers = async () => {
+    try {
+      const usersData = await apiService.adminGetUsers();
+      setUsers(usersData || []);
+    } catch (err) {
+      // Silent fail - don't show error on polling
+    }
+  };
+
+  const loadAdminData = async () => {
+    try {
+      setLoadingAdminData(true);
+      const [facilitiesData, usersData] = await Promise.all([
+        apiService.adminGetFacilities(),
+        apiService.adminGetUsers()
+      ]);
+      setFacilities(facilitiesData || []);
+      setUsers(usersData || []);
+    } catch (err) {
+      onError(err.message || 'Failed to load settings data');
+    } finally {
+      setLoadingAdminData(false);
+    }
+  };
+
+  const handleTabSwitch = async (tab) => {
+    setActiveTab(tab);
+    if (tab === 'facilities') {
+      await loadFacilitiesData();
+    } else if (tab === 'users') {
+      await loadUsersData();
+    }
+  };
+
+  useEffect(() => {
+    loadAdminData();
+  }, []);
+
+  // Poll facilities data when on facilities tab and not editing
+  useEffect(() => {
+    if (activeTab !== 'facilities' || editingFacilityId !== null) return;
+
+    const interval = setInterval(() => {
+      silentLoadFacilities();
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [activeTab, editingFacilityId]);
+
+  // Poll users data when on users tab and not editing
+  useEffect(() => {
+    if (activeTab !== 'users' || editingUserId !== null) return;
+
+    const interval = setInterval(() => {
+      silentLoadUsers();
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [activeTab, editingUserId]);
+
+  const saveProfile = async (e) => {
+    e.preventDefault();
+    try {
+      const payload = await apiService.updateMyProfile(username.trim());
+      onUserUpdated({ ...user, username: payload?.user?.username || username.trim() });
+      onNotify('Profile updated');
+    } catch (err) {
+      onError(err.message || 'Failed to update profile');
+    }
+  };
+
+  const savePassword = async (e) => {
+    e.preventDefault();
+    try {
+      await apiService.updateMyPassword(currentPassword, newPassword);
+      setCurrentPassword('');
+      setNewPassword('');
+      onNotify('Password updated');
+    } catch (err) {
+      onError(err.message || 'Failed to update password');
+    }
+  };
+
+  const createFacility = async (e) => {
+    e.preventDefault();
+    try {
+      await apiService.adminCreateFacility({
+        ...newFacility,
+        capacity: Number(newFacility.capacity)
+      });
+      setNewFacility({ code: '', name: '', capacity: '', description: '', usual_activity: '' });
+      await loadFacilitiesData();
+      onNotify('Facility created');
+    } catch (err) {
+      onError(err.message || 'Failed to create facility');
+    }
+  };
+
+  const beginEditFacility = (facility) => {
+    setEditingFacilityId(facility.id);
+    setFacilityDraft({
+      code: facility.code || '',
+      name: facility.name || '',
+      capacity: facility.capacity || '',
+      description: facility.description || '',
+      usual_activity: facility.usual_activity || ''
+    });
+  };
+
+  const saveFacilityEdit = async (id) => {
+    try {
+      await apiService.adminUpdateFacility(id, {
+        ...facilityDraft,
+        capacity: Number(facilityDraft.capacity)
+      });
+      setEditingFacilityId(null);
+      await loadFacilitiesData();
+      onNotify('Facility updated');
+    } catch (err) {
+      onError(err.message || 'Failed to update facility');
+    }
+  };
+
+  const deleteFacility = async (id) => {
+    if (!window.confirm('Delete this facility?')) return;
+    try {
+      await apiService.adminDeleteFacility(id);
+      await loadFacilitiesData();
+      onNotify('Facility deleted');
+    } catch (err) {
+      onError(err.message || 'Failed to delete facility');
+    }
+  };
+
+  const createUser = async (e) => {
+    e.preventDefault();
+    try {
+      await apiService.adminCreateUser(newUser);
+      setNewUser({ username: '', password: '', role: 'student', department: '' });
+      await loadUsersData();
+      onNotify('User account created');
+    } catch (err) {
+      onError(err.message || 'Failed to create user');
+    }
+  };
+
+  const beginEditUser = (row) => {
+    setEditingUserId(row.id);
+    setUserDraft({
+      username: row.username || '',
+      password: '',
+      role: row.role || 'student',
+      department: row.department || ''
+    });
+  };
+
+  const saveUserEdit = async (id) => {
+    try {
+      await apiService.adminUpdateUser(id, userDraft);
+      setEditingUserId(null);
+      await loadUsersData();
+      onNotify('User account updated');
+    } catch (err) {
+      onError(err.message || 'Failed to update user');
+    }
+  };
+
+  const deleteUser = async (id) => {
+    if (!window.confirm('Delete this account?')) return;
+    try {
+      await apiService.adminDeleteUser(id);
+      await loadUsersData();
+      onNotify('User account deleted');
+    } catch (err) {
+      onError(err.message || 'Failed to delete user');
+    }
+  };
+
+  return React.createElement('div', { className: 'space-y-6' },
+    React.createElement('h2', { className: 'text-2xl font-bold text-slate-800' }, '⚙️ Settings'),
+
+    // Tab Navigation
+    React.createElement('div', { className: 'flex gap-2 border-b border-slate-200' },
+      React.createElement('button', {
+        onClick: () => handleTabSwitch('profile'),
+        className: `px-4 py-3 font-bold border-b-2 transition-colors ${activeTab === 'profile' ? 'text-sky-600 border-sky-600' : 'text-slate-600 border-transparent hover:text-slate-800'}`
+      }, 'Profile'),
+      React.createElement('button', {
+        onClick: () => handleTabSwitch('facilities'),
+        className: `px-4 py-3 font-bold border-b-2 transition-colors ${activeTab === 'facilities' ? 'text-sky-600 border-sky-600' : 'text-slate-600 border-transparent hover:text-slate-800'}`
+      }, 'Facilities'),
+      React.createElement('button', {
+        onClick: () => handleTabSwitch('users'),
+        className: `px-4 py-3 font-bold border-b-2 transition-colors ${activeTab === 'users' ? 'text-sky-600 border-sky-600' : 'text-slate-600 border-transparent hover:text-slate-800'}`
+      }, 'Users')
+    ),
+
+    // Profile Tab
+    activeTab === 'profile' && React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-4' },
+      React.createElement('form', { onSubmit: saveProfile, className: 'bg-white border rounded-2xl p-5 space-y-3' },
+        React.createElement('h3', { className: 'font-bold text-slate-800' }, 'My Profile'),
+        React.createElement('p', { className: 'text-xs text-slate-500' }, `Role: ${user?.role || 'N/A'}`),
+        React.createElement('input', {
+          value: username,
+          onChange: (e) => setUsername(e.target.value),
+          className: 'w-full p-2 border rounded-lg',
+          placeholder: 'Username',
+          required: true
+        }),
+        React.createElement('button', { type: 'submit', className: 'bg-sky-500 text-white px-4 py-2 rounded-lg font-bold' }, 'Save Profile')
+      ),
+      React.createElement('form', { onSubmit: savePassword, className: 'bg-white border rounded-2xl p-5 space-y-3' },
+        React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Change Password'),
+        React.createElement('input', {
+          type: 'password',
+          value: currentPassword,
+          onChange: (e) => setCurrentPassword(e.target.value),
+          className: 'w-full p-2 border rounded-lg',
+          placeholder: 'Current password',
+          required: true
+        }),
+        React.createElement('input', {
+          type: 'password',
+          value: newPassword,
+          onChange: (e) => setNewPassword(e.target.value),
+          className: 'w-full p-2 border rounded-lg',
+          placeholder: 'New password',
+          required: true
+        }),
+        React.createElement('button', { type: 'submit', className: 'bg-sky-500 text-white px-4 py-2 rounded-lg font-bold' }, 'Update Password')
+      )
+    ),
+
+    // Facilities Tab
+    activeTab === 'facilities' && React.createElement('div', { className: 'bg-white border rounded-2xl p-5 space-y-4' },
+      React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Admin Facilities'),
+      React.createElement('form', { onSubmit: createFacility, className: 'grid grid-cols-1 md:grid-cols-5 gap-2' },
+        React.createElement('input', {
+          value: newFacility.code,
+          onChange: (e) => setNewFacility({ ...newFacility, code: e.target.value }),
+          className: 'p-2 border rounded-lg',
+          placeholder: 'Code'
+        }),
+        React.createElement('input', {
+          value: newFacility.name,
+          onChange: (e) => setNewFacility({ ...newFacility, name: e.target.value }),
+          className: 'p-2 border rounded-lg md:col-span-2',
+          placeholder: 'Facility name',
+          required: true
+        }),
+        React.createElement('input', {
+          type: 'number',
+          min: '1',
+          value: newFacility.capacity,
+          onChange: (e) => setNewFacility({ ...newFacility, capacity: e.target.value }),
+          className: 'p-2 border rounded-lg',
+          placeholder: 'Capacity',
+          required: true
+        }),
+        React.createElement('button', { type: 'submit', className: 'bg-sky-500 text-white rounded-lg font-bold px-3 py-2' }, 'Add')
+      ),
+      loadingAdminData
+        ? React.createElement('p', { className: 'text-slate-500 text-sm' }, 'Loading facilities...')
+        : React.createElement('div', { className: 'overflow-x-auto' },
+            React.createElement('table', { className: 'w-full text-sm' },
+              React.createElement('thead', {},
+                React.createElement('tr', { className: 'text-left text-slate-500 border-b' },
+                  React.createElement('th', { className: 'py-2 pr-2' }, 'Code'),
+                  React.createElement('th', { className: 'py-2 pr-2' }, 'Name'),
+                  React.createElement('th', { className: 'py-2 pr-2' }, 'Capacity'),
+                  React.createElement('th', { className: 'py-2 pr-2' }, 'Actions')
+                )
+              ),
+              React.createElement('tbody', {},
+                facilities.map(f => React.createElement('tr', { key: f.id, className: 'border-b last:border-b-0' },
+                  editingFacilityId === f.id
+                    ? [
+                        React.createElement('td', { key: 'code', className: 'py-2 pr-2' }, React.createElement('input', { value: facilityDraft.code, onChange: (e) => setFacilityDraft({ ...facilityDraft, code: e.target.value }), className: 'p-1 border rounded w-full' })),
+                        React.createElement('td', { key: 'name', className: 'py-2 pr-2' }, React.createElement('input', { value: facilityDraft.name, onChange: (e) => setFacilityDraft({ ...facilityDraft, name: e.target.value }), className: 'p-1 border rounded w-full' })),
+                        React.createElement('td', { key: 'cap', className: 'py-2 pr-2' }, React.createElement('input', { type: 'number', min: '1', value: facilityDraft.capacity, onChange: (e) => setFacilityDraft({ ...facilityDraft, capacity: e.target.value }), className: 'p-1 border rounded w-full' })),
+                        React.createElement('td', { key: 'act', className: 'py-2 pr-2 space-x-2' },
+                          React.createElement('button', { onClick: () => saveFacilityEdit(f.id), className: 'px-2 py-1 bg-green-100 text-green-700 rounded font-bold' }, 'Save'),
+                          React.createElement('button', { onClick: () => setEditingFacilityId(null), className: 'px-2 py-1 bg-slate-100 text-slate-700 rounded font-bold' }, 'Cancel')
+                        )
+                      ]
+                    : [
+                        React.createElement('td', { key: 'code', className: 'py-2 pr-2' }, f.code || '-'),
+                        React.createElement('td', { key: 'name', className: 'py-2 pr-2' }, f.name),
+                        React.createElement('td', { key: 'cap', className: 'py-2 pr-2' }, f.capacity),
+                        React.createElement('td', { key: 'act', className: 'py-2 pr-2 space-x-2' },
+                          React.createElement('button', { onClick: () => beginEditFacility(f), className: 'px-2 py-1 bg-amber-100 text-amber-700 rounded font-bold' }, 'Edit'),
+                          React.createElement('button', { onClick: () => deleteFacility(f.id), className: 'px-2 py-1 bg-red-100 text-red-700 rounded font-bold' }, 'Delete')
+                        )
+                      ]
+                ))
+              )
+            )
+          )
+    ),
+
+    // Users Tab
+    activeTab === 'users' && React.createElement('div', { className: 'bg-white border rounded-2xl p-5 space-y-4' },
+      React.createElement('h3', { className: 'font-bold text-slate-800' }, 'User Accounts'),
+      React.createElement('form', { onSubmit: createUser, className: 'grid grid-cols-1 md:grid-cols-5 gap-2' },
+        React.createElement('input', {
+          value: newUser.username,
+          onChange: (e) => setNewUser({ ...newUser, username: e.target.value }),
+          className: 'p-2 border rounded-lg',
+          placeholder: 'Username',
+          required: true
+        }),
+        React.createElement('input', {
+          type: 'password',
+          value: newUser.password,
+          onChange: (e) => setNewUser({ ...newUser, password: e.target.value }),
+          className: 'p-2 border rounded-lg',
+          placeholder: 'Password',
+          required: true
+        }),
+        React.createElement('select', {
+          value: newUser.role,
+          onChange: (e) => setNewUser({ ...newUser, role: e.target.value }),
+          className: 'p-2 border rounded-lg'
+        },
+          React.createElement('option', { value: 'student' }, 'student'),
+          React.createElement('option', { value: 'admin_phase1' }, 'admin_phase1'),
+          React.createElement('option', { value: 'admin' }, 'admin')
+        ),
+        React.createElement('input', {
+          value: newUser.department,
+          onChange: (e) => setNewUser({ ...newUser, department: e.target.value }),
+          className: 'p-2 border rounded-lg',
+          placeholder: 'Department'
+        }),
+        React.createElement('button', { type: 'submit', className: 'bg-sky-500 text-white rounded-lg font-bold px-3 py-2' }, 'Add')
+      ),
+      loadingAdminData
+        ? React.createElement('p', { className: 'text-slate-500 text-sm' }, 'Loading users...')
+        : React.createElement('div', { className: 'overflow-x-auto' },
+            React.createElement('table', { className: 'w-full text-sm' },
+              React.createElement('thead', {},
+                React.createElement('tr', { className: 'text-left text-slate-500 border-b' },
+                  React.createElement('th', { className: 'py-2 pr-2' }, 'Username'),
+                  React.createElement('th', { className: 'py-2 pr-2' }, 'Role'),
+                  React.createElement('th', { className: 'py-2 pr-2' }, 'Department'),
+                  React.createElement('th', { className: 'py-2 pr-2' }, 'Actions')
+                )
+              ),
+              React.createElement('tbody', {},
+                users.map(u => React.createElement('tr', { key: u.id, className: 'border-b last:border-b-0' },
+                  editingUserId === u.id
+                    ? [
+                        React.createElement('td', { key: 'name', className: 'py-2 pr-2' }, React.createElement('input', { value: userDraft.username, onChange: (e) => setUserDraft({ ...userDraft, username: e.target.value }), className: 'p-1 border rounded w-full' })),
+                        React.createElement('td', { key: 'role', className: 'py-2 pr-2' }, React.createElement('select', { value: userDraft.role, onChange: (e) => setUserDraft({ ...userDraft, role: e.target.value }), className: 'p-1 border rounded w-full' },
+                          React.createElement('option', { value: 'student' }, 'student'),
+                          React.createElement('option', { value: 'admin_phase1' }, 'admin_phase1'),
+                          React.createElement('option', { value: 'admin' }, 'admin')
+                        )),
+                        React.createElement('td', { key: 'dept', className: 'py-2 pr-2' },
+                          React.createElement('input', { value: userDraft.department, onChange: (e) => setUserDraft({ ...userDraft, department: e.target.value }), className: 'p-1 border rounded w-full mb-1', placeholder: 'Department' }),
+                          React.createElement('input', { type: 'password', value: userDraft.password, onChange: (e) => setUserDraft({ ...userDraft, password: e.target.value }), className: 'p-1 border rounded w-full', placeholder: 'New password (optional)' })
+                        ),
+                        React.createElement('td', { key: 'act', className: 'py-2 pr-2 space-x-2' },
+                          React.createElement('button', { onClick: () => saveUserEdit(u.id), className: 'px-2 py-1 bg-green-100 text-green-700 rounded font-bold' }, 'Save'),
+                          React.createElement('button', { onClick: () => setEditingUserId(null), className: 'px-2 py-1 bg-slate-100 text-slate-700 rounded font-bold' }, 'Cancel')
+                        )
+                      ]
+                    : [
+                        React.createElement('td', { key: 'name', className: 'py-2 pr-2' }, u.username),
+                        React.createElement('td', { key: 'role', className: 'py-2 pr-2' }, u.role),
+                        React.createElement('td', { key: 'dept', className: 'py-2 pr-2' }, u.department || '-'),
+                        React.createElement('td', { key: 'act', className: 'py-2 pr-2' },
+                          React.createElement('button', { onClick: () => beginEditUser(u), className: 'px-2 py-1 bg-amber-100 text-amber-700 rounded font-bold mr-2' }, 'Edit'),
+                          React.createElement('button', { onClick: () => deleteUser(u.id), className: 'px-2 py-1 bg-red-100 text-red-700 rounded font-bold' }, 'Delete')
+                        )
+                      ]
+                ))
+              )
+            )
+          )
+    )
   );
 }
 
