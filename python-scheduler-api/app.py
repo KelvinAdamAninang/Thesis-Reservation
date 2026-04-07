@@ -7,6 +7,9 @@ from flask_cors import CORS
 from datetime import datetime
 from models import db, User, Room, Reservation 
 from data_mining.analytics import build_analytics_snapshot
+from data_mining.forecast_utils import forecast_all_academic_periods, forecast_for_period
+from data_mining.train_holt_winters_model import retrain_all_historical_data
+from scheduler import start_training_scheduler
 
 app = Flask(__name__)
 
@@ -36,6 +39,7 @@ db.init_app(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+training_scheduler = None
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -603,6 +607,48 @@ def get_data_mining_analytics():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+@app.route('/api/data-mining/forecast/periods', methods=['GET'])
+@login_required
+def get_forecast_periods():
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        payload = forecast_all_academic_periods()
+        return jsonify({'status': 'success', 'data': payload})
+    except Exception as e:
+        app.logger.exception('Failed to build semester forecasts')
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/data-mining/forecast/period/<period_key>', methods=['GET'])
+@login_required
+def get_forecast_period(period_key):
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        payload = forecast_for_period(period_key)
+        return jsonify({'status': 'success', 'data': payload})
+    except Exception as e:
+        app.logger.exception('Failed to build period forecast for %s', period_key)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/data-mining/forecast/retrain', methods=['POST'])
+@login_required
+def retrain_forecast_model():
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        metadata = retrain_all_historical_data()
+        return jsonify({'status': 'success', 'message': 'Model retrained.', 'metadata': metadata})
+    except Exception as e:
+        app.logger.exception('Failed to retrain forecasting model')
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 # ==================== SETTINGS ROUTES ====================
 
 @app.route('/api/settings/profile', methods=['PUT'])
@@ -887,4 +933,5 @@ def admin_delete_user(id):
     return jsonify({'status': 'success', 'message': 'User account deleted'})
 
 if __name__ == '__main__':
+    training_scheduler = start_training_scheduler(app)
     app.run(debug=True)
