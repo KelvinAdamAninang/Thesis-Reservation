@@ -1,0 +1,5 @@
+month,actual,moving_average,linear_regression,sarima,seasonal_naive,holt_winters
+2025-07,9,7.0,15.79,4.95,8,6.24
+2025-08,8,7.5,16.31,3.89,22,6.47
+2025-09,21,8.5,16.82,3.05,20,6.71
+2025-10,3,14.5,17.34,2.39,17,6.94

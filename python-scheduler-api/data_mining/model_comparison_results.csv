@@ -1,0 +1,6 @@
+Model,MAE,RMSE,Rank (by MAE)
+Holt-Winters (Holt (Additive Trend)),5.6324,7.5802,1
+Moving Average (w=2),6.625,8.555,2
+"SARIMA(1, 0, 1)x(0, 0, 0, 12)",6.6812,9.4339,3
+Seasonal Naive (s=12),7.5,9.9247,4
+Linear Regression,8.4034,9.1947,5
