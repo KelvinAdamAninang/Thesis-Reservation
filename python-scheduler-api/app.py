@@ -7,9 +7,9 @@ from flask_cors import CORS
 from datetime import datetime
 from models import db, User, Room, Reservation 
 from data_mining.analytics import build_analytics_snapshot
-from data_mining.forecast_utils import forecast_all_academic_periods, forecast_for_period
+from data_mining.forecast_utils import forecast_all_academic_periods, forecast_for_period, forecast_current_semester
 from data_mining.train_holt_winters_model import retrain_all_historical_data
-from scheduler import start_training_scheduler
+from scheduler import start_training_scheduler, get_next_retrain_at_iso
 
 app = Flask(__name__)
 
@@ -615,7 +615,12 @@ def get_forecast_periods():
 
     try:
         payload = forecast_all_academic_periods()
-        return jsonify({'status': 'success', 'data': payload})
+        return jsonify({
+            'status': 'success',
+            'data': payload,
+            'next_retrain_at': get_next_retrain_at_iso(),
+            'retrain_basis': 'approved_only',
+        })
     except Exception as e:
         app.logger.exception('Failed to build semester forecasts')
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -635,6 +640,25 @@ def get_forecast_period(period_key):
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+@app.route('/api/data-mining/forecast/current-semester', methods=['GET'])
+@login_required
+def get_current_semester_forecast():
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        payload = forecast_current_semester()
+        return jsonify({
+            'status': 'success',
+            'data': payload,
+            'next_retrain_at': get_next_retrain_at_iso(),
+            'retrain_basis': 'approved_only',
+        })
+    except Exception as e:
+        app.logger.exception('Failed to build current semester forecast')
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route('/api/data-mining/forecast/retrain', methods=['POST'])
 @login_required
 def retrain_forecast_model():
@@ -642,8 +666,14 @@ def retrain_forecast_model():
         return jsonify({'error': 'Admin access required'}), 403
 
     try:
-        metadata = retrain_all_historical_data()
-        return jsonify({'status': 'success', 'message': 'Model retrained.', 'metadata': metadata})
+        metadata = retrain_all_historical_data(include_statuses=['approved'])
+        return jsonify({
+            'status': 'success',
+            'message': 'Model retrained using approved reservations only.',
+            'metadata': metadata,
+            'next_retrain_at': get_next_retrain_at_iso(),
+            'retrain_basis': 'approved_only',
+        })
     except Exception as e:
         app.logger.exception('Failed to retrain forecasting model')
         return jsonify({'status': 'error', 'message': str(e)}), 500

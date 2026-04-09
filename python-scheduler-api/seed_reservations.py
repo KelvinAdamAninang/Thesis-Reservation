@@ -162,15 +162,15 @@ def get_division_for_user(user):
     return random.choice(DIVISIONS)
 
 
-def seed_reservations(count=100):
+def seed_reservations(count=220):
     """Seed the database with sample reservations."""
     with app.app_context():
         # Get existing users and rooms
-        users = User.query.all()
+        users = User.query.filter(User.username != 'deleted_account').all()
         rooms = Room.query.all()
         
         if not users:
-            print("Error: No student users found. Please run /setup first.")
+            print("Error: No active users found. Please run /setup first.")
             return
         
         if not rooms:
@@ -281,6 +281,12 @@ def seed_reservations(count=100):
 
 
 if __name__ == '__main__':
-    print("Seeding 100 reservations into the database...\n")
-    seed_reservations(100)
+    count = 220
+    if len(sys.argv) > 1:
+        try:
+            count = max(200, int(sys.argv[1]))
+        except ValueError:
+            print('Invalid reservation count argument. Using default 220.')
+    print(f"Seeding {count} reservations into the database...\n")
+    seed_reservations(count)
     print("\nDone. Start the Flask app to see the reservations.")

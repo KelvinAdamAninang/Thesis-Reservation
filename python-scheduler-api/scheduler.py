@@ -1,4 +1,6 @@
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -11,6 +13,19 @@ from data_mining.train_holt_winters_model import retrain_all_historical_data
 # - May 1 02:00 -> summer period
 # - Aug 1 02:00 -> first semester
 SEMESTER_RETRAIN_MONTHS = [1, 5, 8]
+SCHEDULER_TIMEZONE = 'Asia/Manila'
+
+
+def get_next_retrain_at_iso(now=None):
+    tz = ZoneInfo(SCHEDULER_TIMEZONE)
+    current = now.astimezone(tz) if now else datetime.now(tz)
+    candidates = []
+    for month in SEMESTER_RETRAIN_MONTHS:
+        candidate = datetime(current.year, month, 1, 2, 0, tzinfo=tz)
+        if candidate <= current:
+            candidate = datetime(current.year + 1, month, 1, 2, 0, tzinfo=tz)
+        candidates.append(candidate)
+    return min(candidates).isoformat()
 
 
 def _is_reloader_process():
@@ -19,11 +34,11 @@ def _is_reloader_process():
 
 
 def create_training_scheduler(app):
-    scheduler = BackgroundScheduler(timezone='Asia/Manila')
+    scheduler = BackgroundScheduler(timezone=SCHEDULER_TIMEZONE)
 
     def retrain_job():
         with app.app_context():
-            metadata = retrain_all_historical_data()
+            metadata = retrain_all_historical_data(include_statuses=['approved'])
             app.logger.info('Semester retraining completed: %s', metadata)
 
     scheduler.add_job(
