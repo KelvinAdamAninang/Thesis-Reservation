@@ -7,6 +7,9 @@ import pandas as pd
 from data_mining.train_holt_winters_model import build_monthly_reservation_series
 
 
+# Data context: Using cleaned monthly data from Jan 2024 - Mar 2026 (27 months)
+# Train/Test split: 23 months training, 4 months testing
+# Best model: Holt-Winters (Simple Exponential Smoothing)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ARTIFACT_PATH = os.path.join(BASE_DIR, 'model_artifacts', 'holt_winters_model.pkl')
 

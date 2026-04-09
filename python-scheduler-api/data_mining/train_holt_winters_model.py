@@ -8,10 +8,14 @@ from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from models import Reservation
 
 
+# Data source: EMC_Monthly_Reservations_Cleaned.csv
+# Data range: Jan 2024 - Mar 2026 (27 months)
+# Training window: 23 months | Test window: 4 months
+# Model: Holt-Winters Exponential Smoothing with additive trend
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ARTIFACT_DIR = os.path.join(BASE_DIR, 'model_artifacts')
 ARTIFACT_PATH = os.path.join(ARTIFACT_DIR, 'holt_winters_model.pkl')
-MONTHLY_CSV_FALLBACK = os.path.join(BASE_DIR, 'data_mining', 'EMC_Monthly_Reservations.csv')
+MONTHLY_CSV_FALLBACK = os.path.join(BASE_DIR, 'data_mining', 'EMC_Monthly_Reservations_Cleaned.csv')
 
 
 def _load_monthly_series_from_csv(csv_path=MONTHLY_CSV_FALLBACK):
