@@ -190,6 +190,30 @@ const apiService = {
     return payload.data;
   },
 
+  async getForecastPeriods() {
+    const response = await fetch(`${API_BASE}/data-mining/forecast/periods`, { credentials: 'include' });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to fetch forecast periods');
+    return payload;
+  },
+
+  async getCurrentSemesterForecast() {
+    const response = await fetch(`${API_BASE}/data-mining/forecast/current-semester`, { credentials: 'include' });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to fetch current semester forecast');
+    return payload;
+  },
+
+  async retrainForecastModel() {
+    const response = await fetch(`${API_BASE}/data-mining/forecast/retrain`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to retrain forecast model');
+    return payload;
+  },
+
   async updateMyProfile(username) {
     const response = await fetch(`${API_BASE}/settings/profile`, {
       method: 'PUT',
@@ -1724,6 +1748,10 @@ function AnalyticsView({ reservations }) {
   const [analytics, setAnalytics] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const [analyticsError, setAnalyticsError] = useState('');
+  const [forecastPayload, setForecastPayload] = useState(null);
+  const [forecastError, setForecastError] = useState('');
+  const [retrainingForecast, setRetrainingForecast] = useState(false);
+  const [forecastRevealCount, setForecastRevealCount] = useState(0);
   const [selectedDepartment, setSelectedDepartment] = useState('All');
   const [selectedHeatmapMonth, setSelectedHeatmapMonth] = useState('all');
   const [showDepartmentPicker, setShowDepartmentPicker] = useState(false);
@@ -1763,6 +1791,103 @@ function AnalyticsView({ reservations }) {
 
     return () => { isMounted = false; };
   }, [reservations.length, selectedDepartment, selectedHeatmapMonth]);
+
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        setForecastError('');
+        const payload = await apiService.getCurrentSemesterForecast();
+        if (isMounted) setForecastPayload(payload);
+      } catch (err) {
+        if (isMounted) setForecastError(err.message || 'Failed to load forecast periods');
+      }
+    })();
+
+    return () => { isMounted = false; };
+  }, [reservations.length]);
+
+  const forecastSeries = forecastPayload?.data?.series || [];
+  const forecastPredictedPoints = forecastSeries.filter(p => p.predicted !== null).length;
+
+  useEffect(() => {
+    setForecastRevealCount(0);
+    if (!forecastPredictedPoints) return;
+
+    const interval = setInterval(() => {
+      setForecastRevealCount((prev) => {
+        if (prev >= forecastPredictedPoints) {
+          clearInterval(interval);
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, 700);
+
+    return () => clearInterval(interval);
+  }, [forecastPredictedPoints, JSON.stringify(forecastSeries)]);
+
+  const formatDateTime = (iso) => {
+    if (!iso) return 'N/A';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    return date.toLocaleString('en-US', {
+      month: 'short', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit'
+    });
+  };
+
+  const handleRetrainForecast = async () => {
+    try {
+      setRetrainingForecast(true);
+      setForecastError('');
+      const retrainPayload = await apiService.retrainForecastModel();
+      const periodsPayload = await apiService.getCurrentSemesterForecast();
+      setForecastPayload(periodsPayload);
+      alert(retrainPayload.message || 'Forecast model retrained successfully.');
+    } catch (err) {
+      setForecastError(err.message || 'Failed to retrain forecast model');
+    } finally {
+      setRetrainingForecast(false);
+    }
+  };
+
+  const forecastData = forecastPayload?.data || {};
+  const nextRetrainAt = forecastPayload?.next_retrain_at;
+  const animatedPredictedValues = (() => {
+    let shown = 0;
+    return forecastSeries.map((point) => {
+      if (point.predicted === null) return null;
+      shown += 1;
+      return shown <= forecastRevealCount ? point.predicted : null;
+    });
+  })();
+
+  const semesterSplitChartData = {
+    labels: forecastSeries.map((p) => formatMonthOption(p.month)),
+    datasets: [
+      {
+        label: 'Actual (left)',
+        data: forecastSeries.map((p) => p.actual),
+        borderColor: '#0f172a',
+        backgroundColor: 'rgba(15, 23, 42, 0.15)',
+        tension: 0.25,
+        fill: false,
+        spanGaps: false,
+        pointRadius: 4,
+      },
+      {
+        label: 'Predicted (right)',
+        data: animatedPredictedValues,
+        borderColor: '#0284c7',
+        backgroundColor: 'rgba(2, 132, 199, 0.2)',
+        borderDash: [6, 4],
+        tension: 0.25,
+        fill: false,
+        spanGaps: false,
+        pointRadius: 4,
+      }
+    ]
+  };
 
   const fallback = {
     total_reservations: reservations.length,
@@ -1929,6 +2054,42 @@ function AnalyticsView({ reservations }) {
         value: `${kpis.average_lead_time_days || 0} days`,
         detail: `${kpis.lead_time_samples || 0} reservations analyzed`
       })
+    ),
+
+    React.createElement('div', { className: 'bg-white border rounded-3xl p-6 space-y-4' },
+      React.createElement('div', { className: 'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3' },
+        React.createElement('div', {},
+          React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Semester Forecast Panel'),
+          React.createElement('p', { className: 'text-xs text-slate-500 mt-1' },
+            'Training basis: approved reservations only'
+          ),
+          React.createElement('p', { className: 'text-xs text-slate-500' },
+            'Next retrain: ', formatDateTime(nextRetrainAt)
+          )
+        ),
+        React.createElement('button', {
+          onClick: handleRetrainForecast,
+          disabled: retrainingForecast,
+          className: `px-4 py-2 rounded-xl text-sm font-bold transition ${retrainingForecast ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-sky-500 text-white hover:bg-sky-600'}`
+        }, retrainingForecast ? 'Retraining...' : 'Retrain Now')
+      ),
+      forecastError && React.createElement('div', { className: 'bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-xl text-sm' }, forecastError),
+      React.createElement('div', { className: 'border border-slate-100 rounded-2xl p-4 bg-slate-50/50' },
+        React.createElement('h4', { className: 'font-semibold text-slate-800 mb-1' }, forecastData.period_label || 'Current Semester Forecast'),
+        React.createElement('p', { className: 'text-xs text-slate-500 mb-3' },
+          'Actual months are shown on the left. Predicted months are shown on the right and reveal progressively.'
+        ),
+        React.createElement(ChartCanvas, {
+          type: 'line',
+          data: semesterSplitChartData,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom' } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+          }
+        })
+      )
     ),
 
     React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
