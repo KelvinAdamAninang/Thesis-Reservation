@@ -176,104 +176,36 @@ const apiService = {
     return response.json();
   },
 
-  async getDataMiningAnalytics(filters = {}) {
-    const params = new URLSearchParams();
-    if (filters.department && filters.department !== 'All') params.set('department', filters.department);
-    if (filters.heatmapMonth && filters.heatmapMonth !== 'all') params.set('heatmap_month', filters.heatmapMonth);
-    const queryString = params.toString();
-    const endpoint = queryString ? `${API_BASE}/data-mining/analytics?${queryString}` : `${API_BASE}/data-mining/analytics`;
-
-    const response = await fetch(endpoint, { credentials: 'include' });
+  async getDataMiningAnalytics() {
+    const response = await fetch(`${API_BASE}/data-mining/analytics`, { credentials: 'include' });
     if (!response.ok) throw new Error('Failed to fetch analytics');
     const payload = await response.json();
     if (payload.status !== 'success') throw new Error(payload.message || 'Analytics fetch failed');
     return payload.data;
   },
 
-  async getForecastPeriods() {
-    const response = await fetch(`${API_BASE}/data-mining/forecast/periods`, { credentials: 'include' });
-    const payload = await response.json();
-    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to fetch forecast periods');
-    return payload;
-  },
-
-  async getCurrentSemesterForecast() {
-    const response = await fetch(`${API_BASE}/data-mining/forecast/current-semester`, { credentials: 'include' });
-    const payload = await response.json();
-    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to fetch current semester forecast');
-    return payload;
-  },
-
-  async retrainForecastModel() {
-    const response = await fetch(`${API_BASE}/data-mining/forecast/retrain`, {
-      method: 'POST',
-      credentials: 'include'
-    });
-    const payload = await response.json();
-    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to retrain forecast model');
-    return payload;
-  },
-
-  async updateMyProfile(username) {
-    const response = await fetch(`${API_BASE}/settings/profile`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ username })
-    });
-    const payload = await response.json();
-    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to update profile');
-    return payload;
-  },
-
-  async updateMyPassword(current_password, new_password) {
-    const response = await fetch(`${API_BASE}/settings/password`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ current_password, new_password })
-    });
-    const payload = await response.json();
-    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to update password');
-    return payload;
-  },
-
-  async adminGetFacilities() {
-    const response = await fetch(`${API_BASE}/admin/facilities`, { credentials: 'include' });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || 'Failed to fetch facilities');
-    return payload;
-  },
-
-  async adminGetUsers() {
-    const response = await fetch(`${API_BASE}/admin/users`, { credentials: 'include' });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message || 'Failed to fetch users');
-    return payload;
-  },
-
-  async adminCreateFacility(data) {
+  async adminCreateFacility(payload) {
     const response = await fetch(`${API_BASE}/admin/facilities`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify(data)
+      body: JSON.stringify(payload)
     });
-    const payload = await response.json();
-    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to create facility');
-    return payload;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to create facility');
+    return data;
   },
 
-  async adminUpdateFacility(id, data) {
+  async adminUpdateFacility(id, payload) {
     const response = await fetch(`${API_BASE}/admin/facilities/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify(data)
+      body: JSON.stringify(payload)
     });
-    const payload = await response.json();
-    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to update facility');
-    return payload;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to update facility');
+    return data;
   },
 
   async adminDeleteFacility(id) {
@@ -281,33 +213,56 @@ const apiService = {
       method: 'DELETE',
       credentials: 'include'
     });
-    const payload = await response.json();
-    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to delete facility');
-    return payload;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to delete facility');
+    return data;
   },
 
-  async adminCreateUser(data) {
+  async adminUploadFacilityImage(file, previousImageUrl = '') {
+    const formData = new FormData();
+    formData.append('image', file);
+    if (previousImageUrl) {
+      formData.append('previous_image_url', previousImageUrl);
+    }
+    const response = await fetch(`${API_BASE}/admin/facilities/upload-image`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to upload image');
+    return data.image_url;
+  },
+
+  async adminGetUsers() {
+    const response = await fetch(`${API_BASE}/admin/users`, { credentials: 'include' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to fetch users');
+    return data;
+  },
+
+  async adminCreateUser(payload) {
     const response = await fetch(`${API_BASE}/admin/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify(data)
+      body: JSON.stringify(payload)
     });
-    const payload = await response.json();
-    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to create user');
-    return payload;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to create user');
+    return data;
   },
 
-  async adminUpdateUser(id, data) {
+  async adminUpdateUser(id, payload) {
     const response = await fetch(`${API_BASE}/admin/users/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify(data)
+      body: JSON.stringify(payload)
     });
-    const payload = await response.json();
-    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to update user');
-    return payload;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to update user');
+    return data;
   },
 
   async adminDeleteUser(id) {
@@ -315,11 +270,29 @@ const apiService = {
       method: 'DELETE',
       credentials: 'include'
     });
-    const payload = await response.json();
-    if (!response.ok || payload.status !== 'success') throw new Error(payload.message || 'Failed to delete user');
-    return payload;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to delete user');
+    return data;
+  },
+
+  async updateMyPassword(currentPassword, newPassword) {
+    const response = await fetch(`${API_BASE}/settings/password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to update password');
+    return data;
   }
 };
+
+function confirmDeleteAction(targetLabel) {
+  return window.confirm(
+    `WARNING: You are about to permanently delete ${targetLabel}.\n\nThis action cannot be undone.\n\nPress OK to continue.`
+  );
+}
 
 // ==================== MAIN APP ====================
 function App() {
@@ -437,40 +410,22 @@ function App() {
     })();
   }, []);
 
-  const refreshAppData = async (showError = true) => {
-    if (!currentUser) return;
-    try {
-      const [roomsData, reservationsData, eventsData] = await Promise.all([
-        apiService.getRooms(),
-        apiService.getReservations(),
-        apiService.getCalendarEvents()
-      ]);
-      setRooms(roomsData || []);
-      setReservations(reservationsData || []);
-      setCalendarEvents(eventsData || []);
-    } catch (err) {
-      if (showError) {
-        setError(err.message || 'Failed to refresh data');
-      }
-    }
-  };
-
   // Load data when user is set
   useEffect(() => {
     if (currentUser) {
-      refreshAppData(true);
+      (async () => {
+        try {
+          const data = await apiService.getRooms();
+          setRooms(data);
+          const res = await apiService.getReservations();
+          setReservations(res);
+          const events = await apiService.getCalendarEvents();
+          setCalendarEvents(events);
+        } catch (err) {
+          setError(err.message);
+        }
+      })();
     }
-  }, [currentUser]);
-
-  // Poll app data for all logged-in users so changes appear without manual refresh
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const interval = setInterval(() => {
-      refreshAppData(false);
-    }, 3000);
-
-    return () => clearInterval(interval);
   }, [currentUser]);
 
   const handleLogin = async (username, password) => {
@@ -558,19 +513,43 @@ function App() {
       React.createElement('main', { className: 'flex-1 overflow-y-auto p-4 md:p-8' },
         currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
         currentView === 'calendar' && React.createElement(CalendarView, { events: calendarEvents, rooms, onViewEvent: (e) => { setSelectedRes(e); setActiveModal('eventDetails'); } }),
-        currentView === 'facilities' && React.createElement(FacilitiesView, { rooms, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
+        currentView === 'facilities' && React.createElement(FacilitiesView, {
+          rooms,
+          isAdmin: isAdminOrPhase1,
+          onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); },
+          onRoomsUpdated: async () => {
+            const data = await apiService.getRooms();
+            setRooms(data);
+          },
+          onNotify: (message) => {
+            setNotification(message);
+            setActiveModal('notification');
+          }
+        }),
+        currentView === 'settings' && isAdminOrPhase1 && React.createElement(SettingsView, {
+          currentUser,
+          rooms,
+          onRoomsUpdated: async () => {
+            const data = await apiService.getRooms();
+            setRooms(data);
+          },
+          onNotify: (message) => {
+            setNotification(message);
+            setActiveModal('notification');
+          }
+        }),
         currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at && r.user_id !== currentUser.id), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
         currentView === 'analytics' && isAdminOrPhase1 && React.createElement(AnalyticsView, { reservations }),
-        currentView === 'settings' && isAdminOrPhase1 && React.createElement(SettingsView, {
+        currentView === 'archive' && React.createElement(ArchiveView, {
+          archive,
           user: currentUser,
-          onUserUpdated: (nextUser) => setCurrentUser(nextUser),
-          onNotify: (msg) => {
-            setNotification(msg);
-            setActiveModal('notification');
-          },
-          onError: (msg) => setError(msg)
-        }),
-        currentView === 'archive' && React.createElement(ArchiveView, { archive, user: currentUser, isAdmin: isAdminOrPhase1, onDelete: async (id) => { if (window.confirm('Delete?')) { await apiService.deleteReservation(id); setReservations(reservations.filter(r => r.id !== id)); } } })
+          isAdmin: isAdminOrPhase1,
+          onDelete: async (id) => {
+            if (!confirmDeleteAction('this reservation record')) return;
+            await apiService.deleteReservation(id);
+            setReservations(reservations.filter(r => r.id !== id));
+          }
+        })
       )
     ),
     // Modals
@@ -1241,20 +1220,39 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
     const startTime = start ? start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '';
     const endTime = end ? end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '';
     const dateFiled = res.date_filed ? new Date(res.date_filed).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
-    const roomName = rooms?.find(r => Number(r.id) === Number(res.room_id))?.name || '';
+    const selectedRoom = rooms?.find(r => Number(r.id) === Number(res.room_id));
+    const roomName = selectedRoom?.name || '';
+    const roomCode = (selectedRoom?.code || '').toLowerCase();
+    const normalizedRoomName = roomName.toLowerCase();
 
-    const equipRows = requestedEquip.length > 0
-      ? requestedEquip.map(([item, qty]) => `
-          <div class="line-row"><span class="line-label">${escapeHtml(item)}</span><span class="line-value">${escapeHtml(qty)}</span></div>
-        `).join('')
-      : '<div class="muted">No equipment requested.</div>';
+    const matchesFacility = (...keywords) =>
+      keywords.some((key) => normalizedRoomName.includes(key) || roomCode === key || roomCode.includes(key));
 
-    const engineeringText = [
-      requestedServices.engineering?.aircon ? 'Aircon' : null,
-      requestedServices.engineering?.elevator ? 'Elevator' : null,
-      requestedServices.engineering?.electrical_setup ? 'Electrical Set-up' : null,
-      requestedServices.engineering?.others ? `Others: ${requestedServices.engineering.others}` : null
-    ].filter(Boolean).join(', ') || 'None';
+    const isPAT = matchesFacility('pat', 'performing arts theatre', 'performing arts theater');
+    const isCollegeLobby = matchesFacility('college lobby');
+    const isQuadrangle = matchesFacility('quadrangle', 'quad');
+    const isAchieversPark = matchesFacility('achievers park');
+    const isTvStudio = matchesFacility('tv studio');
+    const isRadioRoom = matchesFacility('radio room');
+    const isStudioRoom = matchesFacility('studio room');
+    const isOthersFacility = Boolean(roomName) && ![
+      isPAT,
+      isCollegeLobby,
+      isQuadrangle,
+      isAchieversPark,
+      isTvStudio,
+      isRadioRoom,
+      isStudioRoom
+    ].some(Boolean);
+
+    const equipmentQty = Object.fromEntries(requestedEquip.map(([item, qty]) => [String(item).toLowerCase(), qty]));
+    const yesNo = (value) => (value ? 'Yes' : 'No');
+    const checkbox = (checked) => (checked ? '☑' : '☐');
+    const hasMatch = (needle) => Object.keys(equipmentQty).some((k) => k.includes(needle));
+    const qtyByNeedle = (needle) => {
+      const entry = Object.entries(equipmentQty).find(([k]) => k.includes(needle));
+      return entry ? entry[1] : '';
+    };
 
     const htmlContent = `
       <html>
@@ -1262,122 +1260,275 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
         <title>Common Facility Request Form</title>
         <style>
           * { box-sizing: border-box; }
-          body { font-family: Arial, sans-serif; margin: 0; padding: 18px; color: #111; }
-          .page { max-width: 920px; margin: 0 auto; border: 2px solid #111; }
-          .top { background: #f3f4f6; border-bottom: 2px solid #111; padding: 10px 16px; text-align: center; }
-          .top h1 { margin: 0; font-size: 22px; letter-spacing: .2px; }
-          .top p { margin: 3px 0 0; font-size: 12px; }
-          .title-wrap { display: grid; grid-template-columns: 1fr 170px; border-bottom: 2px solid #111; }
-          .title { padding: 10px 14px; font-size: 32px; font-weight: 800; text-align: center; }
-          .code { border-left: 2px solid #111; padding: 8px; font-size: 11px; text-align: center; }
-          .section { padding: 10px 14px; border-bottom: 1px solid #111; }
-          .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-          .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
-          .field { margin: 6px 0; font-size: 13px; display: flex; gap: 6px; align-items: baseline; }
-          .field b { min-width: 145px; }
-          .answer { display: inline-block; min-width: 160px; border-bottom: 1px solid #666; padding: 0 4px 1px; font-weight: 600; }
-          .subhead { text-align: center; font-weight: 800; font-size: 18px; margin: 4px 0 8px; }
-          .box { border: 1px solid #111; padding: 8px; }
-          .line-row { display: grid; grid-template-columns: 1fr 80px; border-bottom: 1px solid #ddd; padding: 4px 0; font-size: 12px; }
-          .line-label { font-weight: 600; }
-          .line-value { text-align: right; font-weight: 700; }
-          .muted { color: #666; font-style: italic; font-size: 12px; }
-          .service-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 8px; }
-          .service-col { border: 1px solid #111; min-height: 86px; padding: 8px; }
-          .service-col h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; }
-          .service-col p { margin: 3px 0; font-size: 12px; }
-          .approval { display: grid; grid-template-columns: 1fr 1fr 1fr; border-top: 1px solid #111; }
-          .approval .col { padding: 8px; border-left: 1px solid #111; min-height: 90px; }
-          .approval .col:first-child { border-left: 0; }
-          .line { border-bottom: 1px solid #666; height: 18px; margin-top: 8px; }
-          .small { font-size: 11px; }
-          @media print { body { padding: 0; } .page { border-width: 1px; } }
+          @page { size: 8.5in 13in; margin: 0.28in 0.35in; }
+          body { font-family: Arial, sans-serif; color: #000; margin: 0; font-size: 10.3px; line-height: 1.16; }
+          .page { width: 100%; }
+          .center { text-align: center; }
+          .school { font-size: 17px; font-weight: 700; margin-top: 1px; }
+          .sub { font-size: 10px; margin-top: 1px; }
+          .title-row { position: relative; width: 100%; margin-top: 4px; min-height: 34px; }
+          .title-cell { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font-size: 17px; font-weight: 700; letter-spacing: 0.2px; }
+          .code-cell { position: relative; z-index: 2; margin-left: auto; width: 21%; border: 1px solid #000; text-align: center; padding: 3px; font-size: 9px; background: #fff; }
+          .sp8 { height: 4px; }
+          .sp12 { height: 6px; }
+          .form-grid { width: 100%; border-collapse: collapse; margin-top: 4px; }
+          .form-grid td { width: 50%; vertical-align: top; padding: 2px 6px 2px 0; }
+          .line { display: inline-block; min-width: 145px; border-bottom: 1px solid #000; padding: 0 3px 0; font-weight: 600; }
+          .line-wide { min-width: 190px; }
+          .label { font-weight: 700; }
+          .checkline { font-size: 10px; font-weight: 600; }
+          .classification-heading { font-size: 14px; font-weight: 700; }
+          .classification-option { font-size: 13.5px; font-weight: 700; }
+          .section-title { text-align: center; font-size: 12px; font-weight: 700; margin: 5px 0 4px; }
+          .tri { width: 100%; border-collapse: collapse; }
+          .tri td { width: 33.33%; border: 1px solid #000; vertical-align: top; padding: 4px 6px; }
+          .tri ul { list-style: none; margin: 0; padding: 0; }
+          .tri li { margin: 2px 0; }
+          .gray { background: #e0e0e0; text-align: center; font-weight: 700; }
+          .note { margin-top: 6px; font-size: 9px; font-weight: 700; }
+          .approval { width: 100%; border-collapse: collapse; margin-top: 6px; }
+          .approval td { width: 33.33%; border: 1px solid #000; vertical-align: top; padding: 4px 6px; min-height: 72px; }
+          .sig-space { height: 28px; }
+          .sig-line { border-top: 1px solid #000; text-align: center; font-weight: 700; padding-top: 2px; }
+          .sig-role { text-align: center; font-size: 9px; }
+          .copy-row { width: 100%; border-collapse: collapse; margin-top: 5px; }
+          .copy-row td { width: 33.33%; vertical-align: top; padding: 1px 4px 1px 0; }
+          .copies { margin: 0; padding-left: 16px; }
+          .copies li { margin: 1px 0; }
+          @media print {
+            body {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+              zoom: 0.95;
+            }
+          }
         </style>
       </head>
       <body>
         <div class="page">
-          <div class="top">
-            <h1>University of Perpetual Help System Laguna</h1>
-            <p>City of Binan, Laguna, Philippines</p>
-          </div>
+          <div class="center school">University of Perpetual Help System Laguna</div>
+          <div class="center sub">City of Binan, Laguna, Philippines, 4024</div>
+          <div class="center sub">(02)779-5310 • (049)544-5150 • (049)544-5161</div>
+          <div class="center sub">www.uphsl.edu.ph</div>
 
-          <div class="title-wrap">
-            <div class="title">COMMON FACILITY REQUEST FORM</div>
-            <div class="code">
-              <div><b>UPHS/JH-CFRF-01</b></div>
-              <div>Clean Template</div>
+          <div class="title-row">
+            <div class="title-cell">COMMON FACILITY REQUEST FORM</div>
+            <div class="code-cell">
+              <div>UPHSJ/HK-CFRF-01</div>
+              <div>01-06-2020 01</div>
             </div>
           </div>
 
-          <div class="section grid-2">
-            <div>
-              <div class="field"><b>Activity/Purpose:</b><span class="answer">${escapeHtml(res.activity_purpose)}</span></div>
-              <div class="field"><b>Division:</b><span class="answer">${escapeHtml(res.division)}</span></div>
-              <div class="field"><b>No. of Attendees:</b><span class="answer">${escapeHtml(res.attendees)}</span></div>
-              <div class="field"><b>Date Filed:</b><span class="answer">${escapeHtml(dateFiled)}</span></div>
-            </div>
-            <div>
-              <div class="field"><b>Department:</b><span class="answer">${escapeHtml(res.department)}</span></div>
-              <div class="field"><b>Classification:</b><span class="answer">${escapeHtml(res.classification)}</span></div>
-              <div class="field"><b>Date Needed:</b><span class="answer">${escapeHtml(dateNeeded)}</span></div>
-              <div class="field"><b>Time Needed:</b><span class="answer">${escapeHtml(startTime)} to ${escapeHtml(endTime)}</span></div>
-            </div>
-          </div>
+          <table class="form-grid">
+            <tr>
+              <td><span class="label">Activity/Purpose:</span> <span class="line line-wide">${escapeHtml(res.activity_purpose)}</span></td>
+              <td><span class="label">Department/Company:</span> <span class="line">${escapeHtml(res.department)}</span></td>
+            </tr>
+            <tr>
+              <td><span class="label">Division:</span> <span class="line line-wide">${escapeHtml(res.division)}</span></td>
+              <td class="checkline">${checkbox(res.classification === 'Student')} Student &nbsp; ${checkbox(res.classification === 'Employee')} Employee &nbsp; ${checkbox(Boolean(res.classification && !['Student','Employee'].includes(res.classification)))} Others</td>
+            </tr>
+            <tr>
+              <td><span class="label">Number of Attendees:</span> <span class="line">${escapeHtml(res.attendees)}</span></td>
+              <td><span class="label">Date Needed:</span> <span class="line">${escapeHtml(dateNeeded)}</span></td>
+            </tr>
+            <tr>
+              <td><span class="label">Date Filed:</span> <span class="line">${escapeHtml(dateFiled)}</span></td>
+              <td><span class="label">Time Needed:</span> <span class="line">${escapeHtml(startTime)}</span> to <span class="line">${escapeHtml(endTime)}</span></td>
+            </tr>
+          </table>
 
-          <div class="section grid-2">
-            <div class="field"><b>Person in Charge:</b><span class="answer">${escapeHtml(res.person_in_charge)}</span></div>
-            <div class="field"><b>Contact Number:</b><span class="answer">${escapeHtml(res.contact_number)}</span></div>
-          </div>
+          <table class="form-grid">
+            <tr>
+              <td>
+                <span class="label">Person in Charge of the Activity:</span>
+                <div class="center" style="margin-top:2px;">
+                  <span class="line">${escapeHtml(res.person_in_charge)}</span>
+                </div>
+              </td>
+              <td class="center" rowspan="2" style="vertical-align:top;">
+                <div>
+                  <span class="line line-wide">${escapeHtml(res.contact_number)}</span>
+                </div>
+                <div style="font-size:11px; margin-top:2px;"><i>Contact Number</i></div>
+              </td>
+            </tr>
+            <tr>
+              <td class="center" style="font-size:11px;"><i>Signature over Printed Name</i></td>
+            </tr>
+          </table>
 
-          <div class="section">
-            <div class="subhead">FACILITY REQUEST</div>
-            <div class="field"><b>Requested Facility:</b><span class="answer" style="min-width: 380px;">${escapeHtml(roomName)}</span></div>
-          </div>
+          <div class="sp8"></div>
+          <div><span class="classification-heading">CLASSIFICATION OF ACTIVITIES:</span></div>
+          <table class="form-grid" style="margin-top:4px;">
+            <tr>
+              <td class="classification-option">${checkbox(res.classification === 'Institutional')} Institutional</td>
+              <td class="classification-option">${checkbox(res.classification === 'Curricular')} Curricular</td>
+              <td class="classification-option">${checkbox(res.classification === 'Outside Group')} Outside Group</td>
+            </tr>
+            <tr>
+              <td class="classification-option">${checkbox(res.classification === 'Co-Curricular')} Co-Curricular</td>
+              <td class="classification-option">${checkbox(res.classification === 'Extra Curricular')} Extra Curricular</td>
+              <td></td>
+            </tr>
+          </table>
 
-          <div class="section">
-            <div class="subhead">EQUIPMENT / SERVICES TO BE PROVIDED</div>
-            <div class="box">
-              ${equipRows}
-            </div>
+          <div class="section-title">FACILITY REQUEST</div>
+          <table class="tri">
+            <tr>
+              <td>
+                <ul>
+                  <li>${checkbox(isPAT)} PAT</li>
+                  <li>${checkbox(isCollegeLobby)} COLLEGE LOBBY</li>
+                  <li>${checkbox(isQuadrangle)} QUADRANGLE</li>
+                </ul>
+              </td>
+              <td>
+                <ul>
+                  <li>${checkbox(isAchieversPark)} ACHIEVERS PARK</li>
+                  <li>${checkbox(isTvStudio)} TV STUDIO</li>
+                  <li>${checkbox(isRadioRoom)} RADIO ROOM</li>
+                </ul>
+              </td>
+              <td>
+                <ul>
+                  <li>${checkbox(isStudioRoom)} STUDIO ROOM</li>
+                  <li>${checkbox(isOthersFacility)} OTHERS: ${isOthersFacility ? escapeHtml(roomName) : ''}</li>
+                </ul>
+              </td>
+            </tr>
+          </table>
 
-            <div class="service-grid">
-              <div class="service-col">
-                <h4>Housekeeping</h4>
-                <p>Need HK Staff: <b>${requestedServices.housekeeping?.needed ? 'Yes' : 'No'}</b></p>
-                <p>How Many: <b>${escapeHtml(requestedServices.housekeeping?.count || '')}</b></p>
-              </div>
-              <div class="service-col">
-                <h4>Security</h4>
-                <p>Need Security Guard: <b>${requestedServices.security_guard ? 'Yes' : 'No'}</b></p>
-              </div>
-              <div class="service-col">
-                <h4>Engineering Services</h4>
-                <p><b>${escapeHtml(engineeringText)}</b></p>
-              </div>
-            </div>
-          </div>
+          <div class="section-title">EQUIPMENT/SERVICES TO BE PROVIDED</div>
+          <table class="tri">
+            <tr>
+              <td>
+                <ul>
+                  <li>${checkbox(hasMatch('table'))} Tables ${escapeHtml(qtyByNeedle('table'))}</li>
+                  <li>${checkbox(hasMatch('chair'))} Chairs ${escapeHtml(qtyByNeedle('chair'))}</li>
+                  <li>${checkbox(hasMatch('philippine flag'))} Philippine Flag ${escapeHtml(qtyByNeedle('philippine flag'))}</li>
+                  <li>${checkbox(hasMatch('university flag'))} University Flag ${escapeHtml(qtyByNeedle('university flag'))}</li>
+                  <li>${checkbox(hasMatch('college flag'))} College Flag ${escapeHtml(qtyByNeedle('college flag'))}</li>
+                </ul>
+              </td>
+              <td>
+                <ul>
+                  <li>${checkbox(hasMatch('lcd projector'))} LCD Projector ${escapeHtml(qtyByNeedle('lcd projector'))}</li>
+                  <li>${checkbox(hasMatch('white screen'))} White Screen ${escapeHtml(qtyByNeedle('white screen'))}</li>
+                  <li>${checkbox(hasMatch('tv'))} TV ${escapeHtml(qtyByNeedle('tv'))}</li>
+                  <li>${checkbox(hasMatch('still camera'))} Still Camera ${escapeHtml(qtyByNeedle('still camera'))}</li>
+                  <li>${checkbox(hasMatch('video camera'))} Video Camera ${escapeHtml(qtyByNeedle('video camera'))}</li>
+                </ul>
+              </td>
+              <td>
+                <ul>
+                  <li>${checkbox(hasMatch('sound system'))} Sound System ${escapeHtml(qtyByNeedle('sound system'))}</li>
+                  <li>${checkbox(hasMatch('microphone'))} Microphone ${escapeHtml(qtyByNeedle('microphone'))}</li>
+                  <li>${checkbox(hasMatch('speaker'))} Speaker ${escapeHtml(qtyByNeedle('speaker'))}</li>
+                  <li>${checkbox(hasMatch('lights set-up') || hasMatch('lights setup'))} Lights Set-up ${escapeHtml(qtyByNeedle('lights'))}</li>
+                  <li>${checkbox(hasMatch('podium'))} Podium ${escapeHtml(qtyByNeedle('podium'))} &nbsp;&nbsp; ${checkbox(hasMatch('laptop'))} Laptop ${escapeHtml(qtyByNeedle('laptop'))}</li>
+                </ul>
+              </td>
+            </tr>
+          </table>
 
-          <div class="section small">
-            NOTE: This clean print form intentionally excludes pre-filled checks/signatures so it can be signed manually.
-          </div>
+          <div class="sp8"></div>
+          <table class="tri">
+            <tr>
+              <td class="gray">HOUSEKEEPING</td>
+              <td class="gray">SECURITY</td>
+              <td class="gray">ENGINEERING SERVICES</td>
+            </tr>
+            <tr>
+              <td>
+                <ul>
+                  <li>${checkbox(requestedServices.housekeeping?.needed)} HK Staff ${escapeHtml(requestedServices.housekeeping?.count || '')}</li>
+                </ul>
+              </td>
+              <td>
+                <ul>
+                  <li>${checkbox(requestedServices.security_guard)} Security Guard (${yesNo(requestedServices.security_guard)})</li>
+                </ul>
+              </td>
+              <td>
+                <ul>
+                  <li>${checkbox(requestedServices.engineering?.aircon)} Aircon</li>
+                  <li>${checkbox(requestedServices.engineering?.elevator)} Elevator</li>
+                  <li>${checkbox(requestedServices.engineering?.electrical_setup)} Electrical Set-up</li>
+                  <li>${checkbox(Boolean(requestedServices.engineering?.others))} Others: ${escapeHtml(requestedServices.engineering?.others || '')}</li>
+                </ul>
+              </td>
+            </tr>
+          </table>
 
-          <div class="approval">
-            <div class="col">
-              <b>Noted by:</b>
-              <div class="line"></div>
-              <div class="small">Dean / Department Head</div>
-            </div>
-            <div class="col">
-              <b>Recommending Approval:</b>
-              <div class="line"></div>
-              <div class="small">Head, Facilities Office</div>
-            </div>
-            <div class="col">
-              <b>Approved by:</b>
-              <div class="line"></div>
-              <div class="small">Authorized Signatory</div>
-            </div>
-          </div>
+          <div class="note">NOTE: THIS FORM MUST BE ACCOMPLISHED AND APPROVED WITHIN 5 WORKING DAYS UPON INITIAL RESERVATION TO AVOID CANCELLATION.</div>
+
+          <table class="approval">
+            <tr>
+              <td>
+                <div>Noted by:</div>
+                <div class="sig-space"></div>
+                <div class="sig-line">MR. OLIVER M. JUNIO</div>
+                <div class="sig-role">DEAN/DEPARTMENT HEAD</div>
+              </td>
+              <td>
+                <div>Recommending Approval:</div>
+                <div style="font-size:9px;"><i>(For Audiovisual Facilities UPHSL)</i></div>
+                <div class="sig-space"></div>
+                <div class="sig-line">MR. RUEL B. RILLORAZA</div>
+                <div class="sig-role">Head/Audiovisual Facilities</div>
+              </td>
+              <td>
+                <div>Recommending Approval:</div>
+                <div style="font-size:9px;"><i>(For Athletic Facilities)</i></div>
+                <div class="sig-space"></div>
+                <div class="sig-line">DR. MICHAEL N. VERDEJO, MAED</div>
+                <div class="sig-role">Athletic Director</div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="sig-space"></div>
+                <div class="sig-line">MR. MANUELITO V. CASTRILLO</div>
+                <div class="sig-role">Exec. VP for Administration Jonelta System</div>
+              </td>
+              <td>
+                <div>Approved by:</div>
+                <div class="sig-space"></div>
+                <div class="sig-line">DR. FERDINAND C. SOMIDO</div>
+                <div class="sig-role">Executive School Director</div>
+              </td>
+              <td>
+                <div class="sig-space"></div>
+                <div class="sig-line">DR. ARCADIO L. TAMAYO</div>
+                <div class="sig-role">Chancellor-UPH-DJGTMU</div>
+              </td>
+            </tr>
+          </table>
+
+          <div style="margin-top:5px; font-size:9px;">Provide a copy of accomplishment form to the following:</div>
+          <table class="copy-row">
+            <tr>
+              <td>
+                <ul class="copies">
+                  <li>Engineering Services Office</li>
+                  <li>Housekeeping Department</li>
+                </ul>
+              </td>
+              <td>
+                <ul class="copies">
+                  <li>Security Department</li>
+                  <li>Audiovisual (MU)</li>
+                </ul>
+              </td>
+              <td>
+                <ul class="copies">
+                  <li>Audiovisual Facilities Office</li>
+                  <li>Athletic Department</li>
+                </ul>
+              </td>
+            </tr>
+          </table>
         </div>
       </body>
       </html>
@@ -1687,15 +1838,11 @@ function ChartCanvas({ type, data, options }) {
   );
 }
 
-function AnalyticsKpiCard({ label, value, detail, onClick, children }) {
-  return React.createElement('div', {
-    className: `bg-white border rounded-3xl p-5 shadow-sm ${onClick ? 'cursor-pointer hover:border-sky-300 transition' : ''}`,
-    onClick
-  },
+function AnalyticsKpiCard({ label, value, detail }) {
+  return React.createElement('div', { className: 'bg-white border rounded-3xl p-5 shadow-sm' },
     React.createElement('p', { className: 'text-xs font-bold uppercase tracking-wider text-slate-400 mb-3' }, label),
     React.createElement('p', { className: 'text-2xl font-bold text-slate-800 leading-tight break-words' }, value),
-    React.createElement('p', { className: 'text-sm text-slate-500 mt-2' }, detail),
-    children
+    React.createElement('p', { className: 'text-sm text-slate-500 mt-2' }, detail)
   );
 }
 
@@ -1748,21 +1895,6 @@ function AnalyticsView({ reservations }) {
   const [analytics, setAnalytics] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const [analyticsError, setAnalyticsError] = useState('');
-  const [forecastPayload, setForecastPayload] = useState(null);
-  const [forecastError, setForecastError] = useState('');
-  const [retrainingForecast, setRetrainingForecast] = useState(false);
-  const [forecastRevealCount, setForecastRevealCount] = useState(0);
-  const [selectedDepartment, setSelectedDepartment] = useState('All');
-  const [selectedHeatmapMonth, setSelectedHeatmapMonth] = useState('all');
-  const [showDepartmentPicker, setShowDepartmentPicker] = useState(false);
-
-  const formatMonthOption = (monthKey) => {
-    if (!monthKey || monthKey === 'all') return 'All Months';
-    const [year, month] = monthKey.split('-');
-    const parsed = new Date(Number(year), Number(month) - 1, 1);
-    if (Number.isNaN(parsed.getTime())) return monthKey;
-    return parsed.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-  };
 
   useEffect(() => {
     let isMounted = true;
@@ -1770,18 +1902,8 @@ function AnalyticsView({ reservations }) {
       setLoadingAnalytics(true);
       setAnalyticsError('');
       try {
-        const data = await apiService.getDataMiningAnalytics({
-          department: selectedDepartment,
-          heatmapMonth: selectedHeatmapMonth
-        });
-        if (isMounted) {
-          setAnalytics(data);
-
-          const serverDepartment = data?.filters?.selected_department || 'All';
-          const serverHeatmapMonth = data?.filters?.selected_heatmap_month || 'all';
-          setSelectedDepartment(prev => prev === serverDepartment ? prev : serverDepartment);
-          setSelectedHeatmapMonth(prev => prev === serverHeatmapMonth ? prev : serverHeatmapMonth);
-        }
+        const data = await apiService.getDataMiningAnalytics();
+        if (isMounted) setAnalytics(data);
       } catch (err) {
         if (isMounted) setAnalyticsError(err.message || 'Failed to load analytics data');
       } finally {
@@ -1790,104 +1912,7 @@ function AnalyticsView({ reservations }) {
     })();
 
     return () => { isMounted = false; };
-  }, [reservations.length, selectedDepartment, selectedHeatmapMonth]);
-
-  useEffect(() => {
-    let isMounted = true;
-    (async () => {
-      try {
-        setForecastError('');
-        const payload = await apiService.getCurrentSemesterForecast();
-        if (isMounted) setForecastPayload(payload);
-      } catch (err) {
-        if (isMounted) setForecastError(err.message || 'Failed to load forecast periods');
-      }
-    })();
-
-    return () => { isMounted = false; };
   }, [reservations.length]);
-
-  const forecastSeries = forecastPayload?.data?.series || [];
-  const forecastPredictedPoints = forecastSeries.filter(p => p.predicted !== null).length;
-
-  useEffect(() => {
-    setForecastRevealCount(0);
-    if (!forecastPredictedPoints) return;
-
-    const interval = setInterval(() => {
-      setForecastRevealCount((prev) => {
-        if (prev >= forecastPredictedPoints) {
-          clearInterval(interval);
-          return prev;
-        }
-        return prev + 1;
-      });
-    }, 700);
-
-    return () => clearInterval(interval);
-  }, [forecastPredictedPoints, JSON.stringify(forecastSeries)]);
-
-  const formatDateTime = (iso) => {
-    if (!iso) return 'N/A';
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return iso;
-    return date.toLocaleString('en-US', {
-      month: 'short', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit'
-    });
-  };
-
-  const handleRetrainForecast = async () => {
-    try {
-      setRetrainingForecast(true);
-      setForecastError('');
-      const retrainPayload = await apiService.retrainForecastModel();
-      const periodsPayload = await apiService.getCurrentSemesterForecast();
-      setForecastPayload(periodsPayload);
-      alert(retrainPayload.message || 'Forecast model retrained successfully.');
-    } catch (err) {
-      setForecastError(err.message || 'Failed to retrain forecast model');
-    } finally {
-      setRetrainingForecast(false);
-    }
-  };
-
-  const forecastData = forecastPayload?.data || {};
-  const nextRetrainAt = forecastPayload?.next_retrain_at;
-  const animatedPredictedValues = (() => {
-    let shown = 0;
-    return forecastSeries.map((point) => {
-      if (point.predicted === null) return null;
-      shown += 1;
-      return shown <= forecastRevealCount ? point.predicted : null;
-    });
-  })();
-
-  const semesterSplitChartData = {
-    labels: forecastSeries.map((p) => formatMonthOption(p.month)),
-    datasets: [
-      {
-        label: 'Actual (left)',
-        data: forecastSeries.map((p) => p.actual),
-        borderColor: '#0f172a',
-        backgroundColor: 'rgba(15, 23, 42, 0.15)',
-        tension: 0.25,
-        fill: false,
-        spanGaps: false,
-        pointRadius: 4,
-      },
-      {
-        label: 'Predicted (right)',
-        data: animatedPredictedValues,
-        borderColor: '#0284c7',
-        backgroundColor: 'rgba(2, 132, 199, 0.2)',
-        borderDash: [6, 4],
-        tension: 0.25,
-        fill: false,
-        spanGaps: false,
-        pointRadius: 4,
-      }
-    ]
-  };
 
   const fallback = {
     total_reservations: reservations.length,
@@ -1906,13 +1931,6 @@ function AnalyticsView({ reservations }) {
   };
 
   const kpis = analytics?.kpis || fallback;
-  const filters = analytics?.filters || {
-    departments: ['All'],
-    selected_department: selectedDepartment,
-    heatmap_months: ['all'],
-    selected_heatmap_month: selectedHeatmapMonth,
-    selected_heatmap_month_label: formatMonthOption(selectedHeatmapMonth)
-  };
   const charts = analytics?.charts || {
     top_venues: { labels: [], values: [] },
     peak_usage_heatmap: { days: [], hours: [], values: [], max_value: 0 },
@@ -2015,35 +2033,9 @@ function AnalyticsView({ reservations }) {
       }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Top Department',
-        value: selectedDepartment === 'All' ? (kpis.top_department || 'No Data') : selectedDepartment,
-        detail: selectedDepartment === 'All'
-          ? `${kpis.top_department_count || 0} reservations • Click to filter`
-          : `${kpis.top_department_count || 0} reservations • Filter active`,
-        onClick: () => setShowDepartmentPicker((prev) => !prev)
-      },
-        showDepartmentPicker && React.createElement('div', {
-          className: 'mt-4 border-t pt-3 space-y-2',
-          onClick: (e) => e.stopPropagation()
-        },
-          React.createElement('button', {
-            type: 'button',
-            onClick: () => {
-              setSelectedDepartment('All');
-              setShowDepartmentPicker(false);
-            },
-            className: `w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${selectedDepartment === 'All' ? 'bg-sky-100 text-sky-700' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`
-          }, 'Back to Top Department'),
-          (filters.departments || []).filter(dep => dep !== 'All').map(dep => React.createElement('button', {
-            key: dep,
-            type: 'button',
-            onClick: () => {
-              setSelectedDepartment(dep);
-              setShowDepartmentPicker(false);
-            },
-            className: `w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${selectedDepartment === dep ? 'bg-sky-100 text-sky-700' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`
-          }, dep))
-        )
-      ),
+        value: kpis.top_department || 'No Data',
+        detail: `${kpis.top_department_count || 0} reservations`
+      }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Booking Status Leader',
         value: kpis.dominant_status || 'No Data',
@@ -2054,42 +2046,6 @@ function AnalyticsView({ reservations }) {
         value: `${kpis.average_lead_time_days || 0} days`,
         detail: `${kpis.lead_time_samples || 0} reservations analyzed`
       })
-    ),
-
-    React.createElement('div', { className: 'bg-white border rounded-3xl p-6 space-y-4' },
-      React.createElement('div', { className: 'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3' },
-        React.createElement('div', {},
-          React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Semester Forecast Panel'),
-          React.createElement('p', { className: 'text-xs text-slate-500 mt-1' },
-            'Training basis: approved reservations only'
-          ),
-          React.createElement('p', { className: 'text-xs text-slate-500' },
-            'Next retrain: ', formatDateTime(nextRetrainAt)
-          )
-        ),
-        React.createElement('button', {
-          onClick: handleRetrainForecast,
-          disabled: retrainingForecast,
-          className: `px-4 py-2 rounded-xl text-sm font-bold transition ${retrainingForecast ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-sky-500 text-white hover:bg-sky-600'}`
-        }, retrainingForecast ? 'Retraining...' : 'Retrain Now')
-      ),
-      forecastError && React.createElement('div', { className: 'bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-xl text-sm' }, forecastError),
-      React.createElement('div', { className: 'border border-slate-100 rounded-2xl p-4 bg-slate-50/50' },
-        React.createElement('h4', { className: 'font-semibold text-slate-800 mb-1' }, forecastData.period_label || 'Current Semester Forecast'),
-        React.createElement('p', { className: 'text-xs text-slate-500 mb-3' },
-          'Actual months are shown on the left. Predicted months are shown on the right and reveal progressively.'
-        ),
-        React.createElement(ChartCanvas, {
-          type: 'line',
-          data: semesterSplitChartData,
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom' } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-          }
-        })
-      )
     ),
 
     React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
@@ -2107,20 +2063,7 @@ function AnalyticsView({ reservations }) {
         })
       ),
       React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-        React.createElement('div', { className: 'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4' },
-          React.createElement('h3', { className: 'font-bold text-slate-800' }, `Peak Usage Time Heatmap (${filters.selected_heatmap_month_label || 'All Months'})`),
-          React.createElement('select', {
-            value: selectedHeatmapMonth,
-            onChange: (e) => setSelectedHeatmapMonth(e.target.value),
-            className: 'border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 bg-white min-w-[170px]'
-          },
-            (filters.heatmap_months || ['all']).map(monthKey => React.createElement(
-              'option',
-              { key: monthKey, value: monthKey },
-              formatMonthOption(monthKey)
-            ))
-          )
-        ),
+        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Peak Usage Time Heatmap'),
         React.createElement(HeatmapChart, { data: charts.peak_usage_heatmap })
       )
     ),
@@ -2197,22 +2140,477 @@ function AnalyticsView({ reservations }) {
   );
 }
 
-function FacilitiesView({ rooms, onBook }) {
-  return React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-6' },
-    rooms.map(r => React.createElement('div', { key: r.id, className: 'bg-white rounded-3xl overflow-hidden shadow-sm border hover:shadow-md transition-all' },
-      React.createElement('div', { className: 'p-6' },
-        React.createElement('h3', { className: 'text-xl font-bold mb-2 text-slate-800' }, r.name),
-        React.createElement('p', { className: 'text-sm text-slate-500 mb-4' }, r.description),
-        React.createElement('div', { className: 'flex items-center gap-4 text-sm text-slate-600 mb-4' },
-          React.createElement('span', { className: 'flex items-center gap-1' }, '👥 ', r.capacity),
-          r.usual_activity && React.createElement('span', { className: 'flex items-center gap-1 text-slate-400' }, '🎯 ', r.usual_activity)
+function FacilitiesView({ rooms, onBook, isAdmin, onRoomsUpdated, onNotify, showBookButton = true, enableManagement = false }) {
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingFacility, setEditingFacility] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+
+  const handleEdit = (facility) => {
+    setEditingFacility(facility);
+    setEditorOpen(true);
+  };
+
+  const handleCreate = () => {
+    setEditingFacility(null);
+    setEditorOpen(true);
+  };
+
+  const handleDelete = async (facility) => {
+    if (!confirmDeleteAction(`facility "${facility.name}"`)) return;
+    try {
+      setBusyId(facility.id);
+      await apiService.adminDeleteFacility(facility.id);
+      await onRoomsUpdated();
+      onNotify('Facility deleted successfully.');
+    } catch (err) {
+      onNotify(err.message || 'Failed to delete facility.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const submitFacility = async (payload) => {
+    if (editingFacility) {
+      await apiService.adminUpdateFacility(editingFacility.id, payload);
+      onNotify('Facility updated successfully.');
+    } else {
+      await apiService.adminCreateFacility(payload);
+      onNotify('Facility created successfully.');
+    }
+    await onRoomsUpdated();
+    setEditorOpen(false);
+    setEditingFacility(null);
+  };
+
+  return React.createElement('div', { className: 'space-y-4' },
+    isAdmin && enableManagement && React.createElement('div', { className: 'flex justify-end' },
+      React.createElement('button', {
+        onClick: handleCreate,
+        className: 'bg-slate-800 text-white px-4 py-2 rounded-xl font-bold hover:bg-slate-700 transition'
+      }, '+ Add Facility')
+    ),
+
+    React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-6' },
+      rooms.map(r => React.createElement('div', { key: r.id, className: 'bg-white rounded-3xl overflow-hidden shadow-sm border hover:shadow-md transition-all' },
+        React.createElement('div', { className: 'aspect-video bg-slate-100 overflow-hidden' },
+          r.image_url
+            ? React.createElement('img', {
+                src: r.image_url,
+                alt: r.name,
+                className: 'w-full h-full object-cover'
+              })
+            : React.createElement('div', { className: 'w-full h-full flex items-center justify-center text-slate-400 text-sm font-semibold' }, 'No facility image')
         ),
-        React.createElement('button', { 
-          onClick: () => onBook(r.id), 
-          className: 'w-full bg-sky-500 text-white px-4 py-3 rounded-xl font-bold hover:bg-sky-600 transition' 
-        }, 'Book This Space')
+        React.createElement('div', { className: 'p-6' },
+          React.createElement('h3', { className: 'text-xl font-bold mb-2 text-slate-800' }, r.name),
+          React.createElement('p', { className: 'text-sm text-slate-500 mb-3' }, r.description || 'No short description.'),
+          r.detailed_info && React.createElement('p', { className: 'text-xs text-slate-600 mb-4 whitespace-pre-line' }, r.detailed_info),
+          React.createElement('div', { className: 'flex items-center gap-4 text-sm text-slate-600 mb-4' },
+            React.createElement('span', { className: 'flex items-center gap-1' }, '👥 ', r.capacity),
+            r.usual_activity && React.createElement('span', { className: 'flex items-center gap-1 text-slate-400' }, '🎯 ', r.usual_activity)
+          ),
+          React.createElement('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-2' },
+            showBookButton && React.createElement('button', {
+              onClick: () => onBook(r.id),
+              className: 'w-full bg-sky-500 text-white px-4 py-3 rounded-xl font-bold hover:bg-sky-600 transition'
+            }, 'Book This Space'),
+            isAdmin && enableManagement && React.createElement(React.Fragment, {},
+              React.createElement('button', {
+                onClick: () => handleEdit(r),
+                className: 'w-full bg-white border border-slate-300 text-slate-700 px-4 py-3 rounded-xl font-bold hover:bg-slate-50 transition'
+              }, 'Edit'),
+              React.createElement('button', {
+                onClick: () => handleDelete(r),
+                disabled: busyId === r.id,
+                className: 'w-full bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl font-bold hover:bg-red-100 transition disabled:opacity-50'
+              }, busyId === r.id ? 'Deleting...' : 'Delete')
+            )
+          )
+        )
+      ))
+    ),
+
+    enableManagement && editorOpen && React.createElement(FacilityEditorModal, {
+      initialFacility: editingFacility,
+      onClose: () => {
+        setEditorOpen(false);
+        setEditingFacility(null);
+      },
+      onSubmit: submitFacility
+    })
+  );
+}
+
+function SettingsView({ currentUser, rooms, onRoomsUpdated, onNotify }) {
+  const [activeTab, setActiveTab] = useState('facilities');
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [showUserForm, setShowUserForm] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [userForm, setUserForm] = useState({ username: '', password: '', role: 'student', department: '' });
+  const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
+  const [saving, setSaving] = useState(false);
+
+  const loadUsers = async () => {
+    try {
+      setUsersLoading(true);
+      const data = await apiService.adminGetUsers();
+      setUsers(data || []);
+    } catch (err) {
+      onNotify(err.message || 'Failed to load users.');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'users') {
+      loadUsers();
+    }
+  }, [activeTab]);
+
+  const openCreateUser = () => {
+    setEditingUser(null);
+    setUserForm({ username: '', password: '', role: 'student', department: '' });
+    setShowUserForm(true);
+  };
+
+  const openEditUser = (user) => {
+    setEditingUser(user);
+    setUserForm({ username: user.username || '', password: '', role: user.role || 'student', department: user.department || '' });
+    setShowUserForm(true);
+  };
+
+  const submitUser = async (e) => {
+    e.preventDefault();
+    try {
+      setSaving(true);
+      if (editingUser) {
+        await apiService.adminUpdateUser(editingUser.id, userForm);
+        onNotify('User updated successfully.');
+      } else {
+        await apiService.adminCreateUser(userForm);
+        onNotify('User created successfully.');
+      }
+      setShowUserForm(false);
+      await loadUsers();
+    } catch (err) {
+      onNotify(err.message || 'Failed to save user.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteUser = async (user) => {
+    if (!confirmDeleteAction(`user "${user.username}"`)) return;
+    try {
+      await apiService.adminDeleteUser(user.id);
+      onNotify('User deleted successfully.');
+      await loadUsers();
+    } catch (err) {
+      onNotify(err.message || 'Failed to delete user.');
+    }
+  };
+
+  const submitPassword = async (e) => {
+    e.preventDefault();
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      onNotify('New password and confirmation do not match.');
+      return;
+    }
+    try {
+      setSaving(true);
+      await apiService.updateMyPassword(passwordForm.current_password, passwordForm.new_password);
+      setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
+      onNotify('Password updated successfully.');
+    } catch (err) {
+      onNotify(err.message || 'Failed to update password.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const TabBtn = ({ id, label }) => React.createElement('button', {
+    onClick: () => setActiveTab(id),
+    className: `px-4 py-2 rounded-lg text-sm font-semibold transition ${activeTab === id ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`
+  }, label);
+
+  return React.createElement('div', { className: 'space-y-6' },
+    React.createElement('div', { className: 'bg-white border rounded-2xl p-6' },
+      React.createElement('h2', { className: 'text-2xl font-bold text-slate-800 mb-2' }, 'Settings'),
+      React.createElement('p', { className: 'text-sm text-slate-500 mb-4' }, 'Manage facilities, users, and security settings.'),
+      React.createElement('div', { className: 'flex flex-wrap gap-2' },
+        React.createElement(TabBtn, { id: 'facilities', label: 'Facilities' }),
+        React.createElement(TabBtn, { id: 'users', label: 'Users' }),
+        React.createElement(TabBtn, { id: 'security', label: 'Security' })
       )
-    ))
+    ),
+
+    activeTab === 'facilities' && React.createElement(FacilitiesView, {
+      rooms,
+      isAdmin: true,
+      onBook: () => {},
+      onRoomsUpdated,
+      onNotify,
+      showBookButton: false,
+      enableManagement: true
+    }),
+
+    activeTab === 'users' && React.createElement('div', { className: 'bg-white border rounded-2xl p-6 space-y-4' },
+      React.createElement('div', { className: 'flex justify-between items-center' },
+        React.createElement('h3', { className: 'text-lg font-bold text-slate-800' }, 'User Accounts'),
+        React.createElement('button', { onClick: openCreateUser, className: 'bg-slate-800 text-white px-3 py-2 rounded-lg font-semibold text-sm hover:bg-slate-700' }, '+ Add User')
+      ),
+      usersLoading
+        ? React.createElement('p', { className: 'text-sm text-slate-500' }, 'Loading users...')
+        : React.createElement('div', { className: 'space-y-2' },
+            users.map(u => React.createElement('div', { key: u.id, className: 'border rounded-xl p-3 flex items-center justify-between gap-3' },
+              React.createElement('div', {},
+                React.createElement('p', { className: 'font-semibold text-slate-800 text-sm' }, u.username),
+                React.createElement('p', { className: 'text-xs text-slate-500' }, `${u.role} • ${u.department || 'No department'}`)
+              ),
+              React.createElement('div', { className: 'flex gap-2' },
+                React.createElement('button', { onClick: () => openEditUser(u), className: 'px-3 py-1.5 text-xs font-semibold border rounded-lg hover:bg-slate-50' }, 'Edit'),
+                React.createElement('button', { onClick: () => deleteUser(u), className: 'px-3 py-1.5 text-xs font-semibold border border-red-200 text-red-600 rounded-lg hover:bg-red-50' }, 'Delete')
+              )
+            ))
+          )
+    ),
+
+    activeTab === 'security' && React.createElement('div', { className: 'bg-white border rounded-2xl p-6 space-y-4' },
+      React.createElement('h3', { className: 'text-lg font-bold text-slate-800' }, 'Password & Security'),
+      React.createElement('p', { className: 'text-sm text-slate-500' }, `Signed in as ${currentUser?.username || 'admin'}.`),
+      React.createElement('form', { onSubmit: submitPassword, className: 'grid grid-cols-1 md:grid-cols-3 gap-3' },
+        React.createElement('input', {
+          type: 'password',
+          placeholder: 'Current password',
+          value: passwordForm.current_password,
+          onChange: (e) => setPasswordForm({ ...passwordForm, current_password: e.target.value }),
+          className: 'p-2 border rounded',
+          required: true
+        }),
+        React.createElement('input', {
+          type: 'password',
+          placeholder: 'New password',
+          value: passwordForm.new_password,
+          onChange: (e) => setPasswordForm({ ...passwordForm, new_password: e.target.value }),
+          className: 'p-2 border rounded',
+          required: true
+        }),
+        React.createElement('input', {
+          type: 'password',
+          placeholder: 'Confirm new password',
+          value: passwordForm.confirm_password,
+          onChange: (e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value }),
+          className: 'p-2 border rounded',
+          required: true
+        }),
+        React.createElement('button', {
+          type: 'submit',
+          disabled: saving,
+          className: 'md:col-span-3 bg-sky-500 text-white py-2 rounded-lg font-bold hover:bg-sky-600 disabled:opacity-50'
+        }, saving ? 'Saving...' : 'Update Password')
+      )
+    ),
+
+    showUserForm && React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
+      React.createElement('div', { className: 'bg-white rounded-2xl w-full max-w-md p-5' },
+        React.createElement('div', { className: 'flex justify-between items-center mb-4' },
+          React.createElement('h4', { className: 'font-bold text-slate-800' }, editingUser ? 'Edit User' : 'Create User'),
+          React.createElement('button', { onClick: () => setShowUserForm(false), className: 'text-xl text-slate-500' }, '✕')
+        ),
+        React.createElement('form', { onSubmit: submitUser, className: 'space-y-3' },
+          React.createElement('input', {
+            placeholder: 'Username',
+            value: userForm.username,
+            onChange: (e) => setUserForm({ ...userForm, username: e.target.value }),
+            className: 'w-full p-2 border rounded',
+            required: true
+          }),
+          React.createElement('input', {
+            type: 'password',
+            placeholder: editingUser ? 'New password (optional)' : 'Password',
+            value: userForm.password,
+            onChange: (e) => setUserForm({ ...userForm, password: e.target.value }),
+            className: 'w-full p-2 border rounded',
+            required: !editingUser
+          }),
+          React.createElement('select', {
+            value: userForm.role,
+            onChange: (e) => setUserForm({ ...userForm, role: e.target.value }),
+            className: 'w-full p-2 border rounded'
+          },
+            React.createElement('option', { value: 'student' }, 'student'),
+            React.createElement('option', { value: 'admin_phase1' }, 'admin_phase1'),
+            React.createElement('option', { value: 'admin' }, 'admin')
+          ),
+          React.createElement('input', {
+            placeholder: 'Department',
+            value: userForm.department,
+            onChange: (e) => setUserForm({ ...userForm, department: e.target.value }),
+            className: 'w-full p-2 border rounded'
+          }),
+          React.createElement('div', { className: 'flex gap-2 pt-1' },
+            React.createElement('button', {
+              type: 'button',
+              onClick: () => setShowUserForm(false),
+              className: 'flex-1 border border-slate-300 rounded-lg py-2 font-medium'
+            }, 'Cancel'),
+            React.createElement('button', {
+              type: 'submit',
+              disabled: saving,
+              className: 'flex-1 bg-slate-800 text-white rounded-lg py-2 font-bold hover:bg-slate-700 disabled:opacity-50'
+            }, saving ? 'Saving...' : (editingUser ? 'Save Changes' : 'Create User'))
+          )
+        )
+      )
+    )
+  );
+}
+
+function FacilityEditorModal({ initialFacility, onClose, onSubmit }) {
+  const [form, setForm] = useState({
+    code: initialFacility?.code || '',
+    name: initialFacility?.name || '',
+    capacity: initialFacility?.capacity || '',
+    description: initialFacility?.description || '',
+    usual_activity: initialFacility?.usual_activity || '',
+    detailed_info: initialFacility?.detailed_info || '',
+    image_url: initialFacility?.image_url || ''
+  });
+  const [imageUrlInput, setImageUrlInput] = useState(
+    initialFacility?.image_url && /^https?:\/\//i.test(initialFacility.image_url)
+      ? initialFacility.image_url
+      : ''
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const uploadImage = async (file) => {
+    try {
+      setSaving(true);
+      setError('');
+      const imageUrl = await apiService.adminUploadFacilityImage(file, form.image_url);
+      setForm((prev) => ({ ...prev, image_url: imageUrl }));
+    } catch (err) {
+      setError(err.message || 'Image upload failed.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    try {
+      setSaving(true);
+      setError('');
+      await onSubmit({
+        code: form.code,
+        name: form.name,
+        capacity: Number(form.capacity),
+        description: form.description,
+        usual_activity: form.usual_activity,
+        detailed_info: form.detailed_info,
+        image_url: (imageUrlInput || '').trim() || form.image_url
+      });
+    } catch (err) {
+      setError(err.message || 'Failed to save facility.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
+    React.createElement('div', { className: 'bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6' },
+      React.createElement('div', { className: 'flex justify-between items-center mb-4' },
+        React.createElement('h3', { className: 'text-xl font-bold text-slate-800' }, initialFacility ? 'Edit Facility' : 'Add Facility'),
+        React.createElement('button', { onClick: onClose, className: 'text-2xl text-slate-500' }, '✕')
+      ),
+      error && React.createElement('div', { className: 'mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm border border-red-200' }, error),
+      React.createElement('form', { onSubmit: submit, className: 'space-y-4' },
+        React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-3 gap-3' },
+          React.createElement('input', {
+            value: form.code,
+            onChange: (e) => setForm({ ...form, code: e.target.value }),
+            placeholder: 'Facility code (e.g. PAT)',
+            className: 'p-2 border rounded'
+          }),
+          React.createElement('input', {
+            value: form.name,
+            onChange: (e) => setForm({ ...form, name: e.target.value }),
+            placeholder: 'Facility name',
+            className: 'p-2 border rounded md:col-span-2',
+            required: true
+          })
+        ),
+        React.createElement('input', {
+          type: 'number',
+          min: '1',
+          value: form.capacity,
+          onChange: (e) => setForm({ ...form, capacity: e.target.value }),
+          placeholder: 'Capacity',
+          className: 'p-2 border rounded w-full',
+          required: true
+        }),
+        React.createElement('textarea', {
+          value: form.description,
+          onChange: (e) => setForm({ ...form, description: e.target.value }),
+          placeholder: 'Short description for cards',
+          className: 'p-2 border rounded w-full min-h-[70px]'
+        }),
+        React.createElement('input', {
+          value: form.usual_activity,
+          onChange: (e) => setForm({ ...form, usual_activity: e.target.value }),
+          placeholder: 'Usual activity (e.g. Seminars, Conferences)',
+          className: 'p-2 border rounded w-full'
+        }),
+        React.createElement('textarea', {
+          value: form.detailed_info,
+          onChange: (e) => setForm({ ...form, detailed_info: e.target.value }),
+          placeholder: 'Detailed facility information (features, rules, accessibility, floor/location, etc.)',
+          className: 'p-2 border rounded w-full min-h-[110px]'
+        }),
+        React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-3 items-start' },
+          React.createElement('input', {
+            value: imageUrlInput,
+            onChange: (e) => {
+              const val = e.target.value;
+              setImageUrlInput(val);
+              setForm({ ...form, image_url: val });
+            },
+            placeholder: 'External Image URL (optional)',
+            className: 'p-2 border rounded w-full'
+          }),
+          React.createElement('div', { className: 'space-y-2' },
+            React.createElement('input', {
+              type: 'file',
+              accept: 'image/*',
+              onChange: (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) uploadImage(file);
+              },
+              className: 'block w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:border file:rounded-lg file:bg-slate-50 file:text-slate-700'
+            }),
+            React.createElement('p', { className: 'text-xs text-slate-500' }, 'You can paste an external URL or upload a file. Uploaded file URLs are hidden from this box.')
+          )
+        ),
+        form.image_url && React.createElement('div', { className: 'rounded-xl border overflow-hidden bg-slate-50' },
+          React.createElement('img', { src: form.image_url, alt: 'Facility preview', className: 'w-full h-44 object-cover' })
+        ),
+        React.createElement('div', { className: 'flex gap-2 pt-2' },
+          React.createElement('button', {
+            type: 'button',
+            onClick: onClose,
+            className: 'flex-1 border border-slate-300 text-slate-700 rounded-lg py-2 font-medium hover:bg-slate-50'
+          }, 'Cancel'),
+          React.createElement('button', {
+            type: 'submit',
+            disabled: saving,
+            className: 'flex-1 bg-sky-500 text-white rounded-lg py-2 font-bold hover:bg-sky-600 disabled:opacity-50'
+          }, saving ? 'Saving...' : (initialFacility ? 'Save Changes' : 'Create Facility'))
+        )
+      )
+    )
   );
 }
 
@@ -2245,23 +2643,6 @@ function CalendarView({ events, rooms, onViewEvent }) {
     const date = new Date(isoString);
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
-
-  const parseEventDate = (value) => {
-    if (!value) return null;
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
-    const fallback = new Date(String(value).replace(' ', 'T'));
-    return Number.isNaN(fallback.getTime()) ? null : fallback;
-  };
-
-  const now = new Date();
-  const upcomingEvents = (events || [])
-    .filter(e => {
-      const start = parseEventDate(e.start_time);
-      const matchesRoom = filterRoom === 'all' || e.room_id == filterRoom;
-      return !!start && start >= now && matchesRoom;
-    })
-    .sort((a, b) => parseEventDate(a.start_time) - parseEventDate(b.start_time));
 
   return React.createElement('div', { className: 'bg-white rounded-2xl border border-slate-200 p-8 shadow-sm relative' },
     // Header with controls
@@ -2355,10 +2736,10 @@ function CalendarView({ events, rooms, onViewEvent }) {
     // Events list below calendar
     React.createElement('div', { className: 'mt-6 pt-6 border-t' },
       React.createElement('h4', { className: 'font-bold text-slate-800 mb-4' }, '📋 Upcoming Approved Events'),
-      upcomingEvents.length === 0 
+      events.length === 0 
         ? React.createElement('p', { className: 'text-slate-400 py-4 text-center text-sm' }, 'No approved events yet.')
         : React.createElement('div', { className: 'space-y-2 max-h-[200px] overflow-y-auto' },
-            upcomingEvents.slice(0, 10).map(e =>
+            events.slice(0, 10).map(e =>
               React.createElement('div', { 
                 key: e.id, 
                 className: 'p-3 bg-slate-50 rounded-lg flex justify-between items-center cursor-pointer hover:bg-sky-50 transition',
@@ -2406,440 +2787,6 @@ function ArchiveView({ archive, user, isAdmin, onDelete }) {
           React.createElement('button', { onClick: () => onDelete(a.id), className: 'px-4 py-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 font-medium transition' }, 'Delete')
         );
       })
-  );
-}
-
-function SettingsView({ user, onUserUpdated, onNotify, onError }) {
-  const [username, setUsername] = useState(user?.username || '');
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [facilities, setFacilities] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [loadingAdminData, setLoadingAdminData] = useState(false);
-  const [activeTab, setActiveTab] = useState('profile');
-
-  const [newFacility, setNewFacility] = useState({ code: '', name: '', capacity: '', description: '', usual_activity: '' });
-  const [editingFacilityId, setEditingFacilityId] = useState(null);
-  const [facilityDraft, setFacilityDraft] = useState({ code: '', name: '', capacity: '', description: '', usual_activity: '' });
-
-  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'student', department: '' });
-  const [editingUserId, setEditingUserId] = useState(null);
-  const [userDraft, setUserDraft] = useState({ username: '', password: '', role: 'student', department: '' });
-
-  const loadFacilitiesData = async () => {
-    try {
-      setLoadingAdminData(true);
-      const facilitiesData = await apiService.adminGetFacilities();
-      setFacilities(facilitiesData || []);
-    } catch (err) {
-      onError(err.message || 'Failed to load facilities');
-    } finally {
-      setLoadingAdminData(false);
-    }
-  };
-
-  const silentLoadFacilities = async () => {
-    try {
-      const facilitiesData = await apiService.adminGetFacilities();
-      setFacilities(facilitiesData || []);
-    } catch (err) {
-      // Silent fail - don't show error on polling
-    }
-  };
-
-  const loadUsersData = async () => {
-    try {
-      setLoadingAdminData(true);
-      const usersData = await apiService.adminGetUsers();
-      setUsers(usersData || []);
-    } catch (err) {
-      onError(err.message || 'Failed to load users');
-    } finally {
-      setLoadingAdminData(false);
-    }
-  };
-
-  const silentLoadUsers = async () => {
-    try {
-      const usersData = await apiService.adminGetUsers();
-      setUsers(usersData || []);
-    } catch (err) {
-      // Silent fail - don't show error on polling
-    }
-  };
-
-  const loadAdminData = async () => {
-    try {
-      setLoadingAdminData(true);
-      const [facilitiesData, usersData] = await Promise.all([
-        apiService.adminGetFacilities(),
-        apiService.adminGetUsers()
-      ]);
-      setFacilities(facilitiesData || []);
-      setUsers(usersData || []);
-    } catch (err) {
-      onError(err.message || 'Failed to load settings data');
-    } finally {
-      setLoadingAdminData(false);
-    }
-  };
-
-  const handleTabSwitch = async (tab) => {
-    setActiveTab(tab);
-    if (tab === 'facilities') {
-      await loadFacilitiesData();
-    } else if (tab === 'users') {
-      await loadUsersData();
-    }
-  };
-
-  useEffect(() => {
-    loadAdminData();
-  }, []);
-
-  // Poll facilities data when on facilities tab and not editing
-  useEffect(() => {
-    if (activeTab !== 'facilities' || editingFacilityId !== null) return;
-
-    const interval = setInterval(() => {
-      silentLoadFacilities();
-    }, 3000); // Poll every 3 seconds
-
-    return () => clearInterval(interval);
-  }, [activeTab, editingFacilityId]);
-
-  // Poll users data when on users tab and not editing
-  useEffect(() => {
-    if (activeTab !== 'users' || editingUserId !== null) return;
-
-    const interval = setInterval(() => {
-      silentLoadUsers();
-    }, 3000); // Poll every 3 seconds
-
-    return () => clearInterval(interval);
-  }, [activeTab, editingUserId]);
-
-  const saveProfile = async (e) => {
-    e.preventDefault();
-    try {
-      const payload = await apiService.updateMyProfile(username.trim());
-      onUserUpdated({ ...user, username: payload?.user?.username || username.trim() });
-      onNotify('Profile updated');
-    } catch (err) {
-      onError(err.message || 'Failed to update profile');
-    }
-  };
-
-  const savePassword = async (e) => {
-    e.preventDefault();
-    try {
-      await apiService.updateMyPassword(currentPassword, newPassword);
-      setCurrentPassword('');
-      setNewPassword('');
-      onNotify('Password updated');
-    } catch (err) {
-      onError(err.message || 'Failed to update password');
-    }
-  };
-
-  const createFacility = async (e) => {
-    e.preventDefault();
-    try {
-      await apiService.adminCreateFacility({
-        ...newFacility,
-        capacity: Number(newFacility.capacity)
-      });
-      setNewFacility({ code: '', name: '', capacity: '', description: '', usual_activity: '' });
-      await loadFacilitiesData();
-      onNotify('Facility created');
-    } catch (err) {
-      onError(err.message || 'Failed to create facility');
-    }
-  };
-
-  const beginEditFacility = (facility) => {
-    setEditingFacilityId(facility.id);
-    setFacilityDraft({
-      code: facility.code || '',
-      name: facility.name || '',
-      capacity: facility.capacity || '',
-      description: facility.description || '',
-      usual_activity: facility.usual_activity || ''
-    });
-  };
-
-  const saveFacilityEdit = async (id) => {
-    try {
-      await apiService.adminUpdateFacility(id, {
-        ...facilityDraft,
-        capacity: Number(facilityDraft.capacity)
-      });
-      setEditingFacilityId(null);
-      await loadFacilitiesData();
-      onNotify('Facility updated');
-    } catch (err) {
-      onError(err.message || 'Failed to update facility');
-    }
-  };
-
-  const deleteFacility = async (id) => {
-    if (!window.confirm('Delete this facility?')) return;
-    try {
-      await apiService.adminDeleteFacility(id);
-      await loadFacilitiesData();
-      onNotify('Facility deleted');
-    } catch (err) {
-      onError(err.message || 'Failed to delete facility');
-    }
-  };
-
-  const createUser = async (e) => {
-    e.preventDefault();
-    try {
-      await apiService.adminCreateUser(newUser);
-      setNewUser({ username: '', password: '', role: 'student', department: '' });
-      await loadUsersData();
-      onNotify('User account created');
-    } catch (err) {
-      onError(err.message || 'Failed to create user');
-    }
-  };
-
-  const beginEditUser = (row) => {
-    setEditingUserId(row.id);
-    setUserDraft({
-      username: row.username || '',
-      password: '',
-      role: row.role || 'student',
-      department: row.department || ''
-    });
-  };
-
-  const saveUserEdit = async (id) => {
-    try {
-      await apiService.adminUpdateUser(id, userDraft);
-      setEditingUserId(null);
-      await loadUsersData();
-      onNotify('User account updated');
-    } catch (err) {
-      onError(err.message || 'Failed to update user');
-    }
-  };
-
-  const deleteUser = async (id) => {
-    if (!window.confirm('Delete this account?')) return;
-    try {
-      await apiService.adminDeleteUser(id);
-      await loadUsersData();
-      onNotify('User account deleted');
-    } catch (err) {
-      onError(err.message || 'Failed to delete user');
-    }
-  };
-
-  return React.createElement('div', { className: 'space-y-6' },
-    React.createElement('h2', { className: 'text-2xl font-bold text-slate-800' }, '⚙️ Settings'),
-
-    // Tab Navigation
-    React.createElement('div', { className: 'flex gap-2 border-b border-slate-200' },
-      React.createElement('button', {
-        onClick: () => handleTabSwitch('profile'),
-        className: `px-4 py-3 font-bold border-b-2 transition-colors ${activeTab === 'profile' ? 'text-sky-600 border-sky-600' : 'text-slate-600 border-transparent hover:text-slate-800'}`
-      }, 'Profile'),
-      React.createElement('button', {
-        onClick: () => handleTabSwitch('facilities'),
-        className: `px-4 py-3 font-bold border-b-2 transition-colors ${activeTab === 'facilities' ? 'text-sky-600 border-sky-600' : 'text-slate-600 border-transparent hover:text-slate-800'}`
-      }, 'Facilities'),
-      React.createElement('button', {
-        onClick: () => handleTabSwitch('users'),
-        className: `px-4 py-3 font-bold border-b-2 transition-colors ${activeTab === 'users' ? 'text-sky-600 border-sky-600' : 'text-slate-600 border-transparent hover:text-slate-800'}`
-      }, 'Users')
-    ),
-
-    // Profile Tab
-    activeTab === 'profile' && React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-4' },
-      React.createElement('form', { onSubmit: saveProfile, className: 'bg-white border rounded-2xl p-5 space-y-3' },
-        React.createElement('h3', { className: 'font-bold text-slate-800' }, 'My Profile'),
-        React.createElement('p', { className: 'text-xs text-slate-500' }, `Role: ${user?.role || 'N/A'}`),
-        React.createElement('input', {
-          value: username,
-          onChange: (e) => setUsername(e.target.value),
-          className: 'w-full p-2 border rounded-lg',
-          placeholder: 'Username',
-          required: true
-        }),
-        React.createElement('button', { type: 'submit', className: 'bg-sky-500 text-white px-4 py-2 rounded-lg font-bold' }, 'Save Profile')
-      ),
-      React.createElement('form', { onSubmit: savePassword, className: 'bg-white border rounded-2xl p-5 space-y-3' },
-        React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Change Password'),
-        React.createElement('input', {
-          type: 'password',
-          value: currentPassword,
-          onChange: (e) => setCurrentPassword(e.target.value),
-          className: 'w-full p-2 border rounded-lg',
-          placeholder: 'Current password',
-          required: true
-        }),
-        React.createElement('input', {
-          type: 'password',
-          value: newPassword,
-          onChange: (e) => setNewPassword(e.target.value),
-          className: 'w-full p-2 border rounded-lg',
-          placeholder: 'New password',
-          required: true
-        }),
-        React.createElement('button', { type: 'submit', className: 'bg-sky-500 text-white px-4 py-2 rounded-lg font-bold' }, 'Update Password')
-      )
-    ),
-
-    // Facilities Tab
-    activeTab === 'facilities' && React.createElement('div', { className: 'bg-white border rounded-2xl p-5 space-y-4' },
-      React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Admin Facilities'),
-      React.createElement('form', { onSubmit: createFacility, className: 'grid grid-cols-1 md:grid-cols-5 gap-2' },
-        React.createElement('input', {
-          value: newFacility.code,
-          onChange: (e) => setNewFacility({ ...newFacility, code: e.target.value }),
-          className: 'p-2 border rounded-lg',
-          placeholder: 'Code'
-        }),
-        React.createElement('input', {
-          value: newFacility.name,
-          onChange: (e) => setNewFacility({ ...newFacility, name: e.target.value }),
-          className: 'p-2 border rounded-lg md:col-span-2',
-          placeholder: 'Facility name',
-          required: true
-        }),
-        React.createElement('input', {
-          type: 'number',
-          min: '1',
-          value: newFacility.capacity,
-          onChange: (e) => setNewFacility({ ...newFacility, capacity: e.target.value }),
-          className: 'p-2 border rounded-lg',
-          placeholder: 'Capacity',
-          required: true
-        }),
-        React.createElement('button', { type: 'submit', className: 'bg-sky-500 text-white rounded-lg font-bold px-3 py-2' }, 'Add')
-      ),
-      loadingAdminData
-        ? React.createElement('p', { className: 'text-slate-500 text-sm' }, 'Loading facilities...')
-        : React.createElement('div', { className: 'overflow-x-auto' },
-            React.createElement('table', { className: 'w-full text-sm' },
-              React.createElement('thead', {},
-                React.createElement('tr', { className: 'text-left text-slate-500 border-b' },
-                  React.createElement('th', { className: 'py-2 pr-2' }, 'Code'),
-                  React.createElement('th', { className: 'py-2 pr-2' }, 'Name'),
-                  React.createElement('th', { className: 'py-2 pr-2' }, 'Capacity'),
-                  React.createElement('th', { className: 'py-2 pr-2' }, 'Actions')
-                )
-              ),
-              React.createElement('tbody', {},
-                facilities.map(f => React.createElement('tr', { key: f.id, className: 'border-b last:border-b-0' },
-                  editingFacilityId === f.id
-                    ? [
-                        React.createElement('td', { key: 'code', className: 'py-2 pr-2' }, React.createElement('input', { value: facilityDraft.code, onChange: (e) => setFacilityDraft({ ...facilityDraft, code: e.target.value }), className: 'p-1 border rounded w-full' })),
-                        React.createElement('td', { key: 'name', className: 'py-2 pr-2' }, React.createElement('input', { value: facilityDraft.name, onChange: (e) => setFacilityDraft({ ...facilityDraft, name: e.target.value }), className: 'p-1 border rounded w-full' })),
-                        React.createElement('td', { key: 'cap', className: 'py-2 pr-2' }, React.createElement('input', { type: 'number', min: '1', value: facilityDraft.capacity, onChange: (e) => setFacilityDraft({ ...facilityDraft, capacity: e.target.value }), className: 'p-1 border rounded w-full' })),
-                        React.createElement('td', { key: 'act', className: 'py-2 pr-2 space-x-2' },
-                          React.createElement('button', { onClick: () => saveFacilityEdit(f.id), className: 'px-2 py-1 bg-green-100 text-green-700 rounded font-bold' }, 'Save'),
-                          React.createElement('button', { onClick: () => setEditingFacilityId(null), className: 'px-2 py-1 bg-slate-100 text-slate-700 rounded font-bold' }, 'Cancel')
-                        )
-                      ]
-                    : [
-                        React.createElement('td', { key: 'code', className: 'py-2 pr-2' }, f.code || '-'),
-                        React.createElement('td', { key: 'name', className: 'py-2 pr-2' }, f.name),
-                        React.createElement('td', { key: 'cap', className: 'py-2 pr-2' }, f.capacity),
-                        React.createElement('td', { key: 'act', className: 'py-2 pr-2 space-x-2' },
-                          React.createElement('button', { onClick: () => beginEditFacility(f), className: 'px-2 py-1 bg-amber-100 text-amber-700 rounded font-bold' }, 'Edit'),
-                          React.createElement('button', { onClick: () => deleteFacility(f.id), className: 'px-2 py-1 bg-red-100 text-red-700 rounded font-bold' }, 'Delete')
-                        )
-                      ]
-                ))
-              )
-            )
-          )
-    ),
-
-    // Users Tab
-    activeTab === 'users' && React.createElement('div', { className: 'bg-white border rounded-2xl p-5 space-y-4' },
-      React.createElement('h3', { className: 'font-bold text-slate-800' }, 'User Accounts'),
-      React.createElement('form', { onSubmit: createUser, className: 'grid grid-cols-1 md:grid-cols-5 gap-2' },
-        React.createElement('input', {
-          value: newUser.username,
-          onChange: (e) => setNewUser({ ...newUser, username: e.target.value }),
-          className: 'p-2 border rounded-lg',
-          placeholder: 'Username',
-          required: true
-        }),
-        React.createElement('input', {
-          type: 'password',
-          value: newUser.password,
-          onChange: (e) => setNewUser({ ...newUser, password: e.target.value }),
-          className: 'p-2 border rounded-lg',
-          placeholder: 'Password',
-          required: true
-        }),
-        React.createElement('select', {
-          value: newUser.role,
-          onChange: (e) => setNewUser({ ...newUser, role: e.target.value }),
-          className: 'p-2 border rounded-lg'
-        },
-          React.createElement('option', { value: 'student' }, 'student'),
-          React.createElement('option', { value: 'admin_phase1' }, 'admin_phase1'),
-          React.createElement('option', { value: 'admin' }, 'admin')
-        ),
-        React.createElement('input', {
-          value: newUser.department,
-          onChange: (e) => setNewUser({ ...newUser, department: e.target.value }),
-          className: 'p-2 border rounded-lg',
-          placeholder: 'Department'
-        }),
-        React.createElement('button', { type: 'submit', className: 'bg-sky-500 text-white rounded-lg font-bold px-3 py-2' }, 'Add')
-      ),
-      loadingAdminData
-        ? React.createElement('p', { className: 'text-slate-500 text-sm' }, 'Loading users...')
-        : React.createElement('div', { className: 'overflow-x-auto' },
-            React.createElement('table', { className: 'w-full text-sm' },
-              React.createElement('thead', {},
-                React.createElement('tr', { className: 'text-left text-slate-500 border-b' },
-                  React.createElement('th', { className: 'py-2 pr-2' }, 'Username'),
-                  React.createElement('th', { className: 'py-2 pr-2' }, 'Role'),
-                  React.createElement('th', { className: 'py-2 pr-2' }, 'Department'),
-                  React.createElement('th', { className: 'py-2 pr-2' }, 'Actions')
-                )
-              ),
-              React.createElement('tbody', {},
-                users.map(u => React.createElement('tr', { key: u.id, className: 'border-b last:border-b-0' },
-                  editingUserId === u.id
-                    ? [
-                        React.createElement('td', { key: 'name', className: 'py-2 pr-2' }, React.createElement('input', { value: userDraft.username, onChange: (e) => setUserDraft({ ...userDraft, username: e.target.value }), className: 'p-1 border rounded w-full' })),
-                        React.createElement('td', { key: 'role', className: 'py-2 pr-2' }, React.createElement('select', { value: userDraft.role, onChange: (e) => setUserDraft({ ...userDraft, role: e.target.value }), className: 'p-1 border rounded w-full' },
-                          React.createElement('option', { value: 'student' }, 'student'),
-                          React.createElement('option', { value: 'admin_phase1' }, 'admin_phase1'),
-                          React.createElement('option', { value: 'admin' }, 'admin')
-                        )),
-                        React.createElement('td', { key: 'dept', className: 'py-2 pr-2' },
-                          React.createElement('input', { value: userDraft.department, onChange: (e) => setUserDraft({ ...userDraft, department: e.target.value }), className: 'p-1 border rounded w-full mb-1', placeholder: 'Department' }),
-                          React.createElement('input', { type: 'password', value: userDraft.password, onChange: (e) => setUserDraft({ ...userDraft, password: e.target.value }), className: 'p-1 border rounded w-full', placeholder: 'New password (optional)' })
-                        ),
-                        React.createElement('td', { key: 'act', className: 'py-2 pr-2 space-x-2' },
-                          React.createElement('button', { onClick: () => saveUserEdit(u.id), className: 'px-2 py-1 bg-green-100 text-green-700 rounded font-bold' }, 'Save'),
-                          React.createElement('button', { onClick: () => setEditingUserId(null), className: 'px-2 py-1 bg-slate-100 text-slate-700 rounded font-bold' }, 'Cancel')
-                        )
-                      ]
-                    : [
-                        React.createElement('td', { key: 'name', className: 'py-2 pr-2' }, u.username),
-                        React.createElement('td', { key: 'role', className: 'py-2 pr-2' }, u.role),
-                        React.createElement('td', { key: 'dept', className: 'py-2 pr-2' }, u.department || '-'),
-                        React.createElement('td', { key: 'act', className: 'py-2 pr-2' },
-                          React.createElement('button', { onClick: () => beginEditUser(u), className: 'px-2 py-1 bg-amber-100 text-amber-700 rounded font-bold mr-2' }, 'Edit'),
-                          React.createElement('button', { onClick: () => deleteUser(u.id), className: 'px-2 py-1 bg-red-100 text-red-700 rounded font-bold' }, 'Delete')
-                        )
-                      ]
-                ))
-              )
-            )
-          )
-    )
   );
 }
 
