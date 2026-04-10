@@ -1,10 +1,14 @@
 import os
 import json
+import uuid
 import requests
+from urllib.parse import urlparse
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_cors import CORS
 from datetime import datetime
+from sqlalchemy import inspect
+from dotenv import load_dotenv
 from models import db, User, Room, Reservation 
 from data_mining.analytics import build_analytics_snapshot
 from data_mining.forecast_utils import forecast_all_academic_periods, forecast_for_period, forecast_current_semester
@@ -22,17 +26,26 @@ CORS(app, supports_credentials=True, origins=[
 # CONFIG
 app.config['SECRET_KEY'] = 'thesis-secret-key-123'
 
-# Ensure instance directory exists and use an absolute DB path
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
-os.makedirs(INSTANCE_DIR, exist_ok=True)
-DB_PATH = os.path.join(INSTANCE_DIR, 'school.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + DB_PATH.replace('\\', '/')
+# Load environment variables from your .env file
+load_dotenv()
+
+# Grab the Supabase URL from the environment
+db_url = os.getenv("DATABASE_URL")
+
+# Fix the SQLAlchemy URI quirk (changes postgres:// to postgresql://)
+if db_url and db_url.startswith("postgresql://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+# Configure SQLAlchemy to use Supabase
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # AI CONFIG (Gemini API)
-GEMINI_API_KEY = ""
-GEMINI_URL = ""
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_URL = os.getenv(
+    "GEMINI_URL",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+)
 
 # Initialize extensions
 db.init_app(app)
@@ -56,6 +69,22 @@ def _display_username(user):
 # Create tables
 with app.app_context():
     db.create_all()
+
+
+def _ensure_room_columns():
+    """Backfill new room columns for existing SQLite databases without migrations."""
+    inspector = inspect(db.engine)
+    columns = {c['name'] for c in inspector.get_columns('rooms')}
+
+    with db.engine.begin() as conn:
+        if 'detailed_info' not in columns:
+            conn.exec_driver_sql("ALTER TABLE rooms ADD COLUMN detailed_info TEXT")
+        if 'image_url' not in columns:
+            conn.exec_driver_sql("ALTER TABLE rooms ADD COLUMN image_url VARCHAR(500)")
+
+
+with app.app_context():
+    _ensure_room_columns()
 
 
 @app.before_request
@@ -273,7 +302,9 @@ def get_rooms():
         'name': room.name,
         'capacity': room.capacity,
         'description': room.description,
-        'usual_activity': room.usual_activity
+        'usual_activity': room.usual_activity,
+        'detailed_info': room.detailed_info,
+        'image_url': room.image_url
     } for room in rooms]
     return jsonify(rooms_list)
 
@@ -735,6 +766,43 @@ def _require_admin_settings_access():
     return None
 
 
+def _uploaded_facility_image_path(image_url):
+    """Resolve a local facility upload URL to an absolute file path, if safe and valid."""
+    if not image_url:
+        return None
+
+    value = (image_url or '').strip()
+    if not value:
+        return None
+
+    parsed = urlparse(value)
+    url_path = (parsed.path or value).strip()
+    prefix = '/static/uploads/'
+
+    if not url_path.startswith(prefix):
+        return None
+
+    filename = os.path.basename(url_path)
+    if not filename:
+        return None
+
+    uploads_dir = os.path.join(app.static_folder, 'uploads')
+    return os.path.join(uploads_dir, filename)
+
+
+def _delete_uploaded_facility_image(image_url):
+    """Best-effort deletion of a previously uploaded facility image from /static/uploads."""
+    filepath = _uploaded_facility_image_path(image_url)
+    if not filepath:
+        return
+
+    try:
+        if os.path.isfile(filepath):
+            os.remove(filepath)
+    except Exception as exc:
+        app.logger.warning("Could not delete old facility image '%s': %s", filepath, exc)
+
+
 @app.route('/api/admin/facilities', methods=['GET'])
 @login_required
 def admin_get_facilities():
@@ -750,7 +818,9 @@ def admin_get_facilities():
             'name': room.name,
             'capacity': room.capacity,
             'description': room.description,
-            'usual_activity': room.usual_activity
+            'usual_activity': room.usual_activity,
+            'detailed_info': room.detailed_info,
+            'image_url': room.image_url
         }
         for room in rooms
     ])
@@ -779,7 +849,9 @@ def admin_create_facility():
         name=name,
         capacity=int(capacity),
         description=(data.get('description') or '').strip(),
-        usual_activity=(data.get('usual_activity') or '').strip()
+        usual_activity=(data.get('usual_activity') or '').strip(),
+        detailed_info=(data.get('detailed_info') or '').strip(),
+        image_url=(data.get('image_url') or '').strip()
     )
     db.session.add(room)
     db.session.commit()
@@ -815,9 +887,52 @@ def admin_update_facility(id):
     room.capacity = int(capacity)
     room.description = (data.get('description') or '').strip()
     room.usual_activity = (data.get('usual_activity') or '').strip()
+    room.detailed_info = (data.get('detailed_info') or '').strip()
+    new_image_url = (data.get('image_url') or '').strip()
+    old_image_url = (room.image_url or '').strip()
+
+    # If image is replaced/removed, delete the old locally uploaded file.
+    if old_image_url and old_image_url != new_image_url:
+        _delete_uploaded_facility_image(old_image_url)
+
+    room.image_url = new_image_url
 
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'Facility updated'})
+
+
+@app.route('/api/admin/facilities/upload-image', methods=['POST'])
+@login_required
+def admin_upload_facility_image():
+    denied = _require_admin_settings_access()
+    if denied:
+        return denied
+
+    if 'image' not in request.files:
+        return jsonify({'status': 'error', 'message': 'No image file provided'}), 400
+
+    image_file = request.files['image']
+    if image_file.filename == '':
+        return jsonify({'status': 'error', 'message': 'Empty filename'}), 400
+
+    previous_image_url = (request.form.get('previous_image_url') or '').strip()
+
+    ext = os.path.splitext(image_file.filename)[1].lower()
+    allowed = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
+    if ext not in allowed:
+        return jsonify({'status': 'error', 'message': 'Unsupported image format'}), 400
+
+    uploads_dir = os.path.join(app.static_folder, 'uploads')
+    os.makedirs(uploads_dir, exist_ok=True)
+
+    filename = f"facility_{uuid.uuid4().hex}{ext}"
+    filepath = os.path.join(uploads_dir, filename)
+    image_file.save(filepath)
+
+    # When user uploads a replacement, remove the prior local uploaded file.
+    _delete_uploaded_facility_image(previous_image_url)
+
+    return jsonify({'status': 'success', 'image_url': f'/static/uploads/{filename}'})
 
 
 @app.route('/api/admin/facilities/<int:id>', methods=['DELETE'])
@@ -834,6 +949,8 @@ def admin_delete_facility(id):
     has_reservations = Reservation.query.filter_by(room_id=id).first()
     if has_reservations:
         return jsonify({'status': 'error', 'message': 'Cannot delete facility with existing reservations'}), 409
+
+    _delete_uploaded_facility_image((room.image_url or '').strip())
 
     db.session.delete(room)
     db.session.commit()

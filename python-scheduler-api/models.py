@@ -16,7 +16,8 @@ class User(UserMixin, db.Model):
     reservations = db.relationship('Reservation', backref='requester', lazy=True)
 
     def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
+        # Keep hashes within VARCHAR(128) for existing Supabase schema.
+        self.password_hash = generate_password_hash(password, method='pbkdf2:sha256')
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
@@ -28,7 +29,9 @@ class Room(db.Model):
     capacity = db.Column(db.Integer, nullable=False)
     description = db.Column(db.Text, nullable=True)   
     usual_activity = db.Column(db.String(200), nullable=True)
-    code = db.Column(db.String(20), unique=True, nullable=True) 
+    code = db.Column(db.String(20), unique=True, nullable=True)
+    detailed_info = db.Column(db.Text, nullable=True)
+    image_url = db.Column(db.String(500), nullable=True)
 
 class Reservation(db.Model):
     __tablename__ = 'reservations'
