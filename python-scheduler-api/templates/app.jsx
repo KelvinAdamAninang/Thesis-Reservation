@@ -838,7 +838,8 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     activity_purpose: '',
     person_in_charge: '',
     contact_number: '',
-    event_date: '',
+    event_start_date: '',
+    event_end_date: '',
     start_hour: '',
     start_minute: '',
     start_period: '',
@@ -858,6 +859,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     engineering_electrical_setup: false,
     engineering_others: ''
   });
+  const [hasEndDate, setHasEndDate] = useState(false);
   const [localError, setLocalError] = useState('');
 
   // Get available equipment based on selected room
@@ -883,7 +885,8 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     if (!form.activity_purpose?.trim()) missingFields.push('Activity Purpose');
     if (!form.person_in_charge?.trim()) missingFields.push('Person In Charge');
     if (!form.contact_number?.trim()) missingFields.push('Contact');
-    if (!form.event_date) missingFields.push('Event Date');
+    if (!form.event_start_date) missingFields.push('Start Date');
+    if (hasEndDate && !form.event_end_date) missingFields.push('End Date');
     if (!form.concept_paper_url?.trim()) missingFields.push('Concept Paper Link');
     if (!form.division?.trim()) missingFields.push('Division');
     if (!form.num_attendees || Number(form.num_attendees) < 1) missingFields.push('Number of Attendees');
@@ -935,16 +938,31 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     }
 
     // Check for double booking against approved calendar events
-    const newStart = startTime;
-    const newEnd = endTime;
-    const newDate = form.event_date;
+    const effectiveEndDate = hasEndDate ? form.event_end_date : form.event_start_date;
+    const newStartIso = `${form.event_start_date}T${startTime}`;
+    const newEndIso = `${effectiveEndDate}T${endTime}`;
+    const newStartDate = new Date(newStartIso);
+    const newEndDate = new Date(newEndIso);
+
+    if (Number.isNaN(newStartDate.getTime()) || Number.isNaN(newEndDate.getTime())) {
+      setLocalError('Please provide valid start/end dates and times.');
+      return;
+    }
+
+    if (newEndDate <= newStartDate) {
+      setLocalError('End date/time must be after start date/time.');
+      return;
+    }
+
     const newRoomId = parseInt(form.room_id);
 
     const holidayConflict = (calendarEvents || []).find(e => {
       const isHoliday = e.event_type === 'holiday' || e.is_holiday;
-      if (!isHoliday || !e.start_time) return false;
-      const eventDate = e.start_time.split('T')[0];
-      return eventDate === newDate;
+      if (!isHoliday || !e.start_time || !e.end_time) return false;
+      const holidayStart = new Date(e.start_time);
+      const holidayEnd = new Date(e.end_time);
+      if (Number.isNaN(holidayStart.getTime()) || Number.isNaN(holidayEnd.getTime())) return false;
+      return newStartDate <= holidayEnd && newEndDate >= holidayStart;
     });
 
     if (holidayConflict) {
@@ -958,19 +976,18 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
       const eventStatus = String(e.status || '').toLowerCase();
       if (eventStatus === 'cancelled' || eventStatus === 'deleted' || eventStatus === 'denied') return false;
       if (e.room_id != newRoomId) return false;
-      const eventDate = e.start_time?.split('T')[0];
-      if (eventDate !== newDate) return false;
-      const eventStart = e.start_time?.split('T')[1]?.substring(0, 5) || '';
-      const eventEnd = e.end_time?.split('T')[1]?.substring(0, 5) || '';
-      // Check time overlap: newStart < eventEnd AND newEnd > eventStart
-      return (newStart < eventEnd) && (newEnd > eventStart);
+      if (!e.start_time || !e.end_time) return false;
+      const eventStart = new Date(e.start_time);
+      const eventEnd = new Date(e.end_time);
+      if (Number.isNaN(eventStart.getTime()) || Number.isNaN(eventEnd.getTime())) return false;
+      return newStartDate < eventEnd && newEndDate > eventStart;
     });
 
     if (conflict) {
       const roomName = rooms?.find(r => r.id == newRoomId)?.name || 'This space';
-      const conflictStart = conflict.start_time?.split('T')[1]?.substring(0, 5) || '';
-      const conflictEnd = conflict.end_time?.split('T')[1]?.substring(0, 5) || '';
-      setLocalError(`Double Booking Detected: ${roomName} is already reserved for "${conflict.activity_purpose}" during this time (${conflictStart}-${conflictEnd}).`);
+      const conflictStart = conflict.start_time ? new Date(conflict.start_time).toLocaleString() : '';
+      const conflictEnd = conflict.end_time ? new Date(conflict.end_time).toLocaleString() : '';
+      setLocalError(`Double Booking Detected: ${roomName} is already reserved for "${conflict.activity_purpose}" during this range (${conflictStart} - ${conflictEnd}).`);
       return;
     }
 
@@ -991,8 +1008,8 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
 
     const formData = {
       ...form,
-      start_time: `${form.event_date}T${startTime}`,
-      end_time: `${form.event_date}T${endTime}`,
+      start_time: newStartIso,
+      end_time: newEndIso,
       equipment_data: {
         ...form.equipment,
         services: servicesData
@@ -1005,9 +1022,12 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
   };
 
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
-    React.createElement('div', { className: 'bg-white rounded-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto' },
+    React.createElement('div', { className: 'bg-white rounded-2xl w-full max-w-5xl p-6 max-h-[90vh] overflow-y-auto' },
       React.createElement('div', { className: 'flex justify-between items-center mb-4' },
-        React.createElement('h3', { className: 'font-bold' }, 'New Reservation'),
+        React.createElement('div', {},
+          React.createElement('h3', { className: 'font-bold text-lg text-slate-800' }, 'New Reservation'),
+          React.createElement('p', { className: 'text-xs text-slate-500' }, 'Fill in details by section for faster review')
+        ),
         React.createElement('button', { onClick: onClose, className: 'text-2xl' }, '✕')
       ),
       // Error banner
@@ -1015,45 +1035,77 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
         React.createElement('span', {}, '⚠️'),
         React.createElement('p', {}, localError)
       ),
-      React.createElement('form', { onSubmit: handleSubmit, className: 'space-y-3' },
-        React.createElement('select', { 
-          value: form.room_id, 
-          onChange: (e) => setForm({ ...form, room_id: e.target.value, equipment: {} }), 
-          className: 'w-full p-2 border rounded', 
-          required: true 
-        },
-          React.createElement('option', { value: '' }, 'Select space'),
-          rooms.map(r => React.createElement('option', { key: r.id, value: r.id }, `${r.name} (${r.capacity})`)
-        )),
-        React.createElement('input', { placeholder: 'Activity Purpose', value: form.activity_purpose, onChange: (e) => setForm({ ...form, activity_purpose: e.target.value }), className: 'w-full p-2 border rounded', required: true }),
-        React.createElement('input', { placeholder: 'Person In Charge', value: form.person_in_charge, onChange: (e) => setForm({ ...form, person_in_charge: e.target.value }), className: 'w-full p-2 border rounded' }),
-        React.createElement('input', { placeholder: 'Contact', value: form.contact_number, onChange: (e) => setForm({ ...form, contact_number: e.target.value }), className: 'w-full p-2 border rounded' }),
-        React.createElement('input', { placeholder: 'Division', value: form.division, onChange: (e) => setForm({ ...form, division: e.target.value }), className: 'w-full p-2 border rounded' }),
-        React.createElement('input', { type: 'number', placeholder: 'Number of Attendees', min: '1', value: form.num_attendees, onChange: (e) => setForm({ ...form, num_attendees: e.target.value }), className: 'w-full p-2 border rounded' }),
-        // Activity Classification dropdown
-        React.createElement('select', {
-          value: form.activity_classification,
-          onChange: (e) => setForm({ ...form, activity_classification: e.target.value }),
-          className: 'w-full p-2 border rounded'
-        },
-          React.createElement('option', { value: '' }, 'Activity Classification'),
-          ['Institutional', 'Curricular', 'Outside Group', 'Co-Curricular', 'Extra-Curricular'].map(c =>
-            React.createElement('option', { key: c, value: c }, c)
+      React.createElement('form', { onSubmit: handleSubmit, className: 'space-y-4' },
+        React.createElement('div', { className: 'border rounded-xl p-4 bg-slate-50/60' },
+          React.createElement('p', { className: 'text-xs uppercase tracking-wider font-bold text-slate-500 mb-3' }, 'Activity Details'),
+          React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-3' },
+            React.createElement('select', { 
+              value: form.room_id, 
+              onChange: (e) => setForm({ ...form, room_id: e.target.value, equipment: {} }), 
+              className: 'w-full p-2 border rounded bg-white', 
+              required: true 
+            },
+              React.createElement('option', { value: '' }, 'Select space'),
+              rooms.map(r => React.createElement('option', { key: r.id, value: r.id }, `${r.name} (${r.capacity})`)
+            )),
+            React.createElement('input', { placeholder: 'Activity Purpose', value: form.activity_purpose, onChange: (e) => setForm({ ...form, activity_purpose: e.target.value }), className: 'w-full p-2 border rounded bg-white', required: true }),
+            React.createElement('input', { placeholder: 'Person In Charge', value: form.person_in_charge, onChange: (e) => setForm({ ...form, person_in_charge: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
+            React.createElement('input', { placeholder: 'Contact Number', value: form.contact_number, onChange: (e) => setForm({ ...form, contact_number: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
+            React.createElement('input', { placeholder: 'Division', value: form.division, onChange: (e) => setForm({ ...form, division: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
+            React.createElement('input', { type: 'number', placeholder: 'Number of Attendees', min: '1', value: form.num_attendees, onChange: (e) => setForm({ ...form, num_attendees: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
+            React.createElement('select', {
+              value: form.activity_classification,
+              onChange: (e) => setForm({ ...form, activity_classification: e.target.value }),
+              className: 'w-full p-2 border rounded bg-white md:col-span-2'
+            },
+              React.createElement('option', { value: '' }, 'Activity Classification'),
+              ['Institutional', 'Curricular', 'Outside Group', 'Co-Curricular', 'Extra-Curricular'].map(c =>
+                React.createElement('option', { key: c, value: c }, c)
+              )
+            )
           )
         ),
-        // Event date (single day)
-        React.createElement('div', { className: 'space-y-1' },
-          React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Event Date'),
-          React.createElement('input', { type: 'date', value: form.event_date, onChange: (e) => setForm({ ...form, event_date: e.target.value }), className: 'w-full p-2 border rounded', required: true })
-        ),
-        // Start Time - separate hour, minute, and AM/PM dropdowns
-        React.createElement('div', { className: 'space-y-1' },
+
+        React.createElement('div', { className: 'border rounded-xl p-4 bg-slate-50/60' },
+          React.createElement('p', { className: 'text-xs uppercase tracking-wider font-bold text-slate-500 mb-3' }, 'Schedule'),
+          React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-3' },
+            React.createElement('div', { className: 'space-y-1' },
+              React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Start Date'),
+              React.createElement('input', { type: 'date', value: form.event_start_date, onChange: (e) => setForm({ ...form, event_start_date: e.target.value }), className: 'w-full p-2 border rounded bg-white', required: true })
+            ),
+            React.createElement('div', { className: 'space-y-1' },
+              React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Date Range'),
+              React.createElement('label', { className: 'flex items-center gap-2 text-sm text-slate-700 p-2 border rounded bg-white' },
+                React.createElement('input', {
+                  type: 'checkbox',
+                  checked: hasEndDate,
+                  onChange: (e) => {
+                    const checked = e.target.checked;
+                    setHasEndDate(checked);
+                    if (checked) {
+                      setForm({ ...form, event_end_date: form.event_end_date || form.event_start_date });
+                    } else {
+                      setForm({ ...form, event_end_date: '' });
+                    }
+                  }
+                }),
+                'Add end date (multi-day reservation)'
+              ),
+              hasEndDate && React.createElement('input', {
+                type: 'date',
+                value: form.event_end_date,
+                onChange: (e) => setForm({ ...form, event_end_date: e.target.value }),
+                className: 'w-full p-2 border rounded bg-white',
+                required: true
+              })
+            ),
+            React.createElement('div', { className: 'space-y-1' },
           React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Start Time'),
           React.createElement('div', { className: 'flex gap-2 items-center' },
             React.createElement('select', { 
               value: form.start_hour, 
               onChange: (e) => setForm({ ...form, start_hour: e.target.value }), 
-              className: 'w-1/3 p-2 border rounded', 
+              className: 'w-1/3 p-2 border rounded bg-white', 
               required: true 
             },
               React.createElement('option', { value: '' }, 'Hour'),
@@ -1063,7 +1115,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             React.createElement('select', { 
               value: form.start_minute, 
               onChange: (e) => setForm({ ...form, start_minute: e.target.value }), 
-              className: 'w-1/3 p-2 border rounded', 
+              className: 'w-1/3 p-2 border rounded bg-white', 
               required: true 
             },
               React.createElement('option', { value: '' }, 'Min'),
@@ -1072,7 +1124,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             React.createElement('select', {
               value: form.start_period,
               onChange: (e) => setForm({ ...form, start_period: e.target.value }),
-              className: 'w-1/3 p-2 border rounded',
+              className: 'w-1/3 p-2 border rounded bg-white',
               required: true
             },
               React.createElement('option', { value: '' }, 'AM/PM'),
@@ -1080,14 +1132,13 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             )
           )
         ),
-        // End Time - separate hour, minute, and AM/PM dropdowns
-        React.createElement('div', { className: 'space-y-1' },
+            React.createElement('div', { className: 'space-y-1' },
           React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'End Time'),
           React.createElement('div', { className: 'flex gap-2 items-center' },
             React.createElement('select', { 
               value: form.end_hour, 
               onChange: (e) => setForm({ ...form, end_hour: e.target.value }), 
-              className: 'w-1/3 p-2 border rounded', 
+              className: 'w-1/3 p-2 border rounded bg-white', 
               required: true 
             },
               React.createElement('option', { value: '' }, 'Hour'),
@@ -1097,7 +1148,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             React.createElement('select', { 
               value: form.end_minute, 
               onChange: (e) => setForm({ ...form, end_minute: e.target.value }), 
-              className: 'w-1/3 p-2 border rounded', 
+              className: 'w-1/3 p-2 border rounded bg-white', 
               required: true 
             },
               React.createElement('option', { value: '' }, 'Min'),
@@ -1106,18 +1157,19 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             React.createElement('select', {
               value: form.end_period,
               onChange: (e) => setForm({ ...form, end_period: e.target.value }),
-              className: 'w-1/3 p-2 border rounded',
+              className: 'w-1/3 p-2 border rounded bg-white',
               required: true
             },
               React.createElement('option', { value: '' }, 'AM/PM'),
               AM_PM_OPTIONS.map(period => React.createElement('option', { key: period, value: period }, period))
             )
           )
+            )
+          )
         ),
-        React.createElement('input', { type: 'url', placeholder: 'Concept Paper Google Drive Link', value: form.concept_paper_url, onChange: (e) => setForm({ ...form, concept_paper_url: e.target.value }), className: 'w-full p-2 border rounded', required: true }),
 
         // SERVICES SECTION
-        React.createElement('div', { className: 'mt-4 border-t pt-4 space-y-3' },
+        React.createElement('div', { className: 'space-y-3 border rounded-xl p-4 bg-slate-50/60' },
           React.createElement('p', { className: 'text-sm font-bold text-slate-700' }, 'Services Needed'),
 
           React.createElement('div', { className: 'bg-slate-50 border rounded p-3 space-y-2' },
@@ -1204,6 +1256,11 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             )
           )
         ),
+
+        React.createElement('div', { className: 'border rounded-xl p-4 bg-slate-50/60' },
+          React.createElement('p', { className: 'text-xs uppercase tracking-wider font-bold text-slate-500 mb-3' }, 'Requirements'),
+          React.createElement('input', { type: 'url', placeholder: 'Concept Paper Google Drive Link', value: form.concept_paper_url, onChange: (e) => setForm({ ...form, concept_paper_url: e.target.value }), className: 'w-full p-2 border rounded bg-white', required: true })
+        ),
         
         React.createElement('button', { type: 'submit', disabled: loading, className: 'w-full bg-sky-500 text-white p-2 rounded font-bold mt-4' }, loading ? '...' : 'Create')
       )
@@ -1265,7 +1322,11 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
 
     const start = res.start_time ? new Date(res.start_time) : null;
     const end = res.end_time ? new Date(res.end_time) : null;
-    const dateNeeded = start ? start.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+    const startDateNeeded = start ? start.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+    const endDateNeeded = end ? end.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+    const dateNeeded = startDateNeeded && endDateNeeded
+      ? (startDateNeeded === endDateNeeded ? startDateNeeded : `${startDateNeeded} to ${endDateNeeded}`)
+      : (startDateNeeded || endDateNeeded || '');
     const startTime = start ? start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '';
     const endTime = end ? end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '';
     const dateFiled = res.date_filed ? new Date(res.date_filed).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';

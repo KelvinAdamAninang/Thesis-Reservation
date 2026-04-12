@@ -82,6 +82,13 @@ def _get_manual_holiday_on_date(day_value):
     return holiday
 
 
+def _get_manual_holiday_in_range(start_date, end_date):
+    return Holiday.query.filter(
+        Holiday.holiday_date >= start_date,
+        Holiday.holiday_date <= end_date
+    ).order_by(Holiday.holiday_date.asc()).first()
+
+
 def _build_manual_holiday_events(from_date=None):
     query = Holiday.query
     if from_date is not None:
@@ -469,11 +476,11 @@ def create_reservation():
         start_time = datetime.fromisoformat(data['start_time'])
         end_time = datetime.fromisoformat(data['end_time'])
 
-        holiday = _get_manual_holiday_on_date(start_time.date())
+        holiday = _get_manual_holiday_in_range(start_time.date(), end_time.date())
         if holiday:
             return jsonify({
                 'status': 'error',
-                'message': f"Reservations are suspended on this holiday ({holiday.title})."
+                'message': f"Reservations are suspended on holidays. Conflict: {holiday.title} ({holiday.holiday_date.isoformat()})."
             }), 400
 
         reservation = Reservation(
@@ -548,10 +555,10 @@ def approve_final(id):
     if not reservation:
         return jsonify({'error': 'Reservation not found'}), 404
 
-    holiday = _get_manual_holiday_on_date(reservation.start_time.date())
+    holiday = _get_manual_holiday_in_range(reservation.start_time.date(), reservation.end_time.date())
     if holiday:
         return jsonify({
-            'error': f"Cannot approve final reservation on holiday: {holiday.title}."
+            'error': f"Cannot approve final reservation due to holiday conflict: {holiday.title} ({holiday.holiday_date.isoformat()})."
         }), 400
     
     reservation.status = 'approved'
