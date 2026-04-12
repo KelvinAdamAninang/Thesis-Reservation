@@ -115,6 +115,9 @@ def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
 
     if heatmap_month and heatmap_month in available_heatmap_month_keys:
         selected_heatmap_month = heatmap_month
+    elif available_heatmap_month_keys:
+        # Default to the most recent month to avoid inflated all-time slot counts.
+        selected_heatmap_month = available_heatmap_month_keys[0]
     else:
         selected_heatmap_month = 'all'
 

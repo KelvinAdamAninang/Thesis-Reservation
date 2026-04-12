@@ -81,7 +81,7 @@ def _load_monthly_series_from_csv(csv_path=MONTHLY_CSV_FALLBACK):
     return series
 
 
-def build_monthly_reservation_series(include_statuses=None):
+def build_monthly_reservation_series(include_statuses=None, allow_csv_fallback=True):
     """Aggregate reservation counts into a monthly time series."""
     query = Reservation.query
     if include_statuses:
@@ -91,7 +91,9 @@ def build_monthly_reservation_series(include_statuses=None):
     rows = query.with_entities(Reservation.start_time).all()
     timestamps = [row[0] for row in rows if row[0] is not None]
     if not timestamps:
-        return _load_monthly_series_from_csv()
+        if allow_csv_fallback:
+            return _load_monthly_series_from_csv()
+        raise ValueError('No reservation data found in database for retraining.')
 
     series = pd.Series(1, index=pd.to_datetime(timestamps), dtype='int64')
     monthly = series.resample('MS').sum().astype(float)
@@ -162,7 +164,11 @@ def save_sarimax_bundle(model, series, order, seasonal_order, artifact_path=ARTI
 
 def retrain_all_historical_data(include_statuses=None, artifact_path=ARTIFACT_PATH):
     """Train SARIMAX using all historical data and persist model artifact."""
-    series = build_monthly_reservation_series(include_statuses=include_statuses)
+    # Retraining must use live DB data only (no CSV fallback).
+    series = build_monthly_reservation_series(
+        include_statuses=include_statuses,
+        allow_csv_fallback=False,
+    )
     model, order, seasonal_order = train_sarimax_model(series)
     metadata = save_sarimax_bundle(model, series, order, seasonal_order, artifact_path=artifact_path)
     return metadata

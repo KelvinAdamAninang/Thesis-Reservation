@@ -211,12 +211,38 @@ const apiService = {
     return data;
   },
 
-  async getDataMiningAnalytics() {
-    const response = await fetch(`${API_BASE}/data-mining/analytics`, { credentials: 'include' });
+  async getDataMiningAnalytics(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.department) params.set('department', filters.department);
+    if (filters.heatmap_month) params.set('heatmap_month', filters.heatmap_month);
+    if (filters.months) params.set('months', String(filters.months));
+    const query = params.toString();
+    const response = await fetch(`${API_BASE}/data-mining/analytics${query ? `?${query}` : ''}`, { credentials: 'include' });
     if (!response.ok) throw new Error('Failed to fetch analytics');
     const payload = await response.json();
     if (payload.status !== 'success') throw new Error(payload.message || 'Analytics fetch failed');
     return payload.data;
+  },
+
+  async getCurrentSemesterForecast() {
+    const response = await fetch(`${API_BASE}/data-mining/forecast/current-semester`, { credentials: 'include' });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') {
+      throw new Error(payload.message || payload.error || 'Failed to fetch forecast');
+    }
+    return payload;
+  },
+
+  async retrainForecastModel() {
+    const response = await fetch(`${API_BASE}/data-mining/forecast/retrain`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') {
+      throw new Error(payload.message || payload.error || 'Failed to retrain forecast model');
+    }
+    return payload;
   },
 
   async adminCreateFacility(payload) {
@@ -2277,8 +2303,15 @@ function ChartCanvas({ type, data, options }) {
   );
 }
 
-function AnalyticsKpiCard({ label, value, detail }) {
-  return React.createElement('div', { className: 'bg-white border rounded-3xl p-5 shadow-sm' },
+function AnalyticsKpiCard({ label, value, detail, onClick, active = false }) {
+  const clickable = typeof onClick === 'function';
+  const cardClass = [
+    'bg-white border rounded-3xl p-5 shadow-sm',
+    clickable ? 'cursor-pointer hover:border-sky-300 hover:shadow-md transition' : '',
+    active ? 'border-sky-400 ring-2 ring-sky-100' : ''
+  ].join(' ').trim();
+
+  return React.createElement('div', { className: cardClass, onClick: clickable ? onClick : undefined },
     React.createElement('p', { className: 'text-xs font-bold uppercase tracking-wider text-slate-400 mb-3' }, label),
     React.createElement('p', { className: 'text-2xl font-bold text-slate-800 leading-tight break-words' }, value),
     React.createElement('p', { className: 'text-sm text-slate-500 mt-2' }, detail)
@@ -2334,6 +2367,15 @@ function AnalyticsView({ reservations }) {
   const [analytics, setAnalytics] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const [analyticsError, setAnalyticsError] = useState('');
+  const [forecastPayload, setForecastPayload] = useState(null);
+  const [forecastError, setForecastError] = useState('');
+  const [loadingForecast, setLoadingForecast] = useState(true);
+  const [retrainingForecast, setRetrainingForecast] = useState(false);
+  const [selectedDepartment, setSelectedDepartment] = useState('All');
+  const [selectedHeatmapMonth, setSelectedHeatmapMonth] = useState('');
+  const [selectedHeatmapYear, setSelectedHeatmapYear] = useState('all');
+  const [selectedHeatmapMonthNumber, setSelectedHeatmapMonthNumber] = useState('all');
+  const [showDepartmentPicker, setShowDepartmentPicker] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -2341,8 +2383,25 @@ function AnalyticsView({ reservations }) {
       setLoadingAnalytics(true);
       setAnalyticsError('');
       try {
-        const data = await apiService.getDataMiningAnalytics();
-        if (isMounted) setAnalytics(data);
+        const data = await apiService.getDataMiningAnalytics({
+          department: selectedDepartment,
+          heatmap_month: selectedHeatmapMonth || undefined,
+        });
+        if (isMounted) {
+          setAnalytics(data);
+          if (!selectedHeatmapMonth && data?.filters?.selected_heatmap_month) {
+            const initialKey = data.filters.selected_heatmap_month;
+            setSelectedHeatmapMonth(initialKey);
+            if (initialKey !== 'all' && /^\d{4}-\d{2}$/.test(initialKey)) {
+              const [year, month] = initialKey.split('-');
+              setSelectedHeatmapYear(year);
+              setSelectedHeatmapMonthNumber(month);
+            } else {
+              setSelectedHeatmapYear('all');
+              setSelectedHeatmapMonthNumber('all');
+            }
+          }
+        }
       } catch (err) {
         if (isMounted) setAnalyticsError(err.message || 'Failed to load analytics data');
       } finally {
@@ -2351,7 +2410,56 @@ function AnalyticsView({ reservations }) {
     })();
 
     return () => { isMounted = false; };
+  }, [reservations.length, selectedDepartment, selectedHeatmapMonth]);
+
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      setLoadingForecast(true);
+      setForecastError('');
+      try {
+        const payload = await apiService.getCurrentSemesterForecast();
+        if (isMounted) setForecastPayload(payload);
+      } catch (err) {
+        if (isMounted) setForecastError(err.message || 'Failed to load forecast');
+      } finally {
+        if (isMounted) setLoadingForecast(false);
+      }
+    })();
+
+    return () => { isMounted = false; };
   }, [reservations.length]);
+
+  const refreshForecast = async () => {
+    setLoadingForecast(true);
+    setForecastError('');
+    try {
+      const payload = await apiService.getCurrentSemesterForecast();
+      setForecastPayload(payload);
+    } catch (err) {
+      setForecastError(err.message || 'Failed to load forecast');
+    } finally {
+      setLoadingForecast(false);
+    }
+  };
+
+  const handleRetrainForecast = async () => {
+    const proceed = window.confirm(
+      'Retrain forecast model?\n\nUse this only when reservation patterns have materially changed (e.g., major spikes, new semester cycle, or policy-driven demand changes).\n\nFrequent unnecessary retraining can reduce forecast stability.'
+    );
+    if (!proceed) return;
+
+    setRetrainingForecast(true);
+    setForecastError('');
+    try {
+      await apiService.retrainForecastModel();
+      await refreshForecast();
+    } catch (err) {
+      setForecastError(err.message || 'Failed to retrain forecast');
+    } finally {
+      setRetrainingForecast(false);
+    }
+  };
 
   const fallback = {
     total_reservations: reservations.length,
@@ -2449,9 +2557,112 @@ function AnalyticsView({ reservations }) {
     return React.createElement('div', { className: 'bg-white border rounded-3xl p-8 text-center text-slate-500' }, 'Loading analytics...');
   }
 
+  const filterData = analytics?.filters || { departments: ['All'], heatmap_months: ['all'] };
+  const departmentOptions = filterData.departments || ['All'];
+  const heatmapMonthKeys = (filterData.heatmap_months || ['all']).filter((key) => key !== 'all');
+  const heatmapYears = Array.from(new Set(heatmapMonthKeys.map((key) => key.split('-')[0]))).sort((a, b) => Number(b) - Number(a));
+  const monthsForSelectedYear = selectedHeatmapYear === 'all'
+    ? []
+    : heatmapMonthKeys
+        .filter((key) => key.startsWith(`${selectedHeatmapYear}-`))
+        .map((key) => key.split('-')[1])
+        .sort((a, b) => Number(a) - Number(b));
+
+  const handleHeatmapYearChange = (year) => {
+    setSelectedHeatmapYear(year);
+
+    if (year === 'all') {
+      setSelectedHeatmapMonthNumber('all');
+      setSelectedHeatmapMonth('all');
+      return;
+    }
+
+    const keysForYear = heatmapMonthKeys
+      .filter((key) => key.startsWith(`${year}-`))
+      .sort((a, b) => b.localeCompare(a));
+
+    if (!keysForYear.length) {
+      setSelectedHeatmapMonthNumber('all');
+      setSelectedHeatmapMonth('all');
+      return;
+    }
+
+    const latestForYear = keysForYear[0];
+    setSelectedHeatmapMonth(latestForYear);
+    setSelectedHeatmapMonthNumber(latestForYear.split('-')[1]);
+  };
+
+  const handleHeatmapMonthChange = (monthNumber) => {
+    setSelectedHeatmapMonthNumber(monthNumber);
+
+    if (selectedHeatmapYear === 'all' || monthNumber === 'all') {
+      setSelectedHeatmapMonth('all');
+      return;
+    }
+
+    const monthKey = `${selectedHeatmapYear}-${monthNumber}`;
+    setSelectedHeatmapMonth(heatmapMonthKeys.includes(monthKey) ? monthKey : 'all');
+  };
+
+  const formatMonthName = (monthNumber) => {
+    const temp = new Date(`2000-${monthNumber}-01T00:00:00`);
+    return temp.toLocaleDateString(undefined, { month: 'long' });
+  };
+
+  const handleTopDepartmentClick = () => {
+    const topDept = (kpis.top_department || '').trim();
+    if (!topDept || topDept === 'No Data') return;
+    // Clicking KPI applies top-department shortcut and opens full picker.
+    setSelectedDepartment(topDept);
+    setShowDepartmentPicker((prev) => !prev);
+  };
+
+  const forecastSeries = forecastPayload?.data?.series || [];
+  const forecastChartData = {
+    labels: forecastSeries.map((entry) => {
+      const d = new Date(`${entry.month}-01T00:00:00`);
+      return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+    }),
+    datasets: [
+      {
+        label: 'Actual (Approved)',
+        data: forecastSeries.map((entry) => entry.actual == null ? null : entry.actual),
+        borderColor: '#0284c7',
+        backgroundColor: 'rgba(2,132,199,0.15)',
+        tension: 0.35,
+        spanGaps: true,
+        pointRadius: 3,
+      },
+      {
+        label: 'Forecast',
+        data: forecastSeries.map((entry) => entry.predicted == null ? null : entry.predicted),
+        borderColor: '#f97316',
+        backgroundColor: 'rgba(249,115,22,0.15)',
+        borderDash: [6, 4],
+        tension: 0.35,
+        spanGaps: true,
+        pointRadius: 3,
+      }
+    ]
+  };
+
   return React.createElement('div', { className: 'space-y-6' },
     analyticsError && React.createElement('div', { className: 'bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-xl text-sm' },
       'Showing fallback metrics. ', analyticsError
+    ),
+
+    React.createElement('div', { className: 'bg-white border rounded-3xl p-4 md:p-5 grid grid-cols-1 gap-4' },
+      React.createElement('label', { className: 'text-sm text-slate-600' },
+        React.createElement('span', { className: 'block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2' }, 'Year'),
+        React.createElement('select', {
+          className: 'w-full border rounded-xl px-3 py-2 bg-white',
+          value: selectedHeatmapYear,
+          onChange: (e) => handleHeatmapYearChange(e.target.value)
+        },
+          React.createElement('option', { value: 'all' }, 'All Years'),
+          heatmapYears.map((year) => React.createElement('option', { key: year, value: year }, year))
+        )
+      )
     ),
 
     React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4' },
@@ -2470,11 +2681,30 @@ function AnalyticsView({ reservations }) {
         value: kpis.busiest_day || 'No Data',
         detail: `${kpis.busiest_day_count || 0} events`
       }),
-      React.createElement(AnalyticsKpiCard, {
-        label: 'Top Department',
-        value: kpis.top_department || 'No Data',
-        detail: `${kpis.top_department_count || 0} reservations`
-      }),
+      React.createElement('div', {
+        className: `bg-white border rounded-3xl p-5 shadow-sm cursor-pointer hover:border-sky-300 hover:shadow-md transition ${kpis.top_department && selectedDepartment === kpis.top_department ? 'border-sky-400 ring-2 ring-sky-100' : ''}`,
+        onClick: handleTopDepartmentClick
+      },
+        React.createElement('p', { className: 'text-xs font-bold uppercase tracking-wider text-slate-400 mb-3' }, 'Top Department'),
+        React.createElement('p', { className: 'text-2xl font-bold text-slate-800 leading-tight break-words' }, kpis.top_department || 'No Data'),
+        React.createElement('p', { className: 'text-sm text-slate-500 mt-2' }, `${kpis.top_department_count || 0} reservations (click to filter)`),
+        React.createElement('p', { className: 'text-xs text-slate-500 mt-2' }, `Current scope: ${selectedDepartment}`),
+        showDepartmentPicker && React.createElement('div', {
+          className: 'mt-3 pt-3 border-t border-slate-100',
+          onClick: (e) => e.stopPropagation()
+        },
+          React.createElement('label', { className: 'block text-sm text-slate-600' },
+            React.createElement('span', { className: 'block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1' }, 'Department Filter'),
+            React.createElement('select', {
+              className: 'w-full border rounded-xl px-3 py-2 bg-white text-sm',
+              value: selectedDepartment,
+              onChange: (e) => setSelectedDepartment(e.target.value)
+            },
+              departmentOptions.map((dept) => React.createElement('option', { key: dept, value: dept }, dept))
+            )
+          )
+        )
+      ),
       React.createElement(AnalyticsKpiCard, {
         label: 'Booking Status Leader',
         value: kpis.dominant_status || 'No Data',
@@ -2502,7 +2732,25 @@ function AnalyticsView({ reservations }) {
         })
       ),
       React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Peak Usage Time Heatmap'),
+        React.createElement('div', { className: 'flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4' },
+          React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Peak Usage Time Heatmap'),
+          React.createElement('label', { className: 'text-sm text-slate-600 md:min-w-[220px]' },
+            React.createElement('span', { className: 'sr-only' }, 'Heatmap Month'),
+            React.createElement('select', {
+              className: 'w-full border rounded-xl px-3 py-2 bg-white',
+              value: selectedHeatmapMonthNumber,
+              disabled: selectedHeatmapYear === 'all',
+              onChange: (e) => handleHeatmapMonthChange(e.target.value)
+            },
+              React.createElement('option', { value: 'all' }, selectedHeatmapYear === 'all' ? 'Select year first' : 'All Months'),
+              monthsForSelectedYear.map((monthNumber) => React.createElement(
+                'option',
+                { key: monthNumber, value: monthNumber },
+                formatMonthName(monthNumber)
+              ))
+            )
+          )
+        ),
         React.createElement(HeatmapChart, { data: charts.peak_usage_heatmap })
       )
     ),
@@ -2561,6 +2809,39 @@ function AnalyticsView({ reservations }) {
           }
         })
       )
+    ),
+
+    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+      React.createElement('div', { className: 'flex items-center justify-between mb-4 gap-3' },
+        React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Current Semester Forecast'),
+        React.createElement('div', { className: 'flex items-center gap-2' },
+          React.createElement('button', {
+            className: 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed',
+            disabled: retrainingForecast || loadingForecast,
+            onClick: handleRetrainForecast,
+          }, retrainingForecast ? 'Retraining...' : 'Retrain Forecast'),
+          forecastPayload?.next_retrain_at && React.createElement('span', { className: 'text-xs text-slate-500' },
+            `Next retrain: ${new Date(forecastPayload.next_retrain_at).toLocaleString()}`
+          )
+        )
+      ),
+      forecastError && React.createElement('div', { className: 'mb-3 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-sm' },
+        `Forecast unavailable: ${forecastError}`
+      ),
+      loadingForecast
+        ? React.createElement('div', { className: 'h-[300px] flex items-center justify-center text-slate-500' }, 'Loading forecast...')
+        : forecastSeries.length === 0
+          ? React.createElement('div', { className: 'h-[300px] flex items-center justify-center text-slate-500' }, 'No forecast data available.')
+          : React.createElement(ChartCanvas, {
+              type: 'line',
+              data: forecastChartData,
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } },
+                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+              }
+            })
     ),
 
     React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },

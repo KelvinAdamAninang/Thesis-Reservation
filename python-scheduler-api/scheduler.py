@@ -34,7 +34,10 @@ def get_next_retrain_at_iso(now=None):
 def _can_retrain():
     """Check if we have enough training data (>= 9 months) to retrain."""
     try:
-        series = build_monthly_reservation_series(include_statuses=['approved'])
+        series = build_monthly_reservation_series(
+            include_statuses=['approved'],
+            allow_csv_fallback=False,
+        )
         return len(series) >= MIN_TRAINING_MONTHS, len(series)
     except Exception:
         return False, 0
