@@ -3070,6 +3070,20 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
 
   const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
   const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
+  const setCalendarYear = (nextYear) => setCurrentDate(new Date(Number(nextYear), month, 1));
+
+  const yearSet = new Set([year]);
+  (events || []).forEach((e) => {
+    if (!e?.start_time) return;
+    const eventDate = new Date(e.start_time);
+    if (!Number.isNaN(eventDate.getTime())) {
+      yearSet.add(eventDate.getFullYear());
+    }
+  });
+  // Include a small nearby range for quick switching even if no events exist yet.
+  yearSet.add(year - 1);
+  yearSet.add(year + 1);
+  const yearOptions = Array.from(yearSet).sort((a, b) => a - b);
 
   const monthName = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
@@ -3090,11 +3104,12 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
 
     const status = String(event?.status || '').toLowerCase();
     if (status === 'deleted' || status === 'denied' || status === 'cancelled') return 'cancelled';
+    if (status === 'concept-approved') return 'plotting';
 
     const now = new Date();
     const start = event?.start_time ? new Date(event.start_time) : null;
     const end = event?.end_time ? new Date(event.end_time) : null;
-    if (start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && now >= start && now <= end) {
+    if (status === 'approved' && start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && now >= start && now <= end) {
       return 'ongoing';
     }
 
@@ -3164,6 +3179,13 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
         },
           React.createElement('option', { value: 'all' }, 'All Facilities'),
           rooms.map(r => React.createElement('option', { key: r.id, value: r.id }, r.name))
+        ),
+        React.createElement('select', {
+          value: String(year),
+          onChange: (e) => setCalendarYear(e.target.value),
+          className: 'p-2 border border-slate-200 rounded-lg text-xs bg-slate-50 text-slate-700 focus:ring-2 focus:ring-sky-500 outline-none'
+        },
+          yearOptions.map((y) => React.createElement('option', { key: y, value: String(y) }, y))
         ),
         React.createElement('div', { className: 'flex gap-1' },
           React.createElement('button', { onClick: prevMonth, className: 'p-2 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-800' }, '◀'),
@@ -3317,10 +3339,11 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
   const isHoliday = event.event_type === 'holiday' || event.is_holiday;
   const status = String(event.status || '').toLowerCase();
   const isCancelled = status === 'deleted' || status === 'denied' || status === 'cancelled';
+  const isConceptApproved = status === 'concept-approved';
   const now = new Date();
   const start = event.start_time ? new Date(event.start_time) : null;
   const end = event.end_time ? new Date(event.end_time) : null;
-  const isOngoing = !isHoliday && !isCancelled && start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && now >= start && now <= end;
+  const isOngoing = !isHoliday && !isCancelled && !isConceptApproved && status === 'approved' && start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && now >= start && now <= end;
   const eventActionType = isCancelled ? 'delete' : (isOngoing ? 'cancel' : 'delete');
   const eventActionLabel = eventActionType === 'cancel' ? 'Cancel Event' : 'Delete Event';
   const eventActionIcon = eventActionType === 'cancel' ? '⛔' : '🗑️';

@@ -5,8 +5,6 @@ from urllib.parse import urlparse
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_cors import CORS
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from datetime import datetime, date, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -41,15 +39,6 @@ CORS(app, supports_credentials=True, origins=[
     'http://localhost:3000', 'http://localhost:5000',
     'http://127.0.0.1:3000', 'http://127.0.0.1:5000'
 ])
-
-# Global API protection: apply default rate limiting across all endpoints.
-limiter = Limiter(
-    key_func=get_remote_address,
-    app=app,
-    default_limits=["300 per 15 minutes"],
-    storage_uri="memory://",
-)
-login_shared_limit = limiter.shared_limit("5 per 15 minutes", scope="login-routes")
 
 # CONFIG
 app.config['SECRET_KEY'] = 'thesis-secret-key-123'
@@ -361,7 +350,6 @@ def serve_print_header_image():
     return send_from_directory('templates', 'header2.png', mimetype='image/png')
 
 @app.route('/login', methods=['POST'])
-@login_shared_limit
 def login():
     username = request.form.get('username')
     password = request.form.get('password')
@@ -460,7 +448,6 @@ def api_me():
 
 # Authentication API - FIXED TO INCLUDE user_id
 @app.route('/api/login', methods=['POST'])
-@login_shared_limit
 def api_login():
     data = request.get_json()
     username = data.get('username')
