@@ -1,317 +1,201 @@
 # VacanSee - Campus Space Reservation System
 
-## Quick Start
+VacanSee is a Flask + React reservation platform for campus facilities, with a 2-stage approval workflow, calendar visualization, analytics, and AI assistant support.
+
+## Overview
+
+VacanSee supports:
+- Stage 1 concept review and Stage 2 final review approval flow
+- Facility booking with conflict checking and holiday blocking
+- Calendar states for plotting, ongoing, and cancelled events
+- Admin user and facility management
+- Data-mining analytics and SARIMAX forecasting pipeline
+- AI assistant integration for reservation guidance
+
+## Current Workflow
+
+### Stage 1
+- Student submits reservation details and Concept Paper Google Drive link.
+- Admin or Phase 1 Admin reviews and approves concept.
+- Status becomes concept-approved.
+
+### Stage 2
+- Student submits Final Form Google Drive link.
+- Full Admin performs final review.
+- If approved, status becomes approved.
+
+### Automatic Stage 2 Timeout
+- Reservations in concept-approved are auto-cancelled if no final form is submitted within 5 days.
+- The check runs automatically on a daily scheduler.
+
+## Project Structure
+
+```text
+Thesis-Reservation/
+├── README.md
+├── requirements.txt
+├── python-scheduler-api/
+│   ├── app.py
+│   ├── models.py
+│   ├── requirements.txt
+│   ├── scheduler.py
+│   ├── data_mining/
+│   │   ├── analytics.py
+│   │   ├── forecast_utils.py
+│   │   ├── train_sarimax_model.py
+│   │   ├── seed_supabase.py
+│   │   └── EMC_Cleaned_Records.csv
+│   ├── templates/
+│   │   ├── index.html
+│   │   ├── app.jsx
+│   │   └── header2.png
+│   ├── static/
+│   └── instance/
+└── instance/
+```
+
+## Setup
 
 ### Prerequisites
-- Python 3.8 or higher
-- Windows, Mac, or Linux
+- Python 3.10+
+- A PostgreSQL database (Supabase recommended)
 
-### Step 1: Install Dependencies
+### Install
 ```bash
 cd python-scheduler-api
 pip install -r requirements.txt
 ```
 
-### Step 2: Initialize Database
+### Environment
+Create or update [python-scheduler-api/.env](python-scheduler-api/.env):
+
+```env
+DATABASE_URL=postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres
+GEMINI_API_KEY=<your_key_here>
+GEMINI_MODEL=gemini-2.0-flash
+```
+
+### Run
 ```bash
+cd python-scheduler-api
 python app.py
 ```
 
-Then visit: **http://localhost:5000/setup**
-
-This will create and seed the database with test data.
-
-### Step 3: Start the Application
-```bash
-python app.py
-```
-
-Visit: **http://localhost:5000**
+Open http://localhost:5000
 
 ## Test Accounts
 
 | Role | Username | Password |
 |------|----------|----------|
 | Admin | admin | admin123 |
-| Admin | admin_phase1 | phase1 |
+| Admin Phase 1 | admin_phase1 | phase1 |
 | Student | ccs | 1234 |
 | Student | cas | 1234 |
 | Student | eng | 1234 |
 
-## ✨ Features Implemented
+## Calendar Status Logic
 
-### ✅ Login/Logout
-- Secure authentication using Flask-Login
-- Session management with database persistence
-- API endpoint: `POST /api/login` and `POST /api/logout`
+- Plotting (gray):
+  - concept-approved reservations
+  - approved reservations not currently in active event window
+- Ongoing (green):
+  - approved reservations whose current time is within start and end
+- Cancelled (yellow):
+  - cancelled, deleted, or denied events
 
-### ✅ SQLite Database
-- Automatic database initialization
-- Tables: Users, Rooms, Reservations
-- Relational foreign keys for data integrity
+## Key API Endpoints
 
-### ✅ Reservation Management
-- Create new reservations with concept paper (Google Drive link)
-- Track reservation status through workflow
-- Upload final forms (Google Drive link) for approval
-- View all user reservations
+### Auth
+- POST /api/login
+- POST /api/logout
 
-### ✅ Calendar System
-- View all approved events
-- Display event times and purposes
-- Real-time updates
+### Reservations
+- GET /api/reservations
+- POST /api/reservations
+- GET /api/reservations/<id>
+- POST /api/reservations/<id>/approve-concept
+- POST /api/reservations/<id>/upload-final-form
+- POST /api/reservations/<id>/approve-final
+- POST /api/reservations/<id>/deny
+- POST /api/reservations/<id>/delete-event
+- POST /api/reservations/<id>/archive
+- DELETE /api/reservations/<id>
 
-### ✅ Admin Approval Workflow
-- **Stage 1**: Approve concept paper
-- **Stage 2**: Approve final documentation
-- View pending requests
-- Deny requests with reason
-- Analytics dashboard
+### Calendar and Facilities
+- GET /api/calendar-events
+- GET /api/rooms
 
-### ✅ Frontend (React)
-- No build tools required (uses CDN)
-- Responsive design with Tailwind CSS
-- Real-time data sync with backend
-- Modal dialogs for all major actions
+### Admin
+- GET /api/admin/users
+- POST /api/admin/users
+- PUT /api/admin/users/<id>
+- DELETE /api/admin/users/<id>
+- POST /api/admin/facilities
+- PUT /api/admin/facilities/<id>
+- DELETE /api/admin/facilities/<id>
 
-## 🔄 Complete Workflow Example
+### AI Assistant
+- POST /api/ai/chat
 
-### As a Student:
-1. Login with `ccs/1234`
-2. Click "Facilities" to see available spaces
-3. Click on a facility to book → fill form → provide Google Drive link for concept paper → submit
-4. Check dashboard for approval status
-5. When concept approved → provide Google Drive link for final form
-6. Wait for final approval
-7. View confirmed event in calendar
+## AI Assistant Notes
 
-### As an Admin:
-1. Login with `admin/admin123`
-2. Go to "Requests" tab to see pending reservations
-3. Review concept paper and details
-4. Click "Approve Concept (Stage 1)"
-5. When user uploads final form, review it
-6. Click "Approve Reservation (Stage 2)"
-7. View analytics and confirmed events
+The assistant is constrained by a strict VacanSee system instruction in [python-scheduler-api/app.py](python-scheduler-api/app.py).
 
-## 📁 Project Structure
+Expected behavior:
+- Answers only reservation and facility-related questions
+- Follows official 2-stage workflow wording
+- Uses required refusal text for unrelated questions
 
-```
-python-scheduler-api/
-├── app.py                    # Flask backend
-├── models.py                 # Database models
-├── requirements.txt          # Dependencies
-├── START.bat                 # Windows startup script
-├── start.sh                  # Linux/Mac startup script
-│
-├── templates/
-│   └── index.html           # Main HTML page
-│
-├── static/
-│   └── app.jsx              # Simplified React component
-│
-├── instance/
-│   └── school.db            # SQLite database
-└── __pycache__/             # Python cache
-```
+If Gemini quota is exhausted, backend returns a graceful fallback reply instead of raw traceback.
 
-## 🔌 API Endpoints
+## Data Seeding
 
-### Authentication
-- `POST /api/login` - Login user
-- `POST /api/logout` - Logout user
+Seed historical records from the EMC cleaned CSV:
 
-### Rooms
-- `GET /api/rooms` - Get all available spaces
-
-### Reservations (User actions)
-- `GET /api/reservations` - Get user's reservations
-- `POST /api/reservations` - Create new reservation
-- `POST /api/reservations/<id>/upload-final-form` - Upload final form
-
-### Reservations (Admin only)
-- `POST /api/reservations/<id>/approve-concept` - Approve Stage 1
-- `POST /api/reservations/<id>/approve-final` - Approve Stage 2
-- `POST /api/reservations/<id>/deny` - Deny with reason
-- `DELETE /api/reservations/<id>` - Delete reservation
-
-## 🗄️ Database Schema
-
-### Users Table
-```
-id (PRIMARY KEY)
-username (UNIQUE)
-password_hash
-role ('admin' or 'student')
-department
-```
-
-### Rooms Table
-```
-id (PRIMARY KEY)
-code (UNIQUE)
-name
-capacity
-description
-usual_activity
-```
-
-### Reservations Table
-```
-id (PRIMARY KEY)
-user_id (FOREIGN KEY → Users)
-room_id (FOREIGN KEY → Rooms)
-activity_purpose
-division
-attendees
-participant_type
-participant_details
-classification
-person_in_charge
-contact_number
-start_time
-end_time
-status ('pending', 'concept-approved', 'approved', 'denied')
-concept_paper_filename
-final_form_filename
-final_form_uploaded (BOOLEAN)
-denial_reason
-archived_at
-date_filed
-equipment_data (JSON)
-```
-
-## 🛠️ Technical Stack
-
-- **Backend**: Flask 2.3.3
-- **Database**: SQLite3
-- **Frontend**: React 18 (CDN)
-- **Styling**: Tailwind CSS
-- **UI Icons**: Unicode/Emoji (no external dependencies)
-- **Authentication**: Flask-Login
-- **CORS**: Flask-CORS
-
-## 🐛 Troubleshooting
-
-### Issue: "Port 5000 already in use"
 ```bash
-# Find process using port 5000
+cd python-scheduler-api/data_mining
+python seed_supabase.py --dry-run
+python seed_supabase.py
+```
+
+Notes:
+- [python-scheduler-api/data_mining/seed_supabase.py](python-scheduler-api/data_mining/seed_supabase.py) resolves imports from python-scheduler-api so it can find app and models correctly.
+- Dry run prints transformed rows without writing to DB.
+
+## Troubleshooting
+
+### Gemini API key errors
+- INVALID_ARGUMENT with API_KEY_INVALID:
+  - key is invalid or expired, generate a new key
+- RESOURCE_EXHAUSTED 429:
+  - quota or billing issue on Google project
+- PERMISSION_DENIED 403:
+  - project does not have Gemini access for selected model
+
+### App cannot import Gemini client
+- Ensure dependencies are installed from [python-scheduler-api/requirements.txt](python-scheduler-api/requirements.txt)
+- Run server with the intended venv interpreter
+
+### Port already in use
+```bash
 netstat -ano | findstr :5000
-
-# Kill process (Windows - replace PID)
 taskkill /PID <PID> /F
-
-# Or change port in app.py
-app.run(debug=True, port=5001)
 ```
 
-### Issue: "Database is locked"
-- Close all other connections
-- Restart Flask server
-- Check no other Python processes are using the DB
+## Tech Stack
 
-### Issue: "CORS error in browser"
-- Ensure Flask-CORS is installed
-- Check CORS configuration in app.py
-- Verify backend and frontend origins match
+- Backend: Flask, SQLAlchemy, Flask-Login, APScheduler
+- Frontend: React (CDN) + Tailwind CSS
+- Database: PostgreSQL (Supabase) or local fallback
+- Analytics: pandas, scikit-learn, statsmodels
+- AI: Google GenAI SDK
 
-### Issue: "Files not uploading"
-- Check `static/uploads/` folder exists
-- Verify file is PDF format
-- Check file size < 10MB
-- Ensure folder has write permissions
+## Deployment Checklist
 
-### Issue: "Can't find static files"
-- Restart Flask server
-- Clear browser cache (Ctrl+Shift+Delete)
-- Check files are in `static/` folder
-
-## 📊 Reservation Statuses
-
-- **pending**: Awaiting admin review of concept
-- **concept-approved**: Concept approved, waiting for final form
-- **approved**: Fully approved, event confirmed
-- **denied**: Rejected (can see denial reason)
-
-## 🔐 Security Features
-
-- Passwords hashed using Werkzeug
-- Flask-Login session management
-- CSRF protection via SECRET_KEY
-- File type validation (PDF only)
-- File size limit (10MB)
-- Database relationships for data integrity
-
-## 📝 Configuration
-
-Edit these in `app.py`:
-```python
-app.config['SECRET_KEY'] = 'your-secret-key'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///school.db'
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB
-```
-
-Edit CORS origins:
-```python
-CORS(app, supports_credentials=True, 
-     origins=['http://localhost:3000', 'http://localhost:5000'])
-```
-
-## 🎨 Customization
-
-### Add New Fields to Reservations
-Edit `models.py`:
-```python
-new_field = db.Column(db.String(100), nullable=True)
-```
-
-### Change Rooms
-Edit the setup route in `app.py` to modify test data:
-```python
-rooms_list = [
-    # Add your rooms here
-]
-```
-
-### Modify Workflow
-Change status values in reservation creation/approval logic in `app.py`
-
-## 📞 Support
-
-Check these when debugging:
-1. **Frontend errors**: Browser console (F12)
-2. **Backend errors**: Terminal output
-3. **Database**: View with SQLite browser
-   - Windows: Download DB Browser for SQLite
-   - Linux: `sqlite3 instance/school.db`
-   - Mac: `sqlite3 instance/school.db`
-
-## 🎓 Learning Resources
-
-The code demonstrates:
-- Flask REST API design
-- SQLAlchemy ORM patterns
-- React hooks and state management
-- Form handling and file uploads
-- Authentication workflows
-- Database migrations with Flask-Login
-
-## 📦 Deployment
-
-To deploy to production:
-
-1. Set `debug=False` in app.py
-2. Use production WSGI server (Gunicorn)
-3. Set strong `SECRET_KEY`
-4. Use PostgreSQL instead of SQLite
-5. Set `SQLALCHEMY_DATABASE_URI` to production DB
-6. Configure proper CORS origins
-7. Enable HTTPS
-8. Store uploads in cloud storage (S3, etc.)
-
-## ✉️ Contact
-
-For issues or improvements, check:
-1. Browser console for frontend errors
-2. Terminal for backend errors  
-3. Database browser for data verification
+- Set debug False
+- Use production WSGI server
+- Set strong SECRET_KEY
+- Configure production DATABASE_URL
+- Restrict CORS origins
+- Configure HTTPS
+- Rotate and protect API keys
