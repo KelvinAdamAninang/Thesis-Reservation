@@ -369,6 +369,8 @@ function confirmDeleteAction(targetLabel) {
 
 // ==================== MAIN APP ====================
 function App() {
+  const VIEW_STORAGE_KEY = 'vacansee.currentView';
+
   const [currentUser, setCurrentUser] = useState(null);
   const [currentView, setCurrentView] = useState('dashboard');
   const [reservations, setReservations] = useState([]);
@@ -389,6 +391,14 @@ function App() {
   const isAdmin = currentUser?.role === 'admin';
   const isPhase1Admin = currentUser?.role === 'admin_phase1';
   const isAdminOrPhase1 = isAdmin || isPhase1Admin;
+
+  const getAllowedViewsForRole = (role) => {
+    const baseViews = ['dashboard', 'calendar', 'facilities', 'archive'];
+    if (role === 'admin' || role === 'admin_phase1') {
+      return [...baseViews, 'reservations', 'analytics', 'settings'];
+    }
+    return baseViews;
+  };
 
   const getNotificationKey = (notification) => {
     if (isAdminOrPhase1) {
@@ -487,20 +497,74 @@ function App() {
   // Load data when user is set
   useEffect(() => {
     if (currentUser) {
+      let cancelled = false;
+
       (async () => {
-        try {
-          const data = await apiService.getRooms();
-          setRooms(data);
-          const res = await apiService.getReservations();
-          setReservations(res);
-          const events = await apiService.getCalendarEvents();
-          setCalendarEvents(events);
-        } catch (err) {
-          setError(err.message);
+        const results = await Promise.allSettled([
+          apiService.getRooms(),
+          apiService.getReservations(),
+          apiService.getCalendarEvents(),
+        ]);
+
+        if (cancelled) return;
+
+        const [roomsResult, reservationsResult, calendarResult] = results;
+
+        if (roomsResult.status === 'fulfilled') {
+          setRooms(roomsResult.value);
+        }
+        if (reservationsResult.status === 'fulfilled') {
+          setReservations(reservationsResult.value);
+        }
+        if (calendarResult.status === 'fulfilled') {
+          setCalendarEvents(calendarResult.value);
+        }
+
+        const failed = [roomsResult, reservationsResult, calendarResult]
+          .filter((r) => r.status === 'rejected')
+          .map((r) => r.reason?.message || 'Request failed');
+
+        if (failed.length > 0) {
+          setError(failed.join(' | '));
         }
       })();
+
+      return () => {
+        cancelled = true;
+      };
     }
   }, [currentUser]);
+
+  // Restore last selected tab after session/user is known.
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const allowedViews = getAllowedViewsForRole(currentUser.role);
+    const raw = localStorage.getItem(VIEW_STORAGE_KEY);
+    if (!raw) {
+      setCurrentView('dashboard');
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      const savedView = parsed?.view;
+      const savedUserId = parsed?.userId;
+      if (savedUserId === currentUser.id && allowedViews.includes(savedView)) {
+        setCurrentView(savedView);
+      } else {
+        setCurrentView('dashboard');
+      }
+    } catch {
+      setCurrentView('dashboard');
+    }
+  }, [currentUser]);
+
+  // Persist selected tab for the current user.
+  useEffect(() => {
+    if (!currentUser) return;
+    localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ userId: currentUser.id, view: currentView }));
+  }, [currentUser, currentView]);
 
   const handleLogin = async (username, password) => {
     setLoading(true);
@@ -513,7 +577,6 @@ function App() {
           role: res.role,
           department: res.department
         });
-        setCurrentView('dashboard'); // Stay on main page
         setError('');
       } else {
         setError(res.message || 'Login failed');
@@ -532,6 +595,28 @@ function App() {
     } catch (err) {
       setError('Logout failed');
     }
+  };
+
+  const refreshReservationsOnly = async () => {
+    const updatedReservations = await apiService.getReservations();
+    setReservations(updatedReservations);
+    return updatedReservations;
+  };
+
+  const refreshCalendarOnly = async () => {
+    const updatedEvents = await apiService.getCalendarEvents();
+    setCalendarEvents(updatedEvents);
+    return updatedEvents;
+  };
+
+  const refreshReservationsAndCalendar = async () => {
+    const [updatedReservations, updatedEvents] = await Promise.all([
+      apiService.getReservations(),
+      apiService.getCalendarEvents(),
+    ]);
+    setReservations(updatedReservations);
+    setCalendarEvents(updatedEvents);
+    return { updatedReservations, updatedEvents };
   };
 
   // Show loading while checking session
@@ -633,7 +718,7 @@ function App() {
       )
     ),
     // Modals
-    activeModal === 'reservation' && React.createElement(ReservationModal, { initialData: selectedRes || {}, rooms, calendarEvents, onClose: () => setActiveModal(null), onSubmit: async (fd) => { setLoading(true); try { await apiService.createReservation(fd); setNotification('Created!'); setActiveModal('notification'); const res = await apiService.getReservations(); setReservations(res); } catch (err) { setError(err.message); } finally { setLoading(false); } }, loading }),
+    activeModal === 'reservation' && React.createElement(ReservationModal, { initialData: selectedRes || {}, rooms, calendarEvents, onClose: () => setActiveModal(null), onSubmit: async (fd) => { setLoading(true); try { await apiService.createReservation(fd); setNotification('Created!'); setActiveModal('notification'); await refreshReservationsOnly(); } catch (err) { setError(err.message); } finally { setLoading(false); } }, loading }),
     activeModal === 'details' && React.createElement(DetailsModal, { 
       res: selectedRes, 
       user: currentUser, 
@@ -643,9 +728,8 @@ function App() {
         setLoading(true); 
         try { 
           await apiService.approveConceptStage1(selectedRes.id); 
-          const res = await apiService.getReservations(); 
-          setReservations(res); 
-          setSelectedRes(res.find(r => r.id === selectedRes.id) || selectedRes);
+          const updatedReservations = await refreshReservationsOnly(); 
+          setSelectedRes(updatedReservations.find(r => r.id === selectedRes.id) || selectedRes);
           setNotification('Concept Approved! User can now submit final form.'); 
           setActiveModal('notification'); 
         } catch (err) { setError(err.message); } 
@@ -655,10 +739,7 @@ function App() {
         setLoading(true); 
         try { 
           await apiService.approveFinal(id); 
-          const res = await apiService.getReservations(); 
-          setReservations(res);
-          const events = await apiService.getCalendarEvents();
-          setCalendarEvents(events); 
+          await refreshReservationsAndCalendar();
           setNotification('Reservation fully approved! Now visible on calendar.'); 
           setActiveModal('notification'); 
         } catch (err) { setError(err.message); } 
@@ -668,9 +749,8 @@ function App() {
         setLoading(true); 
         try { 
           await apiService.uploadFinalForm(id, finalFormUrl); 
-          const res = await apiService.getReservations(); 
-          setReservations(res); 
-          setSelectedRes(res.find(r => r.id === id) || selectedRes);
+          const updatedReservations = await refreshReservationsOnly(); 
+          setSelectedRes(updatedReservations.find(r => r.id === id) || selectedRes);
           setNotification('Final form submitted! Awaiting admin approval.'); 
           setActiveModal('notification'); 
         } catch (err) { setError(err.message); } 
@@ -680,10 +760,7 @@ function App() {
         setLoading(true);
         try {
           await apiService.archiveReservation(id);
-          const res = await apiService.getReservations();
-          setReservations(res);
-          const events = await apiService.getCalendarEvents();
-          setCalendarEvents(events);
+          await refreshReservationsAndCalendar();
           setNotification('Reservation archived successfully.');
           setActiveModal('notification');
         } catch (err) { setError(err.message); }
@@ -692,7 +769,7 @@ function App() {
       onDenyClick: () => setActiveModal('deny'), 
       loading 
     }),
-    activeModal === 'deny' && React.createElement(DenyModal, { res: selectedRes, onClose: () => setActiveModal('details'), onConfirm: async (reason) => { setLoading(true); try { await apiService.denyReservation(selectedRes.id, reason); const res = await apiService.getReservations(); setReservations(res); setNotification('Denied'); setActiveModal('notification'); } catch (err) { setError(err.message); } finally { setLoading(false); } }, loading }),
+    activeModal === 'deny' && React.createElement(DenyModal, { res: selectedRes, onClose: () => setActiveModal('details'), onConfirm: async (reason) => { setLoading(true); try { await apiService.denyReservation(selectedRes.id, reason); await refreshReservationsOnly(); setNotification('Denied'); setActiveModal('notification'); } catch (err) { setError(err.message); } finally { setLoading(false); } }, loading }),
     activeModal === 'profile' && React.createElement(ProfileModal, { user: currentUser, onClose: () => setActiveModal(null), onLogout: handleLogout }),
     activeModal === 'notifications' && React.createElement(NotificationsListModal, {
       notifications: getUnreadNotifications(),
@@ -724,10 +801,7 @@ function App() {
         setLoading(true);
         try {
           await apiService.deleteEventWithReason(selectedRes.id, reason, eventActionType);
-          const events = await apiService.getCalendarEvents();
-          setCalendarEvents(events);
-          const res = await apiService.getReservations();
-          setReservations(res);
+          await refreshReservationsAndCalendar();
           setNotification(eventActionType === 'cancel' ? 'Event cancelled and user notified' : 'Event deleted permanently');
           setActiveModal('notification');
         } catch (err) { setError(err.message); }
@@ -741,8 +815,7 @@ function App() {
         setLoading(true);
         try {
           await apiService.createHoliday(payload);
-          const events = await apiService.getCalendarEvents();
-          setCalendarEvents(events);
+          await refreshCalendarOnly();
           setNotification('Holiday added to calendar. Reservations are now blocked for that date.');
           setActiveModal('notification');
         } catch (err) { setError(err.message); }
@@ -2358,6 +2431,9 @@ function HeatmapChart({ data }) {
         React.createElement('span', {}, 'Lower activity'),
         React.createElement('div', { className: 'w-28 h-3 rounded-full bg-gradient-to-r from-slate-100 to-sky-500' }),
         React.createElement('span', {}, 'Higher activity')
+      ),
+      React.createElement('p', { className: 'text-[11px] text-slate-500 mt-2 text-right' },
+        'Heatmap counts include approved and concept-approved reservations only.'
       )
     )
   );
@@ -2618,6 +2694,15 @@ function AnalyticsView({ reservations }) {
   };
 
   const forecastSeries = forecastPayload?.data?.series || [];
+  const actualSeriesData = forecastSeries.map((entry) => entry.actual == null ? null : entry.actual);
+  const predictedSeriesData = forecastSeries.map((entry) => entry.predicted == null ? null : entry.predicted);
+
+  // Bridge forecast to the last actual point so the two lines read as one continuous trend.
+  const firstPredictedIndex = predictedSeriesData.findIndex((value) => value != null);
+  if (firstPredictedIndex > 0 && actualSeriesData[firstPredictedIndex - 1] != null) {
+    predictedSeriesData[firstPredictedIndex - 1] = actualSeriesData[firstPredictedIndex - 1];
+  }
+
   const forecastChartData = {
     labels: forecastSeries.map((entry) => {
       const d = new Date(`${entry.month}-01T00:00:00`);
@@ -2626,7 +2711,7 @@ function AnalyticsView({ reservations }) {
     datasets: [
       {
         label: 'Actual (Approved)',
-        data: forecastSeries.map((entry) => entry.actual == null ? null : entry.actual),
+        data: actualSeriesData,
         borderColor: '#0284c7',
         backgroundColor: 'rgba(2,132,199,0.15)',
         tension: 0.35,
@@ -2635,10 +2720,9 @@ function AnalyticsView({ reservations }) {
       },
       {
         label: 'Forecast',
-        data: forecastSeries.map((entry) => entry.predicted == null ? null : entry.predicted),
+        data: predictedSeriesData,
         borderColor: '#f97316',
         backgroundColor: 'rgba(249,115,22,0.15)',
-        borderDash: [6, 4],
         tension: 0.35,
         spanGaps: true,
         pointRadius: 3,
@@ -2715,6 +2799,39 @@ function AnalyticsView({ reservations }) {
         value: `${kpis.average_lead_time_days || 0} days`,
         detail: `${kpis.lead_time_samples || 0} reservations analyzed`
       })
+    ),
+
+    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+      React.createElement('div', { className: 'flex items-center justify-between mb-4 gap-3' },
+        React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Current Semester Forecast'),
+        React.createElement('div', { className: 'flex items-center gap-2' },
+          React.createElement('button', {
+            className: 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed',
+            disabled: retrainingForecast || loadingForecast,
+            onClick: handleRetrainForecast,
+          }, retrainingForecast ? 'Retraining...' : 'Retrain Forecast'),
+          forecastPayload?.next_retrain_at && React.createElement('span', { className: 'text-xs text-slate-500' },
+            `Next retrain: ${new Date(forecastPayload.next_retrain_at).toLocaleString()}`
+          )
+        )
+      ),
+      forecastError && React.createElement('div', { className: 'mb-3 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-sm' },
+        `Forecast unavailable: ${forecastError}`
+      ),
+      loadingForecast
+        ? React.createElement('div', { className: 'h-[300px] flex items-center justify-center text-slate-500' }, 'Loading forecast...')
+        : forecastSeries.length === 0
+          ? React.createElement('div', { className: 'h-[300px] flex items-center justify-center text-slate-500' }, 'No forecast data available.')
+          : React.createElement(ChartCanvas, {
+              type: 'line',
+              data: forecastChartData,
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } },
+                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+              }
+            })
     ),
 
     React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
@@ -2809,39 +2926,6 @@ function AnalyticsView({ reservations }) {
           }
         })
       )
-    ),
-
-    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-      React.createElement('div', { className: 'flex items-center justify-between mb-4 gap-3' },
-        React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Current Semester Forecast'),
-        React.createElement('div', { className: 'flex items-center gap-2' },
-          React.createElement('button', {
-            className: 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed',
-            disabled: retrainingForecast || loadingForecast,
-            onClick: handleRetrainForecast,
-          }, retrainingForecast ? 'Retraining...' : 'Retrain Forecast'),
-          forecastPayload?.next_retrain_at && React.createElement('span', { className: 'text-xs text-slate-500' },
-            `Next retrain: ${new Date(forecastPayload.next_retrain_at).toLocaleString()}`
-          )
-        )
-      ),
-      forecastError && React.createElement('div', { className: 'mb-3 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-sm' },
-        `Forecast unavailable: ${forecastError}`
-      ),
-      loadingForecast
-        ? React.createElement('div', { className: 'h-[300px] flex items-center justify-center text-slate-500' }, 'Loading forecast...')
-        : forecastSeries.length === 0
-          ? React.createElement('div', { className: 'h-[300px] flex items-center justify-center text-slate-500' }, 'No forecast data available.')
-          : React.createElement(ChartCanvas, {
-              type: 'line',
-              data: forecastChartData,
-              options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom' } },
-                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-              }
-            })
     ),
 
     React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },

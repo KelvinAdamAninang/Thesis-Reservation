@@ -69,6 +69,12 @@ def _iter_hour_slots(start_time, end_time):
     if not start_time or not end_time or end_time <= start_time:
         return
 
+    # Guard against anomalous records (e.g., accidentally very long spans) that
+    # can dominate the heatmap and hide real booking patterns.
+    max_hours = 24
+    if (end_time - start_time) > timedelta(hours=max_hours):
+        end_time = start_time + timedelta(hours=max_hours)
+
     current = start_time.replace(minute=0, second=0, microsecond=0)
     while current < end_time:
         if 6 <= current.hour <= 22:
@@ -150,6 +156,11 @@ def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
 
         # Expand each reservation into occupied hour slots for heatmap density.
         if reservation.start_time and reservation.end_time:
+            heatmap_eligible_statuses = {'approved', 'concept-approved'}
+            status_value = str(reservation.status or '').strip().lower()
+            if status_value not in heatmap_eligible_statuses:
+                continue
+
             include_in_heatmap = (
                 selected_heatmap_month == 'all' or
                 reservation.start_time.strftime('%Y-%m') == selected_heatmap_month

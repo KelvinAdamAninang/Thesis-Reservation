@@ -10,6 +10,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import inspect
 from sqlalchemy import or_
+from sqlalchemy.orm import joinedload
 from dotenv import load_dotenv
 from models import db, User, Room, Reservation, Holiday 
 from data_mining.analytics import build_analytics_snapshot
@@ -609,7 +610,7 @@ def get_calendar_events():
     # - concept-approved events (pending final review, shown as plotting)
     # - approved events (normal / ongoing / plotting)
     # - cancelled events (legacy deleted also treated as cancelled)
-    reservations = Reservation.query.filter(
+    reservations = Reservation.query.options(joinedload(Reservation.requester)).filter(
         or_(
             Reservation.status == 'concept-approved',
             Reservation.status == 'approved',
@@ -618,10 +619,16 @@ def get_calendar_events():
         )
     ).all()
 
+    room_ids = {r.room_id for r in reservations if r.room_id is not None}
+    rooms_by_id = {
+        room.id: room.name
+        for room in Room.query.filter(Room.id.in_(room_ids)).all()
+    } if room_ids else {}
+
     events_list = [{
         'id': r.id,
         'room_id': r.room_id,
-        'room_name': db.session.get(Room, r.room_id).name if db.session.get(Room, r.room_id) else 'Unknown',
+        'room_name': rooms_by_id.get(r.room_id, 'Unknown'),
         'activity_purpose': r.activity_purpose,
         'person_in_charge': r.person_in_charge or 'N/A',
         'start_time': r.start_time.isoformat() if r.start_time else None,
@@ -643,10 +650,17 @@ def get_calendar_events():
 @app.route('/api/reservations', methods=['GET'])
 @login_required
 def get_reservations():
+    query = Reservation.query.options(joinedload(Reservation.requester))
     if current_user.role in ['admin', 'admin_phase1']:
-        reservations = Reservation.query.all()
+        reservations = query.all()
     else:
-        reservations = Reservation.query.filter_by(user_id=current_user.id).all()
+        reservations = query.filter_by(user_id=current_user.id).all()
+
+    room_ids = {r.room_id for r in reservations if r.room_id is not None}
+    rooms_by_id = {
+        room.id: room.name
+        for room in Room.query.filter(Room.id.in_(room_ids)).all()
+    } if room_ids else {}
     
     reservations_list = [{
         'id': r.id,
@@ -654,7 +668,7 @@ def get_reservations():
         'user': _display_username(r.requester),
         'department': r.requester.department if r.requester else 'Unknown',
         'room_id': r.room_id,
-        'room_name': db.session.get(Room, r.room_id).name if db.session.get(Room, r.room_id) else 'Unknown',
+        'room_name': rooms_by_id.get(r.room_id, 'Unknown'),
         'activity_purpose': r.activity_purpose,
         'division': r.division,
         'attendees': r.attendees,
@@ -679,12 +693,14 @@ def get_reservations():
 @app.route('/api/reservations/<int:id>', methods=['GET'])
 @login_required
 def get_reservation(id):
-    reservation = db.session.get(Reservation, id)
+    reservation = Reservation.query.options(joinedload(Reservation.requester)).filter_by(id=id).first()
     if not reservation:
         return jsonify({'error': 'Reservation not found'}), 404
     
     if current_user.role != 'admin' and reservation.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized'}), 403
+
+    room = db.session.get(Room, reservation.room_id) if reservation.room_id else None
     
     return jsonify({
         'id': reservation.id,
@@ -692,7 +708,7 @@ def get_reservation(id):
         'user': _display_username(reservation.requester),
         'department': reservation.requester.department if reservation.requester else 'Unknown',
         'room_id': reservation.room_id,
-        'room_name': db.session.get(Room, reservation.room_id).name if db.session.get(Room, reservation.room_id) else 'Unknown',
+        'room_name': room.name if room else 'Unknown',
         'activity_purpose': reservation.activity_purpose,
         'division': reservation.division,
         'attendees': reservation.attendees,
@@ -909,16 +925,17 @@ def delete_reservation(id):
 @login_required
 def get_archive():
     from sqlalchemy import or_
+    query = Reservation.query.options(joinedload(Reservation.requester))
     if current_user.role in ['admin', 'admin_phase1']:
         # Include denied, cancelled (including legacy deleted), or any reservation with archived_at set
-        archived = Reservation.query.filter(
+        archived = query.filter(
             or_(
                 Reservation.status.in_(['denied', 'cancelled', 'deleted']),
                 Reservation.archived_at != None
             )
         ).all()
     else:
-        archived = Reservation.query.filter_by(user_id=current_user.id).filter(
+        archived = query.filter_by(user_id=current_user.id).filter(
             or_(
                 Reservation.status.in_(['denied', 'cancelled', 'deleted']),
                 Reservation.archived_at != None
