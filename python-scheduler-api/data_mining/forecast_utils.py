@@ -1,17 +1,21 @@
 import os
 import pickle
 from datetime import datetime
+import calendar
 
 import pandas as pd
 
 from data_mining.train_holt_winters_model import build_monthly_reservation_series
+from data_mining.train_sarimax_model import build_features
 
 
 # Data context: Using cleaned monthly data from Jan 2024 - Mar 2026 (27 months)
 # Train/Test split: 23 months training, 4 months testing
-# Best model: Holt-Winters (Simple Exponential Smoothing)
+# Primary model: SARIMAX with Semester Features
+# Fallback model: Holt-Winters (Simple Exponential Smoothing)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ARTIFACT_PATH = os.path.join(BASE_DIR, 'model_artifacts', 'holt_winters_model.pkl')
+SARIMAX_ARTIFACT_PATH = os.path.join(BASE_DIR, 'model_artifacts', 'sarimax_model.pkl')
+HOLT_WINTERS_ARTIFACT_PATH = os.path.join(BASE_DIR, 'model_artifacts', 'holt_winters_model.pkl')
 
 SEMESTER_DEFINITIONS = {
     'first_semester': (8, 12),   # Aug-Dec
@@ -57,22 +61,30 @@ def _next_period_dates(period_key, now=None, reference_month_start=None):
         year += 1
 
 
-def load_model_bundle(artifact_path=ARTIFACT_PATH):
-    if not os.path.exists(artifact_path):
-        raise FileNotFoundError(
-            'Model artifact not found. Run retraining first to create the model file.'
-        )
+def load_model_bundle(artifact_path=SARIMAX_ARTIFACT_PATH):
+    """Load SARIMAX model bundle (tries SARIMAX first, falls back to Holt-Winters)."""
+    paths_to_try = [artifact_path, HOLT_WINTERS_ARTIFACT_PATH]
+    
+    for path in paths_to_try:
+        if not os.path.exists(path):
+            continue
+            
+        try:
+            with open(path, 'rb') as f:
+                bundle = pickle.load(f)
+            if 'model' not in bundle or 'metadata' not in bundle:
+                continue
+            return bundle
+        except Exception:
+            continue
+    
+    raise FileNotFoundError(
+        'No model artifact found. Run retraining first to create a model file.'
+    )
 
-    with open(artifact_path, 'rb') as f:
-        bundle = pickle.load(f)
 
-    if 'model' not in bundle or 'metadata' not in bundle:
-        raise ValueError('Invalid model artifact format.')
-
-    return bundle
-
-
-def _forecast_to_target_months(model_fit, last_observed_month_str, target_months):
+def _forecast_to_target_months(model_fit, last_observed_month_str, target_months, metadata=None):
+    """Forecast to specific months, handling exogenous features if present."""
     last_observed = pd.Timestamp(last_observed_month_str + '-01')
     target_months = pd.DatetimeIndex(target_months)
 
@@ -84,7 +96,13 @@ def _forecast_to_target_months(model_fit, last_observed_month_str, target_months
     if months_ahead <= 0:
         raise ValueError('Target months are not in the future relative to training data.')
 
-    forecast_values = model_fit.forecast(months_ahead)
+    # Check if model uses exogenous features (SARIMAX)
+    if metadata and metadata.get('model_type') == 'SARIMAX with Semester Features':
+        exog = build_features(target_months)
+        forecast_values = model_fit.forecast(months_ahead, exog=exog)
+    else:
+        forecast_values = model_fit.forecast(months_ahead)
+
     forecast_index = pd.date_range(
         start=last_observed + pd.offsets.MonthBegin(1),
         periods=months_ahead,
@@ -94,7 +112,7 @@ def _forecast_to_target_months(model_fit, last_observed_month_str, target_months
     return forecast_series.reindex(target_months)
 
 
-def forecast_for_period(period_key, now=None, artifact_path=ARTIFACT_PATH):
+def forecast_for_period(period_key, now=None, artifact_path=SARIMAX_ARTIFACT_PATH):
     bundle = load_model_bundle(artifact_path=artifact_path)
     model_fit = bundle['model']
     metadata = bundle['metadata']
@@ -109,6 +127,7 @@ def forecast_for_period(period_key, now=None, artifact_path=ARTIFACT_PATH):
         model_fit,
         metadata['last_observation_month'],
         target_months,
+        metadata=metadata,
     )
 
     return {
@@ -119,7 +138,7 @@ def forecast_for_period(period_key, now=None, artifact_path=ARTIFACT_PATH):
     }
 
 
-def forecast_all_academic_periods(now=None, artifact_path=ARTIFACT_PATH):
+def forecast_all_academic_periods(now=None, artifact_path=SARIMAX_ARTIFACT_PATH):
     return {
         key: forecast_for_period(key, now=now, artifact_path=artifact_path)
         for key in SEMESTER_DEFINITIONS.keys()
@@ -142,7 +161,7 @@ def _semester_months_for_year(period_key, year):
     return pd.date_range(start=start_date, end=end_date, freq='MS')
 
 
-def forecast_current_semester(now=None, artifact_path=ARTIFACT_PATH):
+def forecast_current_semester(now=None, artifact_path=SARIMAX_ARTIFACT_PATH):
     bundle = load_model_bundle(artifact_path=artifact_path)
     model_fit = bundle['model']
     metadata = bundle['metadata']
@@ -163,6 +182,7 @@ def forecast_current_semester(now=None, artifact_path=ARTIFACT_PATH):
             model_fit,
             metadata['last_observation_month'],
             predicted_months,
+            metadata=metadata,
         )
     else:
         predicted_series = pd.Series(dtype='float64')

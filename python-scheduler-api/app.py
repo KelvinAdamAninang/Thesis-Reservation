@@ -6,14 +6,15 @@ from urllib.parse import urlparse
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_cors import CORS
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from sqlalchemy import inspect
+from sqlalchemy import or_
 from dotenv import load_dotenv
 from models import db, User, Room, Reservation 
 from data_mining.analytics import build_analytics_snapshot
 from data_mining.forecast_utils import forecast_all_academic_periods, forecast_for_period, forecast_current_semester
-from data_mining.train_holt_winters_model import retrain_all_historical_data
-from scheduler import start_training_scheduler, get_next_retrain_at_iso
+from data_mining.train_sarimax_model import retrain_all_historical_data, build_monthly_reservation_series
+from scheduler import start_training_scheduler, get_next_retrain_at_iso, _can_retrain
 
 app = Flask(__name__)
 
@@ -33,8 +34,17 @@ load_dotenv()
 db_url = os.getenv("DATABASE_URL")
 
 # Fix the SQLAlchemy URI quirk (changes postgres:// to postgresql://)
-if db_url and db_url.startswith("postgresql://"):
+if db_url and db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+if db_url:
+    parsed = urlparse(db_url)
+    host = (parsed.hostname or "").lower()
+    # Common typo guard: "ssupabase.co" breaks DNS resolution.
+    if "ssupabase.co" in host:
+        raise RuntimeError(
+            "Invalid DATABASE_URL host detected. Did you mean '.supabase.co' instead of '.ssupabase.co'?"
+        )
 
 # Configure SQLAlchemy to use Supabase
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
@@ -65,6 +75,96 @@ def _display_username(user):
     if user.username == 'deleted_account':
         return 'Deleted Account'
     return user.username
+
+
+def _easter_sunday(year):
+    """Compute Easter Sunday date using Anonymous Gregorian algorithm."""
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    return date(year, month, day)
+
+
+def _last_weekday_of_month(year, month, weekday):
+    """Return last weekday in month where weekday: Monday=0 .. Sunday=6."""
+    if month == 12:
+        d = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        d = date(year, month + 1, 1) - timedelta(days=1)
+
+    while d.weekday() != weekday:
+        d -= timedelta(days=1)
+    return d
+
+
+def _philippine_holidays_for_year(year):
+    """Baseline PH holidays used for class suspension and calendar marking."""
+    easter = _easter_sunday(year)
+    maundy_thursday = easter - timedelta(days=3)
+    good_friday = easter - timedelta(days=2)
+
+    holidays = {
+        date(year, 1, 1): "New Year's Day",
+        date(year, 4, 9): "Araw ng Kagitingan",
+        maundy_thursday: "Maundy Thursday",
+        good_friday: "Good Friday",
+        date(year, 5, 1): "Labor Day",
+        date(year, 6, 12): "Independence Day",
+        _last_weekday_of_month(year, 8, 0): "National Heroes Day",
+        date(year, 11, 30): "Bonifacio Day",
+        date(year, 12, 8): "Feast of the Immaculate Conception",
+        date(year, 12, 25): "Christmas Day",
+        date(year, 12, 30): "Rizal Day",
+        date(year, 12, 31): "Last Day of the Year",
+        date(year, 11, 1): "All Saints' Day",
+        date(year, 11, 2): "All Souls' Day",
+    }
+    return holidays
+
+
+def _is_philippine_holiday(day_value):
+    holidays = _philippine_holidays_for_year(day_value.year)
+    holiday_name = holidays.get(day_value)
+    return (holiday_name is not None, holiday_name)
+
+
+def _build_holiday_events(years, from_date=None):
+    if from_date is None:
+        from_date = date.today()
+
+    events = []
+    for y in sorted(set(years)):
+        for holiday_date, holiday_name in sorted(_philippine_holidays_for_year(y).items()):
+            if holiday_date < from_date:
+                continue
+
+            start_dt = datetime.combine(holiday_date, datetime.min.time())
+            end_dt = datetime.combine(holiday_date, datetime.max.time().replace(microsecond=0))
+            events.append({
+                'id': f'holiday-{holiday_date.isoformat()}',
+                'room_id': None,
+                'room_name': 'University-wide',
+                'activity_purpose': f'{holiday_name} (No Classes)',
+                'person_in_charge': 'N/A',
+                'start_time': start_dt.isoformat(),
+                'end_time': end_dt.isoformat(),
+                'department': 'Academic Calendar',
+                'event_type': 'holiday',
+                'is_holiday': True,
+                'holiday_name': holiday_name,
+            })
+    return events
 
 # Create tables
 with app.app_context():
@@ -312,8 +412,17 @@ def get_rooms():
 @app.route('/api/calendar-events', methods=['GET'])
 @login_required
 def get_calendar_events():
-    # Return all approved reservations for the calendar (including archived approved events)
-    reservations = Reservation.query.filter_by(status='approved').all()
+    # Return calendar-relevant reservations:
+    # - approved events (normal / ongoing / plotting)
+    # - cancelled events (legacy deleted also treated as cancelled)
+    reservations = Reservation.query.filter(
+        or_(
+            Reservation.status == 'approved',
+            Reservation.status == 'cancelled',
+            Reservation.status == 'deleted'
+        )
+    ).all()
+
     events_list = [{
         'id': r.id,
         'room_id': r.room_id,
@@ -322,8 +431,18 @@ def get_calendar_events():
         'person_in_charge': r.person_in_charge or 'N/A',
         'start_time': r.start_time.isoformat() if r.start_time else None,
         'end_time': r.end_time.isoformat() if r.end_time else None,
-        'department': r.requester.department if r.requester else 'Unknown'
+        'department': r.requester.department if r.requester else 'Unknown',
+        'status': 'cancelled' if r.status == 'deleted' else r.status,
+        'event_type': 'reservation',
+        'is_holiday': False,
     } for r in reservations]
+
+    # Include only upcoming PH holidays (today onward) as class-suspension markers.
+    current_year = datetime.now().year
+    holiday_events = _build_holiday_events([current_year - 1, current_year, current_year + 1], from_date=date.today())
+    events_list.extend(holiday_events)
+
+    events_list.sort(key=lambda e: (e.get('start_time') or '', str(e.get('activity_purpose') or '').lower()))
     return jsonify(events_list)
 
 # Get all reservations (Admin and admin_phase1 see all, users see their own)
@@ -405,6 +524,16 @@ def create_reservation():
     data = request.get_json()
     
     try:
+        start_time = datetime.fromisoformat(data['start_time'])
+        end_time = datetime.fromisoformat(data['end_time'])
+
+        is_holiday, holiday_name = _is_philippine_holiday(start_time.date())
+        if is_holiday:
+            return jsonify({
+                'status': 'error',
+                'message': f"Reservations are suspended on Philippine holidays ({holiday_name})."
+            }), 400
+
         reservation = Reservation(
             user_id=current_user.id,
             room_id=data['room_id'],
@@ -414,8 +543,8 @@ def create_reservation():
             classification=data.get('classification', ''),
             person_in_charge=data['person_in_charge'],
             contact_number=data['contact_number'],
-            start_time=datetime.fromisoformat(data['start_time']),
-            end_time=datetime.fromisoformat(data['end_time']),
+            start_time=start_time,
+            end_time=end_time,
             concept_paper_url=data.get('concept_paper_url', ''),
             status='pending',
             date_filed=datetime.now()
@@ -476,6 +605,12 @@ def approve_final(id):
     reservation = db.session.get(Reservation, id)
     if not reservation:
         return jsonify({'error': 'Reservation not found'}), 404
+
+    is_holiday, holiday_name = _is_philippine_holiday(reservation.start_time.date())
+    if is_holiday:
+        return jsonify({
+            'error': f"Cannot approve final reservation on holiday: {holiday_name}."
+        }), 400
     
     reservation.status = 'approved'
     db.session.commit()
@@ -501,7 +636,7 @@ def deny_reservation(id):
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'Reservation denied'})
 
-# Delete event from calendar (Admin only) - with notification to user
+# Cancel event from calendar (Admin only) - with notification to user
 @app.route('/api/reservations/<int:id>/delete-event', methods=['POST'])
 @login_required
 def delete_event(id):
@@ -515,13 +650,13 @@ def delete_event(id):
     data = request.get_json()
     reason = data.get('reason', 'No reason provided')
     
-    # Mark as deleted (not denied) so users get notified
-    reservation.status = 'deleted'
+    # Mark as cancelled (not denied) so users can still see it in calendar history.
+    reservation.status = 'cancelled'
     reservation.denial_reason = reason
     reservation.archived_at = datetime.now()
     
     db.session.commit()
-    return jsonify({'status': 'success', 'message': 'Event deleted and user notified'})
+    return jsonify({'status': 'success', 'message': 'Event cancelled and user notified'})
 
 # Archive approved reservation - Admin and admin_phase1 can archive
 @app.route('/api/reservations/<int:id>/archive', methods=['POST'])
@@ -561,17 +696,17 @@ def delete_reservation(id):
 def get_archive():
     from sqlalchemy import or_
     if current_user.role in ['admin', 'admin_phase1']:
-        # Include denied, deleted, or any reservation with archived_at set
+        # Include denied, cancelled (including legacy deleted), or any reservation with archived_at set
         archived = Reservation.query.filter(
             or_(
-                Reservation.status.in_(['denied', 'deleted']),
+                Reservation.status.in_(['denied', 'cancelled', 'deleted']),
                 Reservation.archived_at != None
             )
         ).all()
     else:
         archived = Reservation.query.filter_by(user_id=current_user.id).filter(
             or_(
-                Reservation.status.in_(['denied', 'deleted']),
+                Reservation.status.in_(['denied', 'cancelled', 'deleted']),
                 Reservation.archived_at != None
             )
         ).all()
@@ -690,6 +825,57 @@ def get_current_semester_forecast():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+@app.route('/api/data-mining/forecast', methods=['GET'])
+@login_required
+def get_forecast_data():
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        from data_mining.forecast_utils import load_model_bundle
+        
+        # Try to load model bundle for metadata
+        try:
+            bundle = load_model_bundle()
+            metadata = bundle.get('metadata', {})
+            model_type = metadata.get('model_type', 'SARIMAX with Semester Features')
+            last_trained = metadata.get('trained_at', None)
+            training_samples = metadata.get('n_observations', None)
+        except Exception:
+            # Model not yet trained, provide defaults
+            metadata = {}
+            model_type = 'SARIMAX with Semester Features'
+            last_trained = None
+            training_samples = None
+
+        # Get current semester forecast for chart data
+        try:
+            forecast_payload = forecast_current_semester()
+        except Exception:
+            forecast_payload = {
+                'period': 'first_semester',
+                'period_label': '1st Semester (Aug-Dec)',
+                'months': [],
+                'series': [],
+            }
+
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'model_type': model_type,
+                'last_trained': last_trained,
+                'training_samples': training_samples,
+                'model_accuracy': metadata.get('model_accuracy', None),
+                'current_forecast': forecast_payload,
+                'metadata': metadata,
+            },
+            'next_retrain_at': get_next_retrain_at_iso(),
+        })
+    except Exception as e:
+        app.logger.exception('Failed to build forecast data')
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route('/api/data-mining/forecast/retrain', methods=['POST'])
 @login_required
 def retrain_forecast_model():
@@ -697,13 +883,37 @@ def retrain_forecast_model():
         return jsonify({'error': 'Admin access required'}), 403
 
     try:
+        can_retrain, n_months = _can_retrain()
+        
+        # Check minimum training data threshold
+        if not can_retrain:
+            return jsonify({
+                'status': 'warning',
+                'message': f'Insufficient training data: only {n_months} months available (need 9 months minimum). Retraining is NOT recommended at this time.',
+                'recommendation': 'Wait until you have 9+ months of data collected.',
+                'n_months': n_months,
+                'min_required': 9,
+            }), 400
+
+        # Provide warnings about when manual retraining should be used
+        warning_message = (
+            'Manual SARIMAX retraining should only be performed if one or more of the following applies:\n'
+            '  • A new venue was added to the system\n'
+            '  • An old venue was removed from the system\n'
+            '  • There was a sudden spike in reservation data (e.g., due to mandatory reservation policy)\n\n'
+            'Otherwise, wait for the next scheduled semester retrain (typically monthly).'
+        )
+
         metadata = retrain_all_historical_data(include_statuses=['approved'])
+        
         return jsonify({
             'status': 'success',
-            'message': 'Model retrained using approved reservations only.',
+            'message': 'SARIMAX model retrained using approved reservations only.',
+            'warning': warning_message,
             'metadata': metadata,
             'next_retrain_at': get_next_retrain_at_iso(),
             'retrain_basis': 'approved_only',
+            'model_type': 'SARIMAX with Semester Features',
         })
     except Exception as e:
         app.logger.exception('Failed to retrain forecasting model')

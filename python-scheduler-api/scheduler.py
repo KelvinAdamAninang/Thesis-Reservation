@@ -5,14 +5,17 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from data_mining.train_holt_winters_model import retrain_all_historical_data
+from data_mining.train_sarimax_model import retrain_all_historical_data as retrain_sarimax
+from data_mining.train_holt_winters_model import build_monthly_reservation_series
 
 
-# Retrain at semester boundaries:
-# - Jan 1 02:00 -> second semester
-# - May 1 02:00 -> summer period
-# - Aug 1 02:00 -> first semester
-SEMESTER_RETRAIN_MONTHS = [1, 5, 8]
+# Retrain at semester boundaries (3 times per year):
+# - Jan 1 02:00 -> After 2nd Semester (Jan-May)
+# - Jun 1 02:00 -> After Summer Period (May-Aug)
+# - Sep 1 02:00 -> After 1st Semester (Aug-Dec)
+# Minimum training data: 9 months before first retrain is allowed
+SEMESTER_RETRAIN_MONTHS = [1, 6, 9]
+MIN_TRAINING_MONTHS = 9
 SCHEDULER_TIMEZONE = 'Asia/Manila'
 
 
@@ -28,6 +31,15 @@ def get_next_retrain_at_iso(now=None):
     return min(candidates).isoformat()
 
 
+def _can_retrain():
+    """Check if we have enough training data (>= 9 months) to retrain."""
+    try:
+        series = build_monthly_reservation_series(include_statuses=['approved'])
+        return len(series) >= MIN_TRAINING_MONTHS, len(series)
+    except Exception:
+        return False, 0
+
+
 def _is_reloader_process():
     # Avoid starting duplicate schedulers in Flask debug reload mode.
     return os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not os.environ.get('FLASK_DEBUG')
@@ -38,13 +50,23 @@ def create_training_scheduler(app):
 
     def retrain_job():
         with app.app_context():
-            metadata = retrain_all_historical_data(include_statuses=['approved'])
-            app.logger.info('Semester retraining completed: %s', metadata)
+            try:
+                can_retrain, n_months = _can_retrain()
+                if not can_retrain:
+                    app.logger.warning(
+                        f'Skipping scheduled SARIMAX retrain: only {n_months} months of data (need {MIN_TRAINING_MONTHS})'
+                    )
+                    return
+
+                metadata = retrain_sarimax(include_statuses=['approved'])
+                app.logger.info('Semester SARIMAX retraining completed: %s', metadata)
+            except Exception as e:
+                app.logger.error(f'Scheduled SARIMAX retraining failed: {str(e)}')
 
     scheduler.add_job(
         retrain_job,
         CronTrigger(month=','.join(str(m) for m in SEMESTER_RETRAIN_MONTHS), day=1, hour=2, minute=0),
-        id='semester_retrain_holt',
+        id='semester_retrain_sarimax',
         replace_existing=True,
         max_instances=1,
         coalesce=True,
@@ -59,5 +81,7 @@ def start_training_scheduler(app):
 
     scheduler = create_training_scheduler(app)
     scheduler.start()
-    app.logger.info('Semester training scheduler started (months=%s).', SEMESTER_RETRAIN_MONTHS)
+    app.logger.info(
+        f'Semester SARIMAX training scheduler started (retrains on months={SEMESTER_RETRAIN_MONTHS}, min data={MIN_TRAINING_MONTHS} months).'
+    )
     return scheduler

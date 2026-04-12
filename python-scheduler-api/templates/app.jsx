@@ -285,6 +285,25 @@ const apiService = {
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Failed to update password');
     return data;
+  },
+
+  async getDataMiningForecast() {
+    const response = await fetch(`${API_BASE}/data-mining/forecast`, { credentials: 'include' });
+    if (!response.ok) throw new Error('Failed to fetch forecast');
+    const payload = await response.json();
+    if (payload.status !== 'success') throw new Error(payload.message || 'Forecast fetch failed');
+    return payload;
+  },
+
+  async retrainForecastModel() {
+    const response = await fetch(`${API_BASE}/data-mining/forecast/retrain`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include'
+    });
+    const data = await response.json();
+    // Note: 400 status is expected for warning responses, don't throw
+    return { status: response.status, data };
   }
 };
 
@@ -352,12 +371,12 @@ function App() {
           return { ...r, notification_type };
         });
     }
-    // Users see their own reservations: denied, deleted, concept-approved, or fully approved
+    // Users see their own reservations: denied/cancelled, concept-approved, or fully approved
     return reservations
       .filter(r => r.user_id === currentUser.id && !r.archived_at)
       .filter(r => {
         if (r.status === 'denied' && !seenNotifications.includes(`user-${r.id}`)) return true;
-        if (r.status === 'deleted' && !seenNotifications.includes(`user-${r.id}`)) return true;
+        if ((r.status === 'cancelled' || r.status === 'deleted') && !seenNotifications.includes(`user-${r.id}`)) return true;
         if (r.status === 'concept-approved' && !seenNotifications.includes(`user-concept-${r.id}`)) return true;
         if (r.status === 'approved' && !seenNotifications.includes(`user-approved-${r.id}`)) return true;
         return false;
@@ -474,7 +493,7 @@ function App() {
     return React.createElement(LoginPage, { onLogin: handleLogin, loading, error });
   }
 
-  const archive = reservations.filter(r => r.archived_at || r.status === 'denied' || r.status === 'deleted');
+  const archive = reservations.filter(r => r.archived_at || r.status === 'denied' || r.status === 'cancelled' || r.status === 'deleted');
 
   // UI matching index-old.jsx (sidebar layout)
   return React.createElement('div', { className: 'flex h-screen bg-slate-50 overflow-hidden' },
@@ -540,6 +559,7 @@ function App() {
         }),
         currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at && r.user_id !== currentUser.id), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
         currentView === 'analytics' && isAdminOrPhase1 && React.createElement(AnalyticsView, { reservations }),
+        currentView === 'forecast' && isAdminOrPhase1 && React.createElement(ForecastView, { onNotify: (message) => { setNotification(message); setActiveModal('notification'); } }),
         currentView === 'archive' && React.createElement(ArchiveView, {
           archive,
           user: currentUser,
@@ -644,7 +664,7 @@ function App() {
           setCalendarEvents(events);
           const res = await apiService.getReservations();
           setReservations(res);
-          setNotification('Event deleted and user notified');
+          setNotification('Event cancelled and user notified');
           setActiveModal('notification');
         } catch (err) { setError(err.message); }
         finally { setLoading(false); }
@@ -695,6 +715,7 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin, mobileMenuOpen
         React.createElement('p', { className: 'text-xs font-bold text-slate-400 uppercase mb-2 px-3' }, 'Admin Panel'), 
         React.createElement(NavBtn, { id: 'reservations', label: '📋 Requests' }), 
         React.createElement(NavBtn, { id: 'analytics', label: '📈 Analytics' }),
+        React.createElement(NavBtn, { id: 'forecast', label: '🔮 Forecast' }),
         React.createElement(NavBtn, { id: 'settings', label: '⚙️ Settings' })
       ),
       React.createElement(NavBtn, { id: 'archive', label: '📦 Archive' })
@@ -748,7 +769,7 @@ function StatCard({ label, val }) {
 }
 
 function Badge({ status }) {
-  const colors = { pending: 'bg-yellow-100 text-yellow-700', 'concept-approved': 'bg-blue-100 text-blue-700', approved: 'bg-green-100 text-green-700', denied: 'bg-red-100 text-red-700', archived: 'bg-amber-100 text-amber-700', deleted: 'bg-slate-100 text-slate-700' };
+  const colors = { pending: 'bg-yellow-100 text-yellow-700', 'concept-approved': 'bg-blue-100 text-blue-700', approved: 'bg-green-100 text-green-700', denied: 'bg-red-100 text-red-700', archived: 'bg-amber-100 text-amber-700', cancelled: 'bg-yellow-100 text-yellow-700', deleted: 'bg-yellow-100 text-yellow-700' };
   return React.createElement('span', { className: `px-3 py-1 rounded-full text-xs font-bold ${colors[status] || 'bg-slate-100 text-slate-700'}` }, status);
 }
 
@@ -907,7 +928,23 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     const newDate = form.event_date;
     const newRoomId = parseInt(form.room_id);
 
+    const holidayConflict = (calendarEvents || []).find(e => {
+      const isHoliday = e.event_type === 'holiday' || e.is_holiday;
+      if (!isHoliday || !e.start_time) return false;
+      const eventDate = e.start_time.split('T')[0];
+      return eventDate === newDate;
+    });
+
+    if (holidayConflict) {
+      const holidayName = holidayConflict.holiday_name || holidayConflict.activity_purpose || 'Philippine holiday';
+      setLocalError(`Reservations are suspended on this date due to ${holidayName}. Please pick another date.`);
+      return;
+    }
+
     const conflict = (calendarEvents || []).find(e => {
+      if (e.event_type === 'holiday' || e.is_holiday) return false;
+      const eventStatus = String(e.status || '').toLowerCase();
+      if (eventStatus === 'cancelled' || eventStatus === 'deleted' || eventStatus === 'denied') return false;
       if (e.room_id != newRoomId) return false;
       const eventDate = e.start_time?.split('T')[0];
       if (eventDate !== newDate) return false;
@@ -2644,6 +2681,66 @@ function CalendarView({ events, rooms, onViewEvent }) {
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
+  const isHolidayEvent = (event) => event?.event_type === 'holiday' || event?.is_holiday;
+
+  const getEventCategory = (event) => {
+    if (isHolidayEvent(event)) return 'holiday';
+
+    const status = String(event?.status || '').toLowerCase();
+    if (status === 'deleted' || status === 'denied' || status === 'cancelled') return 'cancelled';
+
+    const now = new Date();
+    const start = event?.start_time ? new Date(event.start_time) : null;
+    const end = event?.end_time ? new Date(event.end_time) : null;
+    if (start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && now >= start && now <= end) {
+      return 'ongoing';
+    }
+
+    return 'plotting';
+  };
+
+  const eventCategoryStyles = {
+    plotting: {
+      card: 'bg-slate-500 text-white border-l-2 border-slate-700 hover:bg-slate-600',
+      badge: 'bg-slate-100 text-slate-700',
+      label: 'Plotting'
+    },
+    ongoing: {
+      card: 'bg-emerald-500 text-white border-l-2 border-emerald-700 hover:bg-emerald-600',
+      badge: 'bg-emerald-100 text-emerald-700',
+      label: 'Ongoing'
+    },
+    cancelled: {
+      card: 'bg-yellow-400 text-slate-900 border-l-2 border-yellow-600 hover:bg-yellow-500',
+      badge: 'bg-yellow-100 text-yellow-700',
+      label: 'Cancelled'
+    },
+    holiday: {
+      card: 'bg-blue-500 text-white border-l-2 border-blue-700 hover:bg-blue-600',
+      badge: 'bg-blue-100 text-blue-700',
+      label: 'Holiday'
+    }
+  };
+
+  const monthlyEvents = (events || []).filter((e) => {
+    if (!e.start_time) return false;
+    const eventDate = new Date(e.start_time);
+    if (Number.isNaN(eventDate.getTime())) return false;
+
+    const matchesMonth = eventDate.getFullYear() === year && eventDate.getMonth() === month;
+    const matchesRoom = isHolidayEvent(e) || filterRoom === 'all' || e.room_id == filterRoom;
+    return matchesMonth && matchesRoom;
+  }).sort((a, b) => {
+    const aDate = new Date(a.start_time);
+    const bDate = new Date(b.start_time);
+    const byDate = aDate - bDate;
+    if (byDate !== 0) return byDate;
+
+    const aHoliday = isHolidayEvent(a) ? 1 : 0;
+    const bHoliday = isHolidayEvent(b) ? 1 : 0;
+    return bHoliday - aHoliday;
+  });
+
   return React.createElement('div', { className: 'bg-white rounded-2xl border border-slate-200 p-8 shadow-sm relative' },
     // Header with controls
     React.createElement('div', { className: 'flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6' },
@@ -2682,8 +2779,12 @@ function CalendarView({ events, rooms, onViewEvent }) {
           if (!e.start_time) return false;
           const eventDate = e.start_time.split('T')[0];
           const matchesDate = eventDate === dateStr;
-          const matchesRoom = filterRoom === 'all' || e.room_id == filterRoom;
+          const matchesRoom = isHolidayEvent(e) || filterRoom === 'all' || e.room_id == filterRoom;
           return matchesDate && matchesRoom;
+        }).sort((a, b) => {
+          const aHoliday = isHolidayEvent(a) ? 1 : 0;
+          const bHoliday = isHolidayEvent(b) ? 1 : 0;
+          return bHoliday - aHoliday;
         }) : [];
 
         return React.createElement('div', { 
@@ -2692,15 +2793,19 @@ function CalendarView({ events, rooms, onViewEvent }) {
         },
           React.createElement('span', { className: `text-sm font-bold p-1 ${day ? 'text-slate-400' : 'text-transparent'}` }, day || '.'),
           React.createElement('div', { className: 'mt-1 space-y-1' },
-            dayEvents.slice(0, 3).map(e => 
-              React.createElement('div', { 
-                key: e.id, 
-                className: 'bg-sky-500 text-white text-[9px] p-1 rounded font-bold shadow-sm border-l-2 border-sky-700 truncate cursor-pointer hover:bg-sky-600 transition-colors',
+            dayEvents.slice(0, 3).map(e => {
+              const category = getEventCategory(e);
+              const itemClass = `text-[9px] p-1 rounded font-bold shadow-sm truncate cursor-pointer transition-colors ${eventCategoryStyles[category].card}`;
+
+              return React.createElement('div', {
+                key: e.id,
+                className: itemClass,
                 onMouseEnter: () => setHoveredEvent(e),
                 onMouseLeave: () => setHoveredEvent(null),
                 onMouseMove: handleMouseMove,
                 onClick: () => onViewEvent && onViewEvent(e)
-              }, e.activity_purpose)
+              }, `${eventCategoryStyles[category].label.toUpperCase()}: ${e.activity_purpose}`);
+            }
             ),
             dayEvents.length > 3 && React.createElement('div', { className: 'text-[9px] text-slate-400 font-bold' }, `+${dayEvents.length - 3} more`)
           )
@@ -2718,15 +2823,15 @@ function CalendarView({ events, rooms, onViewEvent }) {
         React.createElement('div', { className: 'space-y-2 pt-1' },
           React.createElement('div', { className: 'flex items-center gap-2 text-xs text-slate-600' },
             React.createElement('span', {}, '🕐'),
-            React.createElement('span', {}, formatTime(hoveredEvent.start_time), ' - ', formatTime(hoveredEvent.end_time))
+            React.createElement('span', {}, isHolidayEvent(hoveredEvent) ? 'Whole day class suspension' : `${formatTime(hoveredEvent.start_time)} - ${formatTime(hoveredEvent.end_time)}`)
           ),
           React.createElement('div', { className: 'flex items-center gap-2 text-xs text-slate-600' },
             React.createElement('span', {}, '📍'),
-            React.createElement('span', { className: 'font-semibold' }, hoveredEvent.room_name || (rooms?.find(r => r.id == hoveredEvent.room_id)?.name) || 'Unknown')
+            React.createElement('span', { className: 'font-semibold' }, isHolidayEvent(hoveredEvent) ? 'University-wide' : (hoveredEvent.room_name || (rooms?.find(r => r.id == hoveredEvent.room_id)?.name) || 'Unknown'))
           ),
           React.createElement('div', { className: 'flex items-center gap-2 text-xs text-slate-600' },
             React.createElement('span', {}, '👤'),
-            React.createElement('span', {}, hoveredEvent.person_in_charge || 'N/A')
+            React.createElement('span', {}, isHolidayEvent(hoveredEvent) ? (hoveredEvent.holiday_name || 'Philippine Holiday') : (hoveredEvent.person_in_charge || 'N/A'))
           )
         ),
         React.createElement('div', { className: 'mt-2 text-[8px] text-sky-400 font-bold uppercase italic' }, 'Click to view full details')
@@ -2735,22 +2840,24 @@ function CalendarView({ events, rooms, onViewEvent }) {
 
     // Events list below calendar
     React.createElement('div', { className: 'mt-6 pt-6 border-t' },
-      React.createElement('h4', { className: 'font-bold text-slate-800 mb-4' }, '📋 Upcoming Approved Events'),
-      events.length === 0 
-        ? React.createElement('p', { className: 'text-slate-400 py-4 text-center text-sm' }, 'No approved events yet.')
+      React.createElement('h4', { className: 'font-bold text-slate-800 mb-4' }, '📋 Upcoming Events and Holidays'),
+      monthlyEvents.length === 0 
+        ? React.createElement('p', { className: 'text-slate-400 py-4 text-center text-sm' }, `No events or holidays for ${monthName}.`)
         : React.createElement('div', { className: 'space-y-2 max-h-[200px] overflow-y-auto' },
-            events.slice(0, 10).map(e =>
-              React.createElement('div', { 
-                key: e.id, 
-                className: 'p-3 bg-slate-50 rounded-lg flex justify-between items-center cursor-pointer hover:bg-sky-50 transition',
-                onClick: () => onViewEvent && onViewEvent(e)
-              },
-                React.createElement('div', {},
-                  React.createElement('p', { className: 'font-bold text-slate-800 text-sm' }, e.activity_purpose),
-                  React.createElement('p', { className: 'text-xs text-slate-500' }, e.start_time?.split('T')[0], ' • ', formatTime(e.start_time), ' - ', formatTime(e.end_time))
-                ),
-                React.createElement('span', { className: 'px-2 py-1 bg-green-100 text-green-700 rounded-full text-[10px] font-bold' }, 'Approved')
-              )
+            monthlyEvents.slice(0, 10).map(e => {
+                const category = getEventCategory(e);
+                return React.createElement('div', { 
+                  key: e.id, 
+                  className: 'p-3 bg-slate-50 rounded-lg flex justify-between items-center cursor-pointer hover:bg-sky-50 transition',
+                  onClick: () => onViewEvent && onViewEvent(e)
+                },
+                  React.createElement('div', {},
+                    React.createElement('p', { className: 'font-bold text-slate-800 text-sm' }, e.activity_purpose),
+                    React.createElement('p', { className: 'text-xs text-slate-500' }, e.start_time?.split('T')[0], ' • ', category === 'holiday' ? 'Whole day' : `${formatTime(e.start_time)} - ${formatTime(e.end_time)}`)
+                  ),
+                  React.createElement('span', { className: `px-2 py-1 rounded-full text-[10px] font-bold ${eventCategoryStyles[category].badge}` }, eventCategoryStyles[category].label)
+                );
+              }
             )
           )
     )
@@ -2762,7 +2869,7 @@ function ArchiveView({ archive, user, isAdmin, onDelete }) {
   
   const getArchiveLabel = (item) => {
     if (item.status === 'denied') return { text: 'Denied', color: 'bg-red-100 text-red-700' };
-    if (item.status === 'deleted') return { text: 'Deleted', color: 'bg-slate-100 text-slate-700' };
+    if (item.status === 'cancelled' || item.status === 'deleted') return { text: 'Cancelled', color: 'bg-yellow-100 text-yellow-700' };
     if (item.status === 'approved' && item.archived_at) return { text: 'Archived (Approved)', color: 'bg-amber-100 text-amber-700' };
     return { text: item.status, color: 'bg-slate-100 text-slate-700' };
   };
@@ -2790,6 +2897,102 @@ function ArchiveView({ archive, user, isAdmin, onDelete }) {
   );
 }
 
+function ForecastView({ onNotify }) {
+  const [forecast, setForecast] = useState(null);
+  const [loadingForecast, setLoadingForecast] = useState(true);
+  const [retrainingForecast, setRetrainingForecast] = useState(false);
+  const [forecastError, setForecastError] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      setLoadingForecast(true);
+      setForecastError('');
+      try {
+        const data = await apiService.getDataMiningForecast();
+        setForecast(data.data || null);
+      } catch (err) {
+        setForecastError(err.message || 'Failed to load forecast data');
+      } finally {
+        setLoadingForecast(false);
+      }
+    })();
+  }, []);
+
+  const handleRetrainForecast = async () => {
+    setRetrainingForecast(true);
+    try {
+      const response = await apiService.retrainForecastModel();
+      const result = response.data;
+
+      if (result.status === 'warning') {
+        // Insufficient data warning
+        const message = result.message || 'Cannot retrain: insufficient data';
+        const recommendation = result.recommendation || '';
+        const warningMsg = `${message}\n\n${recommendation}`;
+        alert(`⚠️ Warning\n\n${warningMsg}`);
+      } else if (result.status === 'success') {
+        // Successful retrain with guidelines
+        const guidelines = result.warning || 
+          'Manual SARIMAX retraining should only be performed if:\n  • A new venue was added\n  • An old venue was removed\n  • Sudden data spike (e.g., mandatory reservation)';
+        const nextRetrain = result.next_retrain_at 
+          ? new Date(result.next_retrain_at).toLocaleDateString()
+          : 'Unknown';
+        alert(`✓ Success!\n\n${result.message || 'Model retrained successfully'}\n\nNext scheduled retrain: ${nextRetrain}\n\n${guidelines}`);
+        // Refresh forecast data
+        const data = await apiService.getDataMiningForecast();
+        setForecast(data.data || null);
+      } else if (result.status === 'error') {
+        alert(`✗ Error\n\n${result.message || 'Failed to retrain model'}`);
+      }
+    } catch (err) {
+      alert(`✗ Error\n\n${err.message || 'An unexpected error occurred during retraining'}`);
+    } finally {
+      setRetrainingForecast(false);
+    }
+  };
+
+  if (loadingForecast) {
+    return React.createElement('div', { className: 'bg-white border rounded-3xl p-8 text-center text-slate-500' }, 'Loading forecast...');
+  }
+
+  return React.createElement('div', { className: 'space-y-6' },
+    forecastError && React.createElement('div', { className: 'bg-red-50 border border-red-200 text-red-800 p-3 rounded-xl text-sm' },
+      'Forecast Error: ', forecastError
+    ),
+
+    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+      React.createElement('div', { className: 'flex justify-between items-center mb-4' },
+        React.createElement('h3', { className: 'font-bold text-slate-800 text-lg' }, 'Venue Reservation Forecast'),
+        React.createElement('button', {
+          onClick: handleRetrainForecast,
+          disabled: retrainingForecast,
+          className: `px-4 py-2 rounded-xl font-bold transition ${
+            retrainingForecast 
+              ? 'bg-slate-300 text-slate-600 cursor-not-allowed'
+              : 'bg-sky-500 text-white hover:bg-sky-600'
+          }`
+        }, retrainingForecast ? 'Retraining...' : '🔄 Retrain Model')
+      ),
+      React.createElement('p', { className: 'text-sm text-slate-600 mb-4' }, 
+        'Solid line shows historical actual data. Dashed line shows future predictions based on SARIMAX model with semester-aware features.'
+      ),
+      React.createElement('div', { className: 'h-96 bg-slate-50 rounded-lg flex items-center justify-center' },
+        React.createElement('p', { className: 'text-slate-400' }, 'Forecast chart will display here')
+      )
+    ),
+
+    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+      React.createElement('h3', { className: 'font-bold text-slate-800 text-lg mb-4' }, 'Model Information'),
+      forecast && React.createElement('div', { className: 'space-y-2 text-sm text-slate-700' },
+        React.createElement('p', {}, 'Model Type: ', React.createElement('span', { className: 'font-semibold' }, forecast.model_type || 'SARIMAX with Semester Features')),
+        forecast.last_trained && React.createElement('p', {}, 'Last Trained: ', React.createElement('span', { className: 'font-semibold' }, new Date(forecast.last_trained).toLocaleDateString())),
+        forecast.training_samples && React.createElement('p', {}, 'Training Data Points: ', React.createElement('span', { className: 'font-semibold' }, forecast.training_samples)),
+        forecast.model_accuracy && React.createElement('p', {}, 'Model Accuracy (MAE): ', React.createElement('span', { className: 'font-semibold' }, forecast.model_accuracy))
+      )
+    )
+  );
+}
+
 function NotificationModal({ message, onClose }) {
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
     React.createElement('div', { className: 'bg-white rounded-2xl p-6 max-w-sm text-center' },
@@ -2801,6 +3004,17 @@ function NotificationModal({ message, onClose }) {
 
 function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDeleteClick }) {
   if (!event) return null;
+  const isHoliday = event.event_type === 'holiday' || event.is_holiday;
+  const status = String(event.status || '').toLowerCase();
+  const isCancelled = status === 'deleted' || status === 'denied' || status === 'cancelled';
+  const now = new Date();
+  const start = event.start_time ? new Date(event.start_time) : null;
+  const end = event.end_time ? new Date(event.end_time) : null;
+  const isOngoing = !isHoliday && !isCancelled && start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && now >= start && now <= end;
+  const statusLabel = isHoliday ? 'Holiday' : (isCancelled ? 'Cancelled' : (isOngoing ? 'Ongoing' : 'Plotting'));
+  const statusColor = isHoliday
+    ? 'bg-blue-100 text-blue-700'
+    : (isCancelled ? 'bg-yellow-100 text-yellow-700' : (isOngoing ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'));
 
   const formatDateTime = (isoString) => {
     if (!isoString) return 'N/A';
@@ -2836,7 +3050,7 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
       React.createElement('div', { className: 'flex justify-between items-start mb-6' },
         React.createElement('div', {},
           React.createElement('h3', { className: 'text-2xl font-bold text-slate-800 mb-2' }, event.activity_purpose),
-          React.createElement('span', { className: 'px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold' }, 'Approved Event')
+          React.createElement('span', { className: `px-3 py-1 rounded-full text-xs font-bold ${statusColor}` }, statusLabel)
         ),
         React.createElement('button', { onClick: onClose, className: 'p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600' }, '✕')
       ),
@@ -2857,7 +3071,7 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           React.createElement('span', { className: 'text-2xl' }, '🕐'),
           React.createElement('div', {},
             React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Time'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, formatTime(event.start_time), ' - ', formatTime(event.end_time))
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? 'Whole day class suspension' : `${formatTime(event.start_time)} - ${formatTime(event.end_time)}`)
           )
         ),
 
@@ -2866,7 +3080,7 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           React.createElement('span', { className: 'text-2xl' }, '📍'),
           React.createElement('div', {},
             React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Facility'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, roomName)
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? 'University-wide' : roomName)
           )
         ),
 
@@ -2874,8 +3088,8 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
         React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
           React.createElement('span', { className: 'text-2xl' }, '👤'),
           React.createElement('div', {},
-            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Person in Charge'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, event.person_in_charge || 'N/A')
+            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, isHoliday ? 'Holiday' : 'Person in Charge'),
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? (event.holiday_name || 'Philippine Holiday') : (event.person_in_charge || 'N/A'))
           )
         ),
 
@@ -2893,11 +3107,11 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
       React.createElement('div', { className: 'mt-6 flex gap-3' },
         // Close button
         React.createElement('button', { 
-          onClick: onClose, 
-          className: `${isAdmin ? 'flex-1' : 'w-full'} bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-xl font-bold transition-colors` 
+          onClick: onClose,
+          className: `${isAdmin && !isHoliday ? 'flex-1' : 'w-full'} bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-xl font-bold transition-colors` 
         }, 'Close'),
         // Delete button (admin only)
-        isAdmin && React.createElement('button', { 
+        isAdmin && !isHoliday && React.createElement('button', { 
           onClick: onDeleteClick,
           disabled: loading,
           className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2' 
@@ -3028,7 +3242,7 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
     if (isAdmin) return 'bg-sky-50 border-sky-100 hover:border-sky-300';
     if (n.status === 'concept-approved') return 'bg-blue-50 border-blue-100 hover:border-blue-300';
     if (n.status === 'approved') return 'bg-green-50 border-green-100 hover:border-green-300';
-    if (n.status === 'deleted') return 'bg-orange-50 border-orange-100';
+    if (n.status === 'cancelled' || n.status === 'deleted') return 'bg-yellow-50 border-yellow-100';
     return 'bg-red-50 border-red-100';
   };
 
@@ -3041,7 +3255,7 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
     }
     if (n.status === 'concept-approved') return 'Phase 1 Approved!';
     if (n.status === 'approved') return 'Fully Approved!';
-    if (n.status === 'deleted') return 'Event Deleted by Admin';
+    if (n.status === 'cancelled' || n.status === 'deleted') return 'Event Cancelled by Admin';
     return 'Reservation Denied';
   };
 
@@ -3049,7 +3263,7 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
     if (isAdmin) return 'text-sky-600';
     if (n.status === 'concept-approved') return 'text-blue-600';
     if (n.status === 'approved') return 'text-green-600';
-    if (n.status === 'deleted') return 'text-orange-600';
+    if (n.status === 'cancelled' || n.status === 'deleted') return 'text-yellow-600';
     return 'text-red-500';
   };
 
@@ -3100,7 +3314,7 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
                         ? React.createElement('p', { className: 'italic bg-white/50 p-2 rounded-lg border mt-1 border-blue-100/50 text-blue-700' }, 'Your concept paper was approved! Please submit your final form.')
                         : n.status === 'approved'
                           ? React.createElement('p', { className: 'italic bg-white/50 p-2 rounded-lg border mt-1 border-green-100/50 text-green-700' }, 'Your reservation is fully approved and visible on the calendar!')
-                          : n.denial_reason && React.createElement('p', { className: `italic bg-white/50 p-2 rounded-lg border mt-1 ${n.status === 'deleted' ? 'border-orange-100/50 text-orange-700' : 'border-red-100/50 text-red-700'}` }, n.denial_reason)
+                          : n.denial_reason && React.createElement('p', { className: `italic bg-white/50 p-2 rounded-lg border mt-1 ${(n.status === 'cancelled' || n.status === 'deleted') ? 'border-yellow-100/50 text-yellow-700' : 'border-red-100/50 text-red-700'}` }, n.denial_reason)
                       )
                 ),
                 React.createElement('p', { className: 'text-[10px] text-slate-400 mt-2' }, 
