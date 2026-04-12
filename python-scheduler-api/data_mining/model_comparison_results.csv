@@ -1,6 +1,4 @@
-Model,MAE,RMSE,Rank (by MAE)
-Holt-Winters (SES (Simple Exponential Smoothing)),2.75,3.0606,1
-Linear Regression,3.7312,4.6354,2
-Moving Average (w=2),4.25,4.7037,3
-"SARIMA(1, 0, 1)x(0, 0, 0, 12)",6.4887,7.3908,4
-Seasonal Naive (s=12),7.75,8.8741,5
+Model,MAE,RMSE,MASE,Dir.Acc%,Var.Ratio,Pearson R,Rank (by MAE)
+HW Level Only (SES baseline),2.75,3.0606,0.4802,0.0,0.0,,1
+"SARIMA(1, 1, 1)x(1, 0, 1, 6)",3.1735,3.8618,0.5541,66.7,1.2912,0.3024,2
+Seasonal Naive (s=6),5.75,6.7639,1.004,66.7,3.7551,-0.0562,3
