@@ -1,12 +1,15 @@
 import os
 import json
 import uuid
-import requests
 from urllib.parse import urlparse
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_cors import CORS
-from datetime import datetime, date
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from datetime import datetime, date, timedelta
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import inspect
 from sqlalchemy import or_
 from dotenv import load_dotenv
@@ -16,8 +19,22 @@ from data_mining.forecast_utils import forecast_all_academic_periods, forecast_f
 from data_mining.train_sarimax_model import retrain_all_historical_data
 from scheduler import start_training_scheduler, get_next_retrain_at_iso
 
+try:
+    from google import genai as google_genai_client
+    from google.genai import types as google_genai_types
+    HAS_GOOGLE_GENAI = True
+except Exception:
+    google_genai_client = None
+    google_genai_types = None
+    HAS_GOOGLE_GENAI = False
+    try:
+        import google.generativeai as google_legacy_genai
+    except Exception:
+        google_legacy_genai = None
+
 app = Flask(__name__)
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DOTENV_PATH = os.path.join(APP_DIR, '.env')
 
 # Enable CORS
 CORS(app, supports_credentials=True, origins=[
@@ -25,11 +42,20 @@ CORS(app, supports_credentials=True, origins=[
     'http://127.0.0.1:3000', 'http://127.0.0.1:5000'
 ])
 
+# Global API protection: apply default rate limiting across all endpoints.
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=["300 per 15 minutes"],
+    storage_uri="memory://",
+)
+login_shared_limit = limiter.shared_limit("5 per 15 minutes", scope="login-routes")
+
 # CONFIG
 app.config['SECRET_KEY'] = 'thesis-secret-key-123'
 
 # Load environment variables from your .env file
-load_dotenv(dotenv_path=os.path.join(APP_DIR, '.env'))
+load_dotenv(dotenv_path=DOTENV_PATH, override=True)
 
 # Grab the Supabase URL from the environment
 db_url = os.getenv("DATABASE_URL")
@@ -53,51 +79,58 @@ if db_url:
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# AI CONFIG (Gemini API)
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_URL = os.getenv(
-    "GEMINI_URL",
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
-)
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
+# Define your strict rules (The System Prompt)
+SYSTEM_PROMPT = """
+You are VacanSee, the official Campus Event Space Reservation Assistant.
+Your only purpose is to help users and administrators with questions strictly related to campus facilities and to process reservations as defined by the system.
 
-def _clean_env_value(value):
-    return str(value or '').strip().strip('"').strip("'")
+You MUST follow these rules:
 
+1. Answer only based on the valid JSON context provided.
+    Only give information about:
+    - facility availability
+    - capacity
+    - location
+    - allowed activities
+    - reservation steps
+    - document requirements
+    - approval status
 
-def _get_runtime_gemini_config():
-    api_key = _clean_env_value(os.getenv("GEMINI_API_KEY", GEMINI_API_KEY))
-    api_url = _clean_env_value(os.getenv("GEMINI_URL", GEMINI_URL))
-    if not api_url.startswith('http'):
-        api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-    return api_key, api_url
+2. Do NOT answer any question outside campus facilities and reservations.
+    If the user asks about unrelated topics (e.g., cooking, history, math, coding, celebrity gossip), politely decline with:
+    "I am only programmed to assist with campus facility reservations. Please ask me about room availability or the reservation process."
 
-FACILITIES_ASSISTANT_SYSTEM_PROMPT = """You are the official AI Facilities Booking Assistant for our University. Your goal is to help students file their initial reservation requests.
+3. Maintain a helpful, concise, and professional tone.
+    Give step-by-step guidance only when necessary.
+    Avoid assumptions or adding information outside the provided JSON data.
 
-Your Persona:
-You are helpful, polite, and highly organized. You speak professionally but are approachable.
+4. Always follow the official VacanSee 2-Stage digital reservation workflow.
+    If the user asks how the reservation process works, describe it exactly as follows:
+    - Stage 1: The student submits their event details along with a Google Drive link to their Chancellor-signed Concept Paper. This goes to the Administration for "Concept Review".
+    - Stage 2: Once Stage 1 is approved, the student has exactly 5 days to submit a Google Drive link for their Final Form. The Administration performs a "Final Review", and if approved, the reservation is confirmed.
 
-The Booking Workflow:
-You handle STEP 1 of our school's 2-stage approval process.
-- You collect the initial details and a Google Drive link for the student's "Concept Paper".
-- You DO NOT approve reservations. You only submit them for "Concept Review" by the Administration.
+5. Special rule for Concept Paper questions:
+    If the user asks "How do I get a concept paper?" or similar, respond exactly:
+    "You must first speak with the facility coordinator responsible for the venue you want to reserve. The coordinator will explain the required details. After drafting the concept paper, you must have it officially signed by the Chancellor. Only a Concept Paper signed by the Chancellor can be uploaded to your Google Drive to initiate a VacanSee reservation."
 
-Your Strict Rules:
-1. NEVER hallucinate or invent dates, times, or availability.
-2. To successfully file a reservation, you MUST gather ALL of the following information from the student:
-    - The Facility/Room they want to book
-    - Date and Start/End Time
-    - Purpose of the activity
-    - Number of attendees
-    - Name of the person in charge
-    - A valid Google Drive link to their uploaded Concept Paper. The link MUST contain "drive.google.com".
-3. The Chancellor's Signature Rule: Once the user provides the Concept Paper link, you MUST explicitly ask them: "Has this concept paper been signed by the Chancellor?"
-    - If they say NO: Refuse to proceed. Politely inform them that the Chancellor's signature is strictly required before a reservation can be filed.
-    - If they say YES: Proceed to the next step.
-4. Once you have all the required information and the signature confirmation, summarize the request for the user to confirm.
-5. When the user confirms, inform them that their request is being sent to the Administration for "Concept Review".
-6. The 5-Day Rule Warning: You must also explicitly inform the user: "Please note that once Stage 1 is approved, you will have exactly 5 days to complete Stage 2 (Final Form submission), or your reservation will be voided."
-7. Finally, output the reservation details in a strict JSON format so our backend can process it. Ensure the JSON includes a "status" field set to "concept_review". Do not include any markdown formatting around the JSON."""
+6. Never invent approval steps, signatures, or requirements not present in the JSON context.
+    If a required item is missing from the JSON, tell the user you cannot confirm it and ask them to contact the facility coordinator.
+
+END OF SYSTEM INSTRUCTION.
+"""
+
+def _get_gemini_client():
+    api_key = str(os.getenv("GEMINI_API_KEY", "")).strip()
+    if not api_key:
+        return None
+    if HAS_GOOGLE_GENAI and google_genai_client is not None:
+        return google_genai_client.Client(api_key=api_key)
+    if google_legacy_genai is not None:
+        google_legacy_genai.configure(api_key=api_key)
+        return "legacy-sdk"
+    return None
 
 # Initialize extensions
 db.init_app(app)
@@ -105,6 +138,7 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 training_scheduler = None
+stage2_deadline_scheduler = None
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -175,8 +209,88 @@ def _ensure_room_columns():
             conn.exec_driver_sql("ALTER TABLE rooms ADD COLUMN image_url VARCHAR(500)")
 
 
+def _ensure_reservation_columns():
+    """Backfill reservation stage-tracking columns for existing databases without migrations."""
+    inspector = inspect(db.engine)
+    columns = {c['name'] for c in inspector.get_columns('reservations')}
+
+    with db.engine.begin() as conn:
+        if 'concept_approved_at' not in columns:
+            conn.exec_driver_sql("ALTER TABLE reservations ADD COLUMN concept_approved_at TIMESTAMP")
+
+
 with app.app_context():
     _ensure_room_columns()
+    _ensure_reservation_columns()
+
+
+def _auto_cancel_overdue_stage2_reservations():
+    """Cancel concept-approved reservations if final form is not submitted within 5 days."""
+    now = datetime.now()
+    cutoff = now - timedelta(days=5)
+
+    candidates = Reservation.query.filter(Reservation.status == 'concept-approved').all()
+    auto_cancelled = 0
+
+    for reservation in candidates:
+        has_final_form_link = bool(str(reservation.final_form_url or '').strip())
+        has_final_form = bool(reservation.final_form_uploaded or has_final_form_link)
+        if has_final_form:
+            continue
+
+        approval_anchor = reservation.concept_approved_at or reservation.date_filed
+        if not approval_anchor or approval_anchor > cutoff:
+            continue
+
+        reservation.status = 'cancelled'
+        reservation.denial_reason = (
+            'Auto-cancelled: Stage 2 final form was not submitted within 5 days after concept approval.'
+        )
+        reservation.archived_at = now
+        auto_cancelled += 1
+
+    if auto_cancelled > 0:
+        db.session.commit()
+        app.logger.info('Auto-cancelled %s concept-approved reservations due to Stage 2 timeout.', auto_cancelled)
+
+
+def _is_reloader_process():
+    werkzeug_flag = os.environ.get('WERKZEUG_RUN_MAIN')
+    if werkzeug_flag is not None:
+        return werkzeug_flag == 'true'
+    return True
+
+
+def start_stage2_deadline_scheduler(app):
+    if not _is_reloader_process():
+        return None
+
+    scheduler = BackgroundScheduler(timezone='Asia/Manila')
+
+    def auto_cancel_job():
+        with app.app_context():
+            try:
+                _auto_cancel_overdue_stage2_reservations()
+            except Exception as exc:
+                app.logger.error('Stage 2 auto-cancel scheduler failed: %s', exc)
+
+    # Run daily at 01:00 AM Manila time.
+    scheduler.add_job(
+        auto_cancel_job,
+        CronTrigger(hour=1, minute=0),
+        id='auto_cancel_stage2_deadline',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # Also perform one check immediately on startup.
+    with app.app_context():
+        _auto_cancel_overdue_stage2_reservations()
+
+    scheduler.start()
+    app.logger.info('Stage 2 deadline scheduler started (daily 01:00 Asia/Manila).')
+    return scheduler
 
 
 @app.before_request
@@ -247,6 +361,7 @@ def serve_print_header_image():
     return send_from_directory('templates', 'header2.png', mimetype='image/png')
 
 @app.route('/login', methods=['POST'])
+@login_shared_limit
 def login():
     username = request.form.get('username')
     password = request.form.get('password')
@@ -345,6 +460,7 @@ def api_me():
 
 # Authentication API - FIXED TO INCLUDE user_id
 @app.route('/api/login', methods=['POST'])
+@login_shared_limit
 def api_login():
     data = request.get_json()
     username = data.get('username')
@@ -393,8 +509,8 @@ def api_logout():
 @app.route('/api/ai/chat', methods=['POST'])
 @login_required
 def ai_chat():
-    api_key, api_url = _get_runtime_gemini_config()
-    if not api_key:
+    client = _get_gemini_client()
+    if not client:
         return jsonify({'error': 'Gemini API key is not configured on the server.'}), 500
 
     payload = request.get_json(silent=True) or {}
@@ -404,60 +520,83 @@ def ai_chat():
     if not isinstance(messages, list) or not messages:
         return jsonify({'error': 'Messages are required.'}), 400
 
+    conversation_parts = []
     facility_names = [str(f).strip() for f in facilities if str(f).strip()]
-    facility_context = ''
     if facility_names:
-        facility_context = '\n\nAvailable facilities from system records: ' + ', '.join(facility_names)
+        conversation_parts.append("Available facilities from system records: " + ", ".join(facility_names))
 
-    gemini_contents = []
     for msg in messages:
-        role = 'user' if str(msg.get('role', 'user')).lower() == 'user' else 'model'
+        role = str(msg.get('role', 'user')).lower()
         text = str(msg.get('text', '')).strip()
         if not text:
             continue
-        gemini_contents.append({
-            'role': role,
-            'parts': [{'text': text}]
-        })
+        speaker = 'User' if role == 'user' else 'Assistant'
+        conversation_parts.append(f"{speaker}: {text}")
 
-    if not gemini_contents:
+    if not conversation_parts:
         return jsonify({'error': 'No valid message text provided.'}), 400
 
-    request_body = {
-        'systemInstruction': {
-            'parts': [{'text': FACILITIES_ASSISTANT_SYSTEM_PROMPT + facility_context}]
-        },
-        'contents': gemini_contents,
-        'generationConfig': {
-            'temperature': 0.2,
-            'topP': 0.9,
-            'topK': 40,
-            'maxOutputTokens': 1024
-        }
-    }
+    prompt_text = "\n".join(conversation_parts)
+    latest_user_text = ""
+    for msg in reversed(messages):
+        if str(msg.get('role', 'user')).lower() == 'user':
+            latest_user_text = str(msg.get('text', '')).strip().lower()
+            break
 
     try:
-        response = requests.post(
-            f"{api_url}?key={api_key}",
-            json=request_body,
-            timeout=45
-        )
-        response.raise_for_status()
-        result = response.json()
-
-        candidates = result.get('candidates') or []
-        if not candidates:
-            return jsonify({'error': 'No response from Gemini.'}), 502
-
-        parts = (candidates[0].get('content') or {}).get('parts') or []
-        reply_text = ''.join(part.get('text', '') for part in parts).strip()
+        if client == "legacy-sdk":
+            legacy_model = google_legacy_genai.GenerativeModel(
+                model_name=GEMINI_MODEL,
+                system_instruction=SYSTEM_PROMPT
+            )
+            response = legacy_model.generate_content(prompt_text)
+            reply_text = str(getattr(response, 'text', '') or '').strip()
+        else:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt_text,
+                config=google_genai_types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    temperature=0.2,
+                    top_p=0.9,
+                    max_output_tokens=1024,
+                ),
+            )
+            reply_text = str(getattr(response, 'text', '') or '').strip()
         if not reply_text:
             return jsonify({'error': 'Gemini returned an empty response.'}), 502
 
         return jsonify({'reply': reply_text})
-    except requests.RequestException as exc:
-        app.logger.error('Gemini API call failed: %s', exc)
-        return jsonify({'error': 'Unable to reach Gemini service right now.'}), 502
+    except Exception as exc:
+        error_text = str(exc)
+        app.logger.error('Gemini API call failed: %s', error_text)
+
+        # Graceful degradation for quota/rate-limit failures.
+        if 'RESOURCE_EXHAUSTED' in error_text or '429' in error_text or 'quota' in error_text.lower():
+            if 'concept paper' in latest_user_text or 'how do i get a concept paper' in latest_user_text:
+                fallback_reply = (
+                    'You must first speak with the facility coordinator responsible for the venue you want to reserve. '
+                    'The coordinator will explain the required details. After drafting the concept paper, you must '
+                    'have it officially signed by the Chancellor. Only a Concept Paper signed by the Chancellor can '
+                    'be uploaded to your Google Drive to initiate a VacanSee reservation.'
+                )
+            elif any(k in latest_user_text for k in ['process', 'workflow', 'how', 'reservation']):
+                fallback_reply = (
+                    'VacanSee is currently running in limited mode due to AI quota limits. Here is the official workflow: '
+                    'Stage 1: Submit event details plus a Google Drive link to your Chancellor-signed Concept Paper for '
+                    'Concept Review. Stage 2: Once Stage 1 is approved, you have exactly 5 days to submit your Final Form '
+                    'Google Drive link for Final Review. If approved, the reservation is confirmed.'
+                )
+            else:
+                fallback_reply = (
+                    'VacanSee AI is temporarily limited due to Gemini quota limits. I can still assist with the essentials: '
+                    'facility/room, date and start/end time, activity purpose, number of attendees, person in charge, and '
+                    'a Google Drive Concept Paper link signed by the Chancellor.'
+                )
+
+            return jsonify({'reply': fallback_reply, 'degraded_mode': True})
+
+        return jsonify({'error': f'Gemini API error: {error_text}'}), 502
 
 # Get all rooms
 @app.route('/api/rooms', methods=['GET'])
@@ -480,10 +619,12 @@ def get_rooms():
 @login_required
 def get_calendar_events():
     # Return calendar-relevant reservations:
+    # - concept-approved events (pending final review, shown as plotting)
     # - approved events (normal / ongoing / plotting)
     # - cancelled events (legacy deleted also treated as cancelled)
     reservations = Reservation.query.filter(
         or_(
+            Reservation.status == 'concept-approved',
             Reservation.status == 'approved',
             Reservation.status == 'cancelled',
             Reservation.status == 'deleted'
@@ -575,6 +716,7 @@ def get_reservation(id):
         'end_time': reservation.end_time.isoformat() if reservation.end_time else None,
         'status': reservation.status,
         'date_filed': reservation.date_filed.isoformat() if reservation.date_filed else None,
+        'concept_approved_at': reservation.concept_approved_at.isoformat() if reservation.concept_approved_at else None,
         'concept_paper_url': reservation.concept_paper_url,
         'final_form_url': reservation.final_form_url,
         'final_form_uploaded': reservation.final_form_uploaded,
@@ -657,6 +799,7 @@ def approve_concept(id):
         return jsonify({'error': 'Reservation not found'}), 404
     
     reservation.status = 'concept-approved'
+    reservation.concept_approved_at = datetime.now()
     db.session.commit()
     
     return jsonify({'status': 'success', 'message': 'Concept approved'})
@@ -679,6 +822,7 @@ def approve_final(id):
         }), 400
     
     reservation.status = 'approved'
+    reservation.archived_at = None
     db.session.commit()
     
     return jsonify({'status': 'success', 'message': 'Final form approved, reservation confirmed'})
@@ -1336,4 +1480,5 @@ def admin_delete_user(id):
 
 if __name__ == '__main__':
     training_scheduler = start_training_scheduler(app)
+    stage2_deadline_scheduler = start_stage2_deadline_scheduler(app)
     app.run(debug=True)

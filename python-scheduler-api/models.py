@@ -52,6 +52,7 @@ class Reservation(db.Model):
     
     # Files & Stages (Now Google Drive Links)
     concept_paper_url = db.Column(db.String(500), nullable=True)  # Google Drive link
+    concept_approved_at = db.Column(db.DateTime, nullable=True)
     final_form_url = db.Column(db.String(500), nullable=True)  # Google Drive link
     final_form_uploaded = db.Column(db.Boolean, default=False)
     

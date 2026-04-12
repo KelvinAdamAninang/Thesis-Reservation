@@ -75,13 +75,21 @@ GEMINI_API_KEY=<your_key_here>
 GEMINI_MODEL=gemini-2.0-flash
 ```
 
-### Run
+### Run (Local Dev)
 ```bash
 cd python-scheduler-api
 python app.py
 ```
 
 Open http://localhost:5000
+
+### Run (Production via Gunicorn)
+```bash
+cd python-scheduler-api
+gunicorn --bind 0.0.0.0:$PORT app:app
+```
+
+For Render, this repository includes a root `Procfile` that starts Gunicorn automatically.
 
 ## Test Accounts
 
@@ -192,10 +200,9 @@ taskkill /PID <PID> /F
 
 ## Deployment Checklist
 
-- Set debug False
-- Use production WSGI server
-- Set strong SECRET_KEY
-- Configure production DATABASE_URL
+- Use Gunicorn (already configured in `Procfile`)
+- Set strong `SECRET_KEY`
+- Configure production `DATABASE_URL`
 - Restrict CORS origins
 - Configure HTTPS
 - Rotate and protect API keys
