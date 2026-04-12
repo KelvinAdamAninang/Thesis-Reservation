@@ -666,7 +666,7 @@ function App() {
       // Error banner
       error && React.createElement('div', { className: 'bg-red-100 text-red-700 px-4 py-2 mx-4 md:mx-8 mt-4 rounded flex justify-between items-center text-sm' },
         React.createElement('span', {}, error),
-        React.createElement('button', { onClick: () => setError(''), className: 'text-red-700 hover:text-red-900 font-bold' }, '×')
+        React.createElement('button', { onClick: () => setError(''), className: 'text-red-700 hover:text-red-900 font-bold' }, '✕')
       ),
       // Main content
       React.createElement('main', { className: 'flex-1 overflow-y-auto p-4 md:p-8' },
@@ -831,14 +831,29 @@ function App() {
 function LoginPage({ onLogin, loading, error }) {
   const [username, setUsername] = useState();
   const [password, setPassword] = useState();
+  const [showPassword, setShowPassword] = useState(false);
   const handleSubmit = (e) => { e.preventDefault(); onLogin(username, password); };
+  const loginBgStyle = {
+    backgroundImage: `url('${window.location.origin}/design.png')`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    backgroundRepeat: 'no-repeat'
+  };
   
-  return React.createElement('div', { className: 'h-screen flex items-center justify-center bg-slate-200' },
-    React.createElement('form', { onSubmit: handleSubmit, className: 'bg-white p-12 rounded-2xl shadow-xl w-full max-w-md' },
+  return React.createElement('div', { className: 'h-screen flex items-center justify-center', style: loginBgStyle },
+    React.createElement('form', { onSubmit: handleSubmit, className: 'bg-white/95 backdrop-blur-sm p-12 rounded-2xl shadow-xl w-full max-w-md' },
       React.createElement('h1', { className: 'text-4xl font-bold text-center mb-2' }, 'VacanSee'),
       React.createElement('p', { className: 'text-slate-500 text-center mb-8' }, 'Reservation System'),
       React.createElement('input', { value: username, onChange: (e) => setUsername(e.target.value), className: 'w-full p-3 border rounded-lg mb-4', placeholder: 'Username', required: true }),
-      React.createElement('input', { type: 'password', value: password, onChange: (e) => setPassword(e.target.value), className: 'w-full p-3 border rounded-lg mb-4', placeholder: 'Password', required: true }),
+      React.createElement('input', { type: showPassword ? 'text' : 'password', value: password, onChange: (e) => setPassword(e.target.value), className: 'w-full p-3 border rounded-lg', placeholder: 'Password', required: true }),
+      React.createElement('label', { className: 'flex items-center gap-2 text-xs text-slate-600 mt-2 mb-4 select-none' },
+        React.createElement('input', {
+          type: 'checkbox',
+          checked: showPassword,
+          onChange: (e) => setShowPassword(e.target.checked)
+        }),
+        'Show password'
+      ),
       error && React.createElement('p', { className: 'text-red-500 text-center mb-4' }, error),
       React.createElement('button', { type: 'submit', disabled: loading, className: 'w-full bg-sky-500 text-white p-3 rounded-lg font-bold' }, loading ? 'Signing in...' : 'Sign In'),
       React.createElement('p', { className: 'text-xs text-slate-400 text-center mt-6' }, "Try: admin/admin123 or ccs/1234")
@@ -964,7 +979,7 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook }
           className: 'w-full p-3 bg-slate-50 rounded-xl mb-2 text-left hover:bg-sky-50 transition flex justify-between items-center' 
         },
           React.createElement('span', { className: 'font-medium text-slate-700' }, r.name),
-          React.createElement('span', { className: 'text-sky-500' }, '→')
+          React.createElement('span', { className: 'text-sky-500' }, '›')
         ))
       )
     )
@@ -2316,7 +2331,7 @@ function ProfileModal({ user, onClose, onLogout }) {
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
     React.createElement('div', { className: 'bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl relative' },
       React.createElement('button', { onClick: onClose, className: 'absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 transition-colors' }, '✕'),
-      
+
       React.createElement('div', { className: 'flex flex-col items-center text-center mb-8' },
         React.createElement('div', { className: 'w-24 h-24 bg-sky-100 text-sky-600 flex items-center justify-center rounded-full font-bold text-4xl mb-4 border-4 border-white shadow-sm' }, user.username[0].toUpperCase()),
         React.createElement('h3', { className: 'text-2xl font-bold text-slate-800 mb-1' }, user.username),
@@ -2337,7 +2352,7 @@ function ProfileModal({ user, onClose, onLogout }) {
         )
       ),
 
-      React.createElement('button', { 
+      React.createElement('button', {
         onClick: onLogout,
         className: 'w-full mt-10 flex items-center justify-center gap-2 p-3 rounded-2xl bg-slate-50 text-red-500 hover:bg-red-50 font-bold transition-all text-sm border border-slate-100'
       }, '🚪 Sign Out')
@@ -3010,8 +3025,8 @@ function FacilitiesView({ rooms, onBook, isAdmin, onRoomsUpdated, onNotify, show
           React.createElement('p', { className: 'text-sm text-slate-500 mb-3' }, r.description || 'No short description.'),
           r.detailed_info && React.createElement('p', { className: 'text-xs text-slate-600 mb-4 whitespace-pre-line' }, r.detailed_info),
           React.createElement('div', { className: 'flex items-center gap-4 text-sm text-slate-600 mb-4' },
-            React.createElement('span', { className: 'flex items-center gap-1' }, '👥 ', r.capacity),
-            r.usual_activity && React.createElement('span', { className: 'flex items-center gap-1 text-slate-400' }, '🎯 ', r.usual_activity)
+            React.createElement('span', { className: 'flex items-center gap-1' }, '# ', r.capacity),
+            r.usual_activity && React.createElement('span', { className: 'flex items-center gap-1 text-slate-400' }, '• ', r.usual_activity)
           ),
           React.createElement('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-2' },
             showBookButton && React.createElement('button', {
@@ -3053,6 +3068,7 @@ function SettingsView({ currentUser, rooms, onRoomsUpdated, onNotify }) {
   const [editingUser, setEditingUser] = useState(null);
   const [userForm, setUserForm] = useState({ username: '', password: '', role: 'student', department: '' });
   const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
+  const [showSecurityPasswords, setShowSecurityPasswords] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const loadUsers = async () => {
@@ -3186,7 +3202,7 @@ function SettingsView({ currentUser, rooms, onRoomsUpdated, onNotify }) {
       React.createElement('p', { className: 'text-sm text-slate-500' }, `Signed in as ${currentUser?.username || 'admin'}.`),
       React.createElement('form', { onSubmit: submitPassword, className: 'grid grid-cols-1 md:grid-cols-3 gap-3' },
         React.createElement('input', {
-          type: 'password',
+          type: showSecurityPasswords ? 'text' : 'password',
           placeholder: 'Current password',
           value: passwordForm.current_password,
           onChange: (e) => setPasswordForm({ ...passwordForm, current_password: e.target.value }),
@@ -3194,7 +3210,7 @@ function SettingsView({ currentUser, rooms, onRoomsUpdated, onNotify }) {
           required: true
         }),
         React.createElement('input', {
-          type: 'password',
+          type: showSecurityPasswords ? 'text' : 'password',
           placeholder: 'New password',
           value: passwordForm.new_password,
           onChange: (e) => setPasswordForm({ ...passwordForm, new_password: e.target.value }),
@@ -3202,13 +3218,21 @@ function SettingsView({ currentUser, rooms, onRoomsUpdated, onNotify }) {
           required: true
         }),
         React.createElement('input', {
-          type: 'password',
+          type: showSecurityPasswords ? 'text' : 'password',
           placeholder: 'Confirm new password',
           value: passwordForm.confirm_password,
           onChange: (e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value }),
           className: 'p-2 border rounded',
           required: true
         }),
+        React.createElement('label', { className: 'md:col-span-3 flex items-center gap-2 text-xs text-slate-600 select-none' },
+          React.createElement('input', {
+            type: 'checkbox',
+            checked: showSecurityPasswords,
+            onChange: (e) => setShowSecurityPasswords(e.target.checked)
+          }),
+          'Show passwords'
+        ),
         React.createElement('button', {
           type: 'submit',
           disabled: saving,
@@ -3466,6 +3490,11 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
 
   const getEventCategory = (event) => {
     if (isHolidayEvent(event)) return 'holiday';
+
+    const serverCategory = String(event?.calendar_category || '').toLowerCase();
+    if (serverCategory && ['plotting', 'ongoing', 'cancelled', 'holiday'].includes(serverCategory)) {
+      return serverCategory;
+    }
 
     const status = String(event?.status || '').toLowerCase();
     if (status === 'deleted' || status === 'denied' || status === 'cancelled') return 'cancelled';

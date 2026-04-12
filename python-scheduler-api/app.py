@@ -350,6 +350,11 @@ def serve_app_jsx():
 def serve_print_header_image():
     return send_from_directory('templates', 'header2.png', mimetype='image/png')
 
+
+@app.route('/design.png')
+def serve_login_background_image():
+    return send_from_directory('templates', 'design.png', mimetype='image/png')
+
 @app.route('/login', methods=['POST'])
 def login():
     username = request.form.get('username')
@@ -606,6 +611,19 @@ def get_rooms():
 @app.route('/api/calendar-events', methods=['GET'])
 @login_required
 def get_calendar_events():
+    def resolve_calendar_category(reservation, normalized_status):
+        if normalized_status in ('deleted', 'denied', 'cancelled'):
+            return 'cancelled'
+        if normalized_status == 'concept-approved':
+            return 'plotting'
+
+        if normalized_status == 'approved':
+            now = datetime.now()
+            if reservation.start_time and reservation.end_time and reservation.start_time <= now <= reservation.end_time:
+                return 'ongoing'
+
+        return 'plotting'
+
     # Return calendar-relevant reservations:
     # - concept-approved events (pending final review, shown as plotting)
     # - approved events (normal / ongoing / plotting)
@@ -625,19 +643,23 @@ def get_calendar_events():
         for room in Room.query.filter(Room.id.in_(room_ids)).all()
     } if room_ids else {}
 
-    events_list = [{
-        'id': r.id,
-        'room_id': r.room_id,
-        'room_name': rooms_by_id.get(r.room_id, 'Unknown'),
-        'activity_purpose': r.activity_purpose,
-        'person_in_charge': r.person_in_charge or 'N/A',
-        'start_time': r.start_time.isoformat() if r.start_time else None,
-        'end_time': r.end_time.isoformat() if r.end_time else None,
-        'department': r.requester.department if r.requester else 'Unknown',
-        'status': 'cancelled' if r.status == 'deleted' else r.status,
-        'event_type': 'reservation',
-        'is_holiday': False,
-    } for r in reservations]
+    events_list = []
+    for r in reservations:
+        normalized_status = 'cancelled' if r.status == 'deleted' else r.status
+        events_list.append({
+            'id': r.id,
+            'room_id': r.room_id,
+            'room_name': rooms_by_id.get(r.room_id, 'Unknown'),
+            'activity_purpose': r.activity_purpose,
+            'person_in_charge': r.person_in_charge or 'N/A',
+            'start_time': r.start_time.isoformat() if r.start_time else None,
+            'end_time': r.end_time.isoformat() if r.end_time else None,
+            'department': r.requester.department if r.requester else 'Unknown',
+            'status': normalized_status,
+            'calendar_category': resolve_calendar_category(r, normalized_status),
+            'event_type': 'reservation',
+            'is_holiday': False,
+        })
 
     # Include admin-managed holidays as class-suspension markers.
     holiday_events = _build_manual_holiday_events(from_date=date.today())
