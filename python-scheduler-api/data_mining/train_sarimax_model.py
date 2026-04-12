@@ -5,9 +5,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 import calendar
-from itertools import product as iproduct
 from statsmodels.tsa.statespace.sarimax import SARIMAX
-from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 from models import Reservation
 
@@ -102,79 +100,30 @@ def build_monthly_reservation_series(include_statuses=None):
     return monthly
 
 
-def find_best_sarimax(series, max_seconds=120):
+def get_sarimax_parameters(series):
     """
-    Auto-ARIMA grid search for best SARIMAX parameters.
-    Tests combinations of (p,d,q) and (P,D,Q,6).
-    Returns best parameters by CV MAE.
+    Determine SARIMAX parameters based on data length.
+    
+    - With < 36 months: use (2,1,1)x(0,0,1,6)  — 6-month seasonality
+    - With >= 36 months: use (2,1,1)x(0,0,1,12) — 12-month seasonality
+    
+    This allows the model to capture annual patterns once enough data is available.
     """
-    TEST_SIZE = 4
-    MIN_TRAIN = 9  # Minimum training months required
-
-    if len(series) < MIN_TRAIN + TEST_SIZE:
-        raise ValueError(f'Series has {len(series)} months, need at least {MIN_TRAIN + TEST_SIZE}')
-
-    train_y = series.iloc[:-TEST_SIZE]
-    test_y = series.iloc[-TEST_SIZE:]
-    actual = test_y.values.astype(float)
-
-    exog = build_features(series.index)
-    train_x = exog.iloc[:-TEST_SIZE]
-    test_x = exog.iloc[-TEST_SIZE:]
-
-    candidates = []
-    import time
-    start_time = time.time()
-
-    for p, d, q in iproduct([0, 1, 2], [0, 1], [0, 1, 2]):
-        if time.time() - start_time > max_seconds:
-            break
-
-        for P, D, Q in iproduct([0, 1], [0, 1], [0, 1]):
-            try:
-                m = SARIMAX(
-                    train_y,
-                    exog=train_x,
-                    order=(p, d, q),
-                    seasonal_order=(P, D, Q, 6),
-                    enforce_stationarity=False,
-                    enforce_invertibility=False
-                ).fit(disp=False)
-
-                fc = m.forecast(TEST_SIZE, exog=test_x).values
-                if np.any(np.isnan(fc)) or np.any(np.isinf(fc)):
-                    continue
-                if np.any(fc < 0):
-                    fc = np.maximum(fc, 0)
-
-                flat = len(set(round(v, 1) for v in fc)) == 1
-                if flat:
-                    continue
-
-                mae = mean_absolute_error(actual, fc)
-                rmse = np.sqrt(mean_squared_error(actual, fc))
-
-                candidates.append({
-                    'order': (p, d, q),
-                    'seasonal': (P, D, Q, 6),
-                    'mae': mae,
-                    'rmse': rmse,
-                    'aic': m.aic,
-                })
-            except Exception:
-                pass
-
-    if not candidates:
-        raise ValueError('No valid SARIMAX models found in grid search')
-
-    candidates.sort(key=lambda x: x['mae'])
-    best = candidates[0]
-    return best['order'], best['seasonal']
+    order = (2, 1, 1)
+    
+    if len(series) >= 36:
+        # 36+ months available: switch to 12-month seasonality for annual patterns
+        seasonal_order = (0, 0, 1, 12)
+    else:
+        # < 36 months: use 6-month seasonality (semester cycle)
+        seasonal_order = (0, 0, 1, 6)
+    
+    return order, seasonal_order
 
 
 def train_sarimax_model(series):
-    """Train SARIMAX with features on full series."""
-    order, seasonal_order = find_best_sarimax(series)
+    """Train SARIMAX with fixed parameters (2,1,1)x(0,0,1,6/12) on full series."""
+    order, seasonal_order = get_sarimax_parameters(series)
 
     exog = build_features(series.index)
     model = SARIMAX(
