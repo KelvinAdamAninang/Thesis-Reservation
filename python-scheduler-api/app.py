@@ -201,6 +201,11 @@ def serve_app_jsx():
     response.headers['Expires'] = '0'
     return response
 
+
+@app.route('/header2.png')
+def serve_print_header_image():
+    return send_from_directory('templates', 'header2.png', mimetype='image/png')
+
 @app.route('/login', methods=['POST'])
 def login():
     username = request.form.get('username')

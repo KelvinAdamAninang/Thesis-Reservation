@@ -11,6 +11,29 @@ for (let hour = 1; hour <= 12; hour++) {
 // Minute options (only 00 and 30)
 const MINUTE_OPTIONS = ['00', '30'];
 const AM_PM_OPTIONS = ['AM', 'PM'];
+const COUNTRY_PHONE_CODES = [
+  { code: '+63', label: 'Philippines (+63)' },
+  { code: '+1', label: 'United States/Canada (+1)' },
+  { code: '+44', label: 'United Kingdom (+44)' },
+  { code: '+61', label: 'Australia (+61)' },
+  { code: '+65', label: 'Singapore (+65)' },
+  { code: '+81', label: 'Japan (+81)' },
+  { code: '+82', label: 'South Korea (+82)' },
+  { code: '+91', label: 'India (+91)' },
+  { code: '+971', label: 'UAE (+971)' }
+];
+
+const COUNTRY_PHONE_RULES = {
+  '+63': { min: 10, max: 10, label: 'Philippines local number must be 10 digits (e.g., 9171234567).' },
+  '+1': { min: 10, max: 10, label: 'US/Canada number must be 10 digits.' },
+  '+44': { min: 10, max: 10, label: 'UK local number must be 10 digits.' },
+  '+61': { min: 9, max: 9, label: 'Australia local number must be 9 digits.' },
+  '+65': { min: 8, max: 8, label: 'Singapore number must be 8 digits.' },
+  '+81': { min: 10, max: 10, label: 'Japan local number must be 10 digits.' },
+  '+82': { min: 10, max: 10, label: 'South Korea local number must be 10 digits.' },
+  '+91': { min: 10, max: 10, label: 'India number must be 10 digits.' },
+  '+971': { min: 9, max: 9, label: 'UAE local number must be 9 digits.' }
+};
 
 const EQUIPMENT_DATA = {
   'Performing Arts Theatre': [
@@ -837,6 +860,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     room_id: initialData?.room_id || '',
     activity_purpose: '',
     person_in_charge: '',
+    contact_country_code: '+63',
     contact_number: '',
     event_start_date: '',
     event_end_date: '',
@@ -861,6 +885,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
   });
   const [hasEndDate, setHasEndDate] = useState(false);
   const [localError, setLocalError] = useState('');
+  const contactRule = COUNTRY_PHONE_RULES[form.contact_country_code] || { min: 7, max: 12, label: 'Contact number should be 7 to 12 digits.' };
 
   // Get available equipment based on selected room
   const selectedRoomObj = rooms.find(r => r.id == form.room_id);
@@ -903,6 +928,16 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
 
     if (form.housekeeping_needed && (!form.housekeeping_count || Number(form.housekeeping_count) < 1)) {
       setLocalError('Please enter how many housekeeping staff are needed.');
+      return;
+    }
+
+    const contactDigits = (form.contact_number || '').replace(/\D/g, '');
+    if (!contactDigits) {
+      setLocalError('Please provide a valid contact number.');
+      return;
+    }
+    if (contactDigits.length < contactRule.min || contactDigits.length > contactRule.max) {
+      setLocalError(contactRule.label);
       return;
     }
 
@@ -1008,6 +1043,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
 
     const formData = {
       ...form,
+      contact_number: `${form.contact_country_code} ${contactDigits}`,
       start_time: newStartIso,
       end_time: newEndIso,
       equipment_data: {
@@ -1050,7 +1086,27 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             )),
             React.createElement('input', { placeholder: 'Activity Purpose', value: form.activity_purpose, onChange: (e) => setForm({ ...form, activity_purpose: e.target.value }), className: 'w-full p-2 border rounded bg-white', required: true }),
             React.createElement('input', { placeholder: 'Person In Charge', value: form.person_in_charge, onChange: (e) => setForm({ ...form, person_in_charge: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
-            React.createElement('input', { placeholder: 'Contact Number', value: form.contact_number, onChange: (e) => setForm({ ...form, contact_number: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
+            React.createElement('div', { className: 'grid grid-cols-3 gap-2' },
+              React.createElement('select', {
+                value: form.contact_country_code,
+                onChange: (e) => setForm({ ...form, contact_country_code: e.target.value }),
+                className: 'col-span-1 p-2 border rounded bg-white text-sm'
+              },
+                COUNTRY_PHONE_CODES.map(c => React.createElement('option', { key: c.code, value: c.code }, c.code))
+              ),
+              React.createElement('input', {
+                placeholder: 'Contact Number',
+                value: form.contact_number,
+                onChange: (e) => {
+                  const digitsOnly = String(e.target.value || '').replace(/\D/g, '');
+                  setForm({ ...form, contact_number: digitsOnly.slice(0, contactRule.max) });
+                },
+                className: 'col-span-2 w-full p-2 border rounded bg-white',
+                inputMode: 'numeric',
+                maxLength: contactRule.max
+              }),
+              React.createElement('p', { className: 'col-span-3 text-[11px] text-slate-500' }, contactRule.label)
+            ),
             React.createElement('input', { placeholder: 'Division', value: form.division, onChange: (e) => setForm({ ...form, division: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
             React.createElement('input', { type: 'number', placeholder: 'Number of Attendees', min: '1', value: form.num_attendees, onChange: (e) => setForm({ ...form, num_attendees: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
             React.createElement('select', {
@@ -1320,6 +1376,15 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
 
+    const firstNonEmpty = (...values) => {
+      for (const value of values) {
+        if (value === null || value === undefined) continue;
+        const asString = String(value).trim();
+        if (asString) return asString;
+      }
+      return '';
+    };
+
     const start = res.start_time ? new Date(res.start_time) : null;
     const end = res.end_time ? new Date(res.end_time) : null;
     const startDateNeeded = start ? start.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
@@ -1329,7 +1394,34 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
       : (startDateNeeded || endDateNeeded || '');
     const startTime = start ? start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '';
     const endTime = end ? end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '';
-    const dateFiled = res.date_filed ? new Date(res.date_filed).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+    const dateFiledSource = res.date_filed || res.created_at || res.submitted_at;
+    const dateFiled = dateFiledSource
+      ? new Date(dateFiledSource).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : '';
+    const departmentCompany = firstNonEmpty(
+      res.department,
+      res.department_name,
+      res.company,
+      res.organization,
+      res.school_department,
+      res.division,
+      res.user_department,
+      res.requestor_department
+    );
+    const divisionName = firstNonEmpty(res.division, res.department, res.department_name, res.user_department);
+    const attendeeCount = firstNonEmpty(res.attendees, res.num_attendees, res.participants);
+    const personInCharge = firstNonEmpty(res.person_in_charge, res.requestor_name, res.requested_by, res.full_name);
+    const contactNumber = firstNonEmpty(res.contact_number, res.contact, res.phone_number, res.mobile_number);
+    const normalizedRequesterType = firstNonEmpty(res.requester_type, res.requestor_type, res.user_type).toLowerCase();
+    const requesterIsStudent = normalizedRequesterType.includes('student');
+    const requesterIsEmployee = normalizedRequesterType.includes('employee') || normalizedRequesterType.includes('faculty') || normalizedRequesterType.includes('staff');
+    const requesterIsOther = Boolean(normalizedRequesterType) && !requesterIsStudent && !requesterIsEmployee;
+    const normalizedActivityClassification = firstNonEmpty(res.classification, res.activity_classification)
+      .toLowerCase()
+      .replace(/[-_]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const isClassification = (label) => normalizedActivityClassification === label;
     const selectedRoom = rooms?.find(r => Number(r.id) === Number(res.room_id));
     const roomName = selectedRoom?.name || '';
     const roomCode = (selectedRoom?.code || '').toLowerCase();
@@ -1363,280 +1455,370 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
       const entry = Object.entries(equipmentQty).find(([k]) => k.includes(needle));
       return entry ? entry[1] : '';
     };
+    const headerImageUrl = `${window.location.origin}/header2.png`;
 
     const htmlContent = `
       <html>
       <head>
         <title>Common Facility Request Form</title>
         <style>
-          * { box-sizing: border-box; }
-          @page { size: 8.5in 13in; margin: 0.28in 0.35in; }
-          body { font-family: Arial, sans-serif; color: #000; margin: 0; font-size: 10.3px; line-height: 1.16; }
-          .page { width: 100%; }
-          .center { text-align: center; }
-          .school { font-size: 17px; font-weight: 700; margin-top: 1px; }
-          .sub { font-size: 10px; margin-top: 1px; }
-          .title-row { position: relative; width: 100%; margin-top: 4px; min-height: 34px; }
-          .title-cell { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font-size: 17px; font-weight: 700; letter-spacing: 0.2px; }
-          .code-cell { position: relative; z-index: 2; margin-left: auto; width: 21%; border: 1px solid #000; text-align: center; padding: 3px; font-size: 9px; background: #fff; }
-          .sp8 { height: 4px; }
-          .sp12 { height: 6px; }
-          .form-grid { width: 100%; border-collapse: collapse; margin-top: 4px; }
-          .form-grid td { width: 50%; vertical-align: top; padding: 2px 6px 2px 0; }
-          .line { display: inline-block; min-width: 145px; border-bottom: 1px solid #000; padding: 0 3px 0; font-weight: 600; }
-          .line-wide { min-width: 190px; }
-          .label { font-weight: 700; }
-          .checkline { font-size: 10px; font-weight: 600; }
-          .classification-heading { font-size: 14px; font-weight: 700; }
-          .classification-option { font-size: 13.5px; font-weight: 700; }
-          .section-title { text-align: center; font-size: 12px; font-weight: 700; margin: 5px 0 4px; }
-          .tri { width: 100%; border-collapse: collapse; }
-          .tri td { width: 33.33%; border: 1px solid #000; vertical-align: top; padding: 4px 6px; }
-          .tri ul { list-style: none; margin: 0; padding: 0; }
-          .tri li { margin: 2px 0; }
-          .gray { background: #e0e0e0; text-align: center; font-weight: 700; }
-          .note { margin-top: 6px; font-size: 9px; font-weight: 700; }
-          .approval { width: 100%; border-collapse: collapse; margin-top: 6px; }
-          .approval td { width: 33.33%; border: 1px solid #000; vertical-align: top; padding: 4px 6px; min-height: 72px; }
-          .sig-space { height: 28px; }
-          .sig-line { border-top: 1px solid #000; text-align: center; font-weight: 700; padding-top: 2px; }
-          .sig-role { text-align: center; font-size: 9px; }
-          .copy-row { width: 100%; border-collapse: collapse; margin-top: 5px; }
-          .copy-row td { width: 33.33%; vertical-align: top; padding: 1px 4px 1px 0; }
-          .copies { margin: 0; padding-left: 16px; }
-          .copies li { margin: 1px 0; }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            font-family: Arial, sans-serif;
+            font-size: 10pt;
+            background: #aaa;
+            display: flex;
+            justify-content: center;
+            padding: 30px;
+          }
+          .page {
+            width: 8.5in;
+            min-height: 13in;
+            background: white;
+            padding: 0.5in 0.75in;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+          }
+          .header-img { width: 100%; display: block; margin-bottom: 8px; }
+          .form-title-row {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            margin-bottom: 6px;
+            gap: 12px;
+          }
+          .form-title-spacer {}
+          .form-title {
+            font-size: 14pt;
+            font-weight: bold;
+            text-align: center;
+            padding: 4px 0;
+          }
+          .form-code-wrap { display: flex; justify-content: flex-end; }
+          .form-code {
+            border: 1px solid black;
+            padding: 2px 5px;
+            font-size: 7.5pt;
+            text-align: center;
+            line-height: 1.4;
+          }
+          .fields-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 4px 0;
+          }
+          .fields-table td {
+            border: none;
+            padding: 5px 6px;
+            font-size: 10pt;
+            white-space: nowrap;
+          }
+          .fields-table td b { font-weight: bold; }
+          .uline {
+            display: inline-block;
+            border-bottom: 1px solid black;
+            vertical-align: bottom;
+          }
+          .person-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 4px 0;
+          }
+          .person-table td {
+            border: none;
+            padding: 4px 6px;
+            font-size: 10pt;
+          }
+          .person-table td.label-cell {
+            text-align: center;
+            font-size: 9pt;
+            font-style: italic;
+            padding-top: 2px;
+          }
+          .classification-label {
+            font-weight: bold;
+            font-size: 10pt;
+            margin: 10px 0 4px;
+          }
+          .class-table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+          .class-table td {
+            border: none;
+            padding: 3px 6px;
+            font-size: 10pt;
+          }
+          .chk {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 10pt;
+            margin: 3px 0;
+            white-space: nowrap;
+          }
+          .section-header {
+            text-align: center;
+            font-weight: bold;
+            font-size: 10pt;
+            padding: 7px 0 4px;
+          }
+          .box-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 2px 0;
+          }
+          .box-table td {
+            border: 1px solid black;
+            padding: 6px 8px;
+            font-size: 10pt;
+            vertical-align: top;
+          }
+          .facility-col { width: 33.33%; }
+          .equip-col { width: 33.33%; }
+          .sig-space { height: 70px; }
+          .sig-space-sm { height: 50px; }
+          .sig-line {
+            border-top: 1px solid black;
+            text-align: center;
+            font-weight: bold;
+            font-size: 10pt;
+            padding-top: 3px;
+            margin-top: 2px;
+          }
+          .sig-role {
+            text-align: center;
+            font-size: 9pt;
+          }
+          .col-hdr {
+            background: #e0e0e0;
+            font-weight: bold;
+            text-align: center;
+            font-size: 10pt;
+            padding: 5px 8px;
+          }
+          .no-right { border-right: none !important; }
+          .no-left  { border-left:  none !important; }
+          .note {
+            font-size: 9pt;
+            font-weight: bold;
+            margin: 8px 0 6px;
+            line-height: 1.4;
+          }
+          .footer-label {
+            font-size: 9pt;
+            margin: 8px 0 4px;
+          }
+          .footer-table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+          .footer-table td {
+            border: none;
+            padding: 1px 6px;
+            font-size: 9pt;
+            vertical-align: top;
+            width: 33.33%;
+          }
           @media print {
-            body {
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-              zoom: 0.95;
-            }
+            body { background: white; padding: 0; }
+            .page { box-shadow: none; }
           }
         </style>
       </head>
       <body>
         <div class="page">
-          <div class="center school">University of Perpetual Help System Laguna</div>
-          <div class="center sub">City of Binan, Laguna, Philippines, 4024</div>
-          <div class="center sub">(02)779-5310 • (049)544-5150 • (049)544-5161</div>
-          <div class="center sub">www.uphsl.edu.ph</div>
 
-          <div class="title-row">
-            <div class="title-cell">COMMON FACILITY REQUEST FORM</div>
-            <div class="code-cell">
-              <div>UPHSJ/HK-CFRF-01</div>
-              <div>01-06-2020 01</div>
+          <img src="${headerImageUrl}" class="header-img" alt="Header" />
+
+          <div class="form-title-row">
+            <div class="form-title-spacer"></div>
+            <div class="form-title">COMMON FACILITY REQUEST FORM</div>
+            <div class="form-code-wrap">
+              <div class="form-code">
+                <div>UPHSJ/HK-CFRF-01</div>
+                <div>01-06-2020 01</div>
+              </div>
             </div>
           </div>
 
-          <table class="form-grid">
+          <table class="fields-table">
             <tr>
-              <td><span class="label">Activity/Purpose:</span> <span class="line line-wide">${escapeHtml(res.activity_purpose)}</span></td>
-              <td><span class="label">Department/Company:</span> <span class="line">${escapeHtml(res.department)}</span></td>
+              <td><b>Activity/Purpose:</b> <span class="uline" style="width:220px;">${escapeHtml(res.activity_purpose)}</span></td>
+              <td><b>Department/Company:</b> <span class="uline" style="width:175px;">${escapeHtml(departmentCompany)}</span></td>
             </tr>
             <tr>
-              <td><span class="label">Division:</span> <span class="line line-wide">${escapeHtml(res.division)}</span></td>
-              <td class="checkline">${checkbox(res.classification === 'Student')} Student &nbsp; ${checkbox(res.classification === 'Employee')} Employee &nbsp; ${checkbox(Boolean(res.classification && !['Student','Employee'].includes(res.classification)))} Others</td>
+              <td><b>Division:</b> <span class="uline" style="width:220px;">${escapeHtml(divisionName)}</span></td>
+              <td>${checkbox(requesterIsStudent)} Student &nbsp; ${checkbox(requesterIsEmployee)} Employee &nbsp; ${checkbox(requesterIsOther)} Others</td>
             </tr>
             <tr>
-              <td><span class="label">Number of Attendees:</span> <span class="line">${escapeHtml(res.attendees)}</span></td>
-              <td><span class="label">Date Needed:</span> <span class="line">${escapeHtml(dateNeeded)}</span></td>
+              <td><b>Number of Attendees:</b> <span class="uline" style="width:140px;">${escapeHtml(attendeeCount)}</span></td>
+              <td><b>Date Needed:</b> <span class="uline" style="width:170px;">${escapeHtml(dateNeeded)}</span></td>
             </tr>
             <tr>
-              <td><span class="label">Date Filed:</span> <span class="line">${escapeHtml(dateFiled)}</span></td>
-              <td><span class="label">Time Needed:</span> <span class="line">${escapeHtml(startTime)}</span> to <span class="line">${escapeHtml(endTime)}</span></td>
-            </tr>
-          </table>
-
-          <table class="form-grid">
-            <tr>
-              <td>
-                <span class="label">Person in Charge of the Activity:</span>
-                <div class="center" style="margin-top:2px;">
-                  <span class="line">${escapeHtml(res.person_in_charge)}</span>
-                </div>
-              </td>
-              <td class="center" rowspan="2" style="vertical-align:top;">
-                <div>
-                  <span class="line line-wide">${escapeHtml(res.contact_number)}</span>
-                </div>
-                <div style="font-size:11px; margin-top:2px;"><i>Contact Number</i></div>
-              </td>
-            </tr>
-            <tr>
-              <td class="center" style="font-size:11px;"><i>Signature over Printed Name</i></td>
+              <td><b>Date Filed:</b> <span class="uline" style="width:170px;">${escapeHtml(dateFiled)}</span></td>
+              <td><b>Time Needed:</b> <span class="uline" style="width:85px;">${escapeHtml(startTime)}</span> to <span class="uline" style="width:85px;">${escapeHtml(endTime)}</span></td>
             </tr>
           </table>
 
-          <div class="sp8"></div>
-          <div><span class="classification-heading">CLASSIFICATION OF ACTIVITIES:</span></div>
-          <table class="form-grid" style="margin-top:4px;">
+          <table class="person-table">
             <tr>
-              <td class="classification-option">${checkbox(res.classification === 'Institutional')} Institutional</td>
-              <td class="classification-option">${checkbox(res.classification === 'Curricular')} Curricular</td>
-              <td class="classification-option">${checkbox(res.classification === 'Outside Group')} Outside Group</td>
+              <td style="width:65%; font-size:9pt;">
+                <b>Person in Charge of the Activity:</b>
+                <span style="display:inline-block; text-align:center; vertical-align:top; margin-left:4px;">
+                  <span class="uline" style="width:140px; display:block;">${escapeHtml(personInCharge)}</span>
+                  <span style="font-size:8pt; font-style:italic;">Signature over Printed Name</span>
+                </span>
+              </td>
+              <td style="width:35%; font-size:9pt; text-align:center;">
+                <span style="display:inline-block; text-align:center;">
+                  <span class="uline" style="width:120px; display:block;">${escapeHtml(contactNumber)}</span>
+                  <span style="font-size:8pt; font-style:italic;">Contact Number</span>
+                </span>
+              </td>
+            </tr>
+          </table>
+
+          <div class="classification-label">CLASSIFICATION OF ACTIVITIES:</div>
+          <table class="class-table" style="margin-top:4px;">
+            <tr>
+              <td class="classification-option">${checkbox(isClassification('institutional'))} Institutional</td>
+              <td class="classification-option">${checkbox(isClassification('curricular'))} Curricular</td>
+              <td class="classification-option">${checkbox(isClassification('outside group'))} Outside Group</td>
             </tr>
             <tr>
-              <td class="classification-option">${checkbox(res.classification === 'Co-Curricular')} Co-Curricular</td>
-              <td class="classification-option">${checkbox(res.classification === 'Extra Curricular')} Extra Curricular</td>
+              <td class="classification-option">${checkbox(isClassification('co curricular'))} Co-Curricular</td>
+              <td class="classification-option">${checkbox(isClassification('extra curricular'))} Extra Curricular</td>
               <td></td>
             </tr>
           </table>
 
-          <div class="section-title">FACILITY REQUEST</div>
-          <table class="tri">
+          <div class="section-header">FACILITY REQUEST</div>
+          <table class="box-table">
             <tr>
-              <td>
-                <ul>
-                  <li>${checkbox(isPAT)} PAT</li>
-                  <li>${checkbox(isCollegeLobby)} COLLEGE LOBBY</li>
-                  <li>${checkbox(isQuadrangle)} QUADRANGLE</li>
-                </ul>
+              <td class="facility-col">
+                <div class="chk">${checkbox(isPAT)} PAT</div>
+                <div class="chk">${checkbox(isCollegeLobby)} COLLEGE LOBBY</div>
+                <div class="chk">${checkbox(isQuadrangle)} QUADRANGLE</div>
               </td>
-              <td>
-                <ul>
-                  <li>${checkbox(isAchieversPark)} ACHIEVERS PARK</li>
-                  <li>${checkbox(isTvStudio)} TV STUDIO</li>
-                  <li>${checkbox(isRadioRoom)} RADIO ROOM</li>
-                </ul>
+              <td class="facility-col">
+                <div class="chk">${checkbox(isAchieversPark)} ACHIEVERS PARK</div>
+                <div class="chk">${checkbox(isTvStudio)} TV STUDIO</div>
+                <div class="chk">${checkbox(isRadioRoom)} RADIO ROOM</div>
               </td>
-              <td>
-                <ul>
-                  <li>${checkbox(isStudioRoom)} STUDIO ROOM</li>
-                  <li>${checkbox(isOthersFacility)} OTHERS: ${isOthersFacility ? escapeHtml(roomName) : ''}</li>
-                </ul>
+              <td class="facility-col">
+                <div class="chk">${checkbox(isStudioRoom)} STUDIO ROOM</div>
+                <div class="chk">${checkbox(isOthersFacility)} OTHERS: <span class="uline" style="width:90px;">${isOthersFacility ? escapeHtml(roomName) : ''}</span></div>
               </td>
             </tr>
           </table>
 
-          <div class="section-title">EQUIPMENT/SERVICES TO BE PROVIDED</div>
-          <table class="tri">
+          <div class="section-header">EQUIPMENT/SERVICES TO BE PROVIDED</div>
+          <table class="box-table">
             <tr>
-              <td>
-                <ul>
-                  <li>${checkbox(hasMatch('table'))} Tables ${escapeHtml(qtyByNeedle('table'))}</li>
-                  <li>${checkbox(hasMatch('chair'))} Chairs ${escapeHtml(qtyByNeedle('chair'))}</li>
-                  <li>${checkbox(hasMatch('philippine flag'))} Philippine Flag ${escapeHtml(qtyByNeedle('philippine flag'))}</li>
-                  <li>${checkbox(hasMatch('university flag'))} University Flag ${escapeHtml(qtyByNeedle('university flag'))}</li>
-                  <li>${checkbox(hasMatch('college flag'))} College Flag ${escapeHtml(qtyByNeedle('college flag'))}</li>
-                </ul>
+              <td class="equip-col">
+                <div class="chk">${checkbox(hasMatch('table'))} Tables <span class="uline" style="width:60px;">${escapeHtml(qtyByNeedle('table'))}</span></div>
+                <div class="chk">${checkbox(hasMatch('chair'))} Chairs <span class="uline" style="width:60px;">${escapeHtml(qtyByNeedle('chair'))}</span></div>
+                <div class="chk">${checkbox(hasMatch('philippine flag'))} Philippine Flag <span class="uline" style="width:40px;">${escapeHtml(qtyByNeedle('philippine flag'))}</span></div>
+                <div class="chk">${checkbox(hasMatch('university flag'))} University Flag <span class="uline" style="width:40px;">${escapeHtml(qtyByNeedle('university flag'))}</span></div>
+                <div class="chk">${checkbox(hasMatch('college flag'))} College Flag <span class="uline" style="width:40px;">${escapeHtml(qtyByNeedle('college flag'))}</span></div>
               </td>
-              <td>
-                <ul>
-                  <li>${checkbox(hasMatch('lcd projector'))} LCD Projector ${escapeHtml(qtyByNeedle('lcd projector'))}</li>
-                  <li>${checkbox(hasMatch('white screen'))} White Screen ${escapeHtml(qtyByNeedle('white screen'))}</li>
-                  <li>${checkbox(hasMatch('tv'))} TV ${escapeHtml(qtyByNeedle('tv'))}</li>
-                  <li>${checkbox(hasMatch('still camera'))} Still Camera ${escapeHtml(qtyByNeedle('still camera'))}</li>
-                  <li>${checkbox(hasMatch('video camera'))} Video Camera ${escapeHtml(qtyByNeedle('video camera'))}</li>
-                </ul>
+              <td class="equip-col">
+                <div class="chk">${checkbox(hasMatch('lcd projector'))} LCD Projector <span class="uline" style="width:30px;">${escapeHtml(qtyByNeedle('lcd projector'))}</span></div>
+                <div class="chk">${checkbox(hasMatch('white screen'))} White Screen <span class="uline" style="width:30px;">${escapeHtml(qtyByNeedle('white screen'))}</span></div>
+                <div class="chk">${checkbox(hasMatch('tv'))} TV <span class="uline" style="width:50px;">${escapeHtml(qtyByNeedle('tv'))}</span></div>
+                <div class="chk">${checkbox(hasMatch('still camera'))} Still Camera <span class="uline" style="width:30px;">${escapeHtml(qtyByNeedle('still camera'))}</span></div>
+                <div class="chk">${checkbox(hasMatch('video camera'))} Video Camera <span class="uline" style="width:30px;">${escapeHtml(qtyByNeedle('video camera'))}</span></div>
               </td>
-              <td>
-                <ul>
-                  <li>${checkbox(hasMatch('sound system'))} Sound System ${escapeHtml(qtyByNeedle('sound system'))}</li>
-                  <li>${checkbox(hasMatch('microphone'))} Microphone ${escapeHtml(qtyByNeedle('microphone'))}</li>
-                  <li>${checkbox(hasMatch('speaker'))} Speaker ${escapeHtml(qtyByNeedle('speaker'))}</li>
-                  <li>${checkbox(hasMatch('lights set-up') || hasMatch('lights setup'))} Lights Set-up ${escapeHtml(qtyByNeedle('lights'))}</li>
-                  <li>${checkbox(hasMatch('podium'))} Podium ${escapeHtml(qtyByNeedle('podium'))} &nbsp;&nbsp; ${checkbox(hasMatch('laptop'))} Laptop ${escapeHtml(qtyByNeedle('laptop'))}</li>
-                </ul>
+              <td class="equip-col">
+                <div class="chk">${checkbox(hasMatch('sound system'))} Sound System <span class="uline" style="width:30px;">${escapeHtml(qtyByNeedle('sound system'))}</span></div>
+                <div class="chk">${checkbox(hasMatch('microphone'))} Microphone <span class="uline" style="width:30px;">${escapeHtml(qtyByNeedle('microphone'))}</span></div>
+                <div class="chk">${checkbox(hasMatch('speaker'))} Speaker <span class="uline" style="width:40px;">${escapeHtml(qtyByNeedle('speaker'))}</span></div>
+                <div class="chk">${checkbox(hasMatch('lights set-up') || hasMatch('lights setup'))} Lights Set-up <span class="uline" style="width:30px;">${escapeHtml(qtyByNeedle('lights'))}</span></div>
+                <div class="chk">${checkbox(hasMatch('podium'))} Podium <span class="uline" style="width:20px;">${escapeHtml(qtyByNeedle('podium'))}</span> &nbsp; ${checkbox(hasMatch('laptop'))} Laptop <span class="uline" style="width:20px;">${escapeHtml(qtyByNeedle('laptop'))}</span></div>
               </td>
             </tr>
           </table>
 
-          <div class="sp8"></div>
-          <table class="tri">
+          <table class="box-table" style="margin-top:6px;">
             <tr>
-              <td class="gray">HOUSEKEEPING</td>
-              <td class="gray">SECURITY</td>
-              <td class="gray">ENGINEERING SERVICES</td>
+              <td class="col-hdr" style="width:28%;">HOUSEKEEPING</td>
+              <td class="col-hdr" style="width:28%;">SECURITY</td>
+              <td class="col-hdr" style="width:44%;">ENGINEERING SERVICES</td>
             </tr>
             <tr>
-              <td>
-                <ul>
-                  <li>${checkbox(requestedServices.housekeeping?.needed)} HK Staff ${escapeHtml(requestedServices.housekeeping?.count || '')}</li>
-                </ul>
+              <td style="vertical-align:bottom; padding-bottom:6px; width:28%;">
+                <div class="chk">${checkbox(requestedServices.housekeeping?.needed)} HK Staff <span class="uline" style="width:50px;">${escapeHtml(requestedServices.housekeeping?.count || '')}</span></div>
+                <div style="height:68px;"></div>
+                <div class="sig-line">GARRY A. SANTOS</div>
+                <div class="sig-role">Executive Housekeeper</div>
               </td>
-              <td>
-                <ul>
-                  <li>${checkbox(requestedServices.security_guard)} Security Guard (${yesNo(requestedServices.security_guard)})</li>
-                </ul>
+              <td style="vertical-align:bottom; padding-bottom:6px; width:28%;">
+                <div class="chk">${checkbox(requestedServices.security_guard)} Security Guard</div>
+                <div style="height:68px;"></div>
+                <div class="sig-line">MR. CRISANTO NERO</div>
+                <div class="sig-role">VCS-SSEM-P</div>
               </td>
-              <td>
-                <ul>
-                  <li>${checkbox(requestedServices.engineering?.aircon)} Aircon</li>
-                  <li>${checkbox(requestedServices.engineering?.elevator)} Elevator</li>
-                  <li>${checkbox(requestedServices.engineering?.electrical_setup)} Electrical Set-up</li>
-                  <li>${checkbox(Boolean(requestedServices.engineering?.others))} Others: ${escapeHtml(requestedServices.engineering?.others || '')}</li>
-                </ul>
+              <td style="width:44%; padding:6px 8px; vertical-align:bottom; padding-bottom:6px;">
+                <div class="chk">${checkbox(requestedServices.engineering?.aircon)} Aircon &nbsp;&nbsp; ${checkbox(requestedServices.engineering?.electrical_setup)} Electrical Set-up</div>
+                <div class="chk">${checkbox(requestedServices.engineering?.elevator)} Elevator &nbsp;&nbsp; ${checkbox(Boolean(requestedServices.engineering?.others))} Others <span class="uline" style="width:50px;">${escapeHtml(requestedServices.engineering?.others || '')}</span></div>
+                <div style="height:28px;"></div>
+                <div class="sig-line">ENGR. RODRIGO SANTOS JR.</div>
+                <div class="sig-role">General Services Director - School</div>
               </td>
             </tr>
           </table>
 
           <div class="note">NOTE: THIS FORM MUST BE ACCOMPLISHED AND APPROVED WITHIN 5 WORKING DAYS UPON INITIAL RESERVATION TO AVOID CANCELLATION.</div>
 
-          <table class="approval">
+          <table class="box-table" style="font-size:9pt;">
             <tr>
-              <td>
+              <td style="width:33.33%; vertical-align:top; padding:6px 8px; font-size:9pt;">
                 <div>Noted by:</div>
-                <div class="sig-space"></div>
-                <div class="sig-line">MR. OLIVER M. JUNIO</div>
-                <div class="sig-role">DEAN/DEPARTMENT HEAD</div>
+                <div style="height:55px;"></div>
+                <div class="sig-line"></div>
+                <div class="sig-role" style="font-size:8pt;">DEAN/DEPARTMENT HEAD</div>
               </td>
-              <td>
+              <td class="no-right" style="width:33.33%; vertical-align:top; padding:6px 8px; font-size:9pt;">
                 <div>Recommending Approval:</div>
-                <div style="font-size:9px;"><i>(For Audiovisual Facilities UPHSL)</i></div>
-                <div class="sig-space"></div>
-                <div class="sig-line">MR. RUEL B. RILLORAZA</div>
-                <div class="sig-role">Head/Audiovisual Facilities</div>
+                <div style="font-size:8pt;font-style:italic;">(For Audiovisual Facilities UPHSL)</div>
+                <div style="height:30px;"></div>
+                <div class="sig-line" style="font-size:9pt;">MR. RUEL B. RILLORAZA</div>
+                <div class="sig-role" style="font-size:8pt;">Head/Audiovisual Facilities</div>
               </td>
-              <td>
+              <td class="no-left" style="width:33.33%; vertical-align:top; padding:6px 8px; font-size:9pt;">
                 <div>Recommending Approval:</div>
-                <div style="font-size:9px;"><i>(For Athletic Facilities)</i></div>
-                <div class="sig-space"></div>
-                <div class="sig-line">DR. MICHAEL N. VERDEJO, MAED</div>
-                <div class="sig-role">Athletic Director</div>
+                <div style="font-size:8pt;font-style:italic;">(For Athletic Facilities)</div>
+                <div style="height:30px;"></div>
+                <div class="sig-line" style="font-size:9pt;">DR. MICHAEL N. VERDEJO, MAED</div>
+                <div class="sig-role" style="font-size:8pt;">Athletic Director</div>
               </td>
             </tr>
             <tr>
-              <td>
-                <div class="sig-space"></div>
-                <div class="sig-line">MR. MANUELITO V. CASTRILLO</div>
-                <div class="sig-role">Exec. VP for Administration Jonelta System</div>
+              <td class="no-right" style="vertical-align:top; padding:6px 8px; font-size:9pt;">
+                <div style="height:50px;"></div>
+                <div class="sig-line" style="font-size:9pt;">MR. MANUELITO V. CASTRILLO</div>
+                <div class="sig-role" style="font-size:8pt;">Exec. VP for Administration Jonelta System</div>
               </td>
-              <td>
+              <td class="no-right no-left" style="vertical-align:top; padding:6px 8px; font-size:9pt;">
                 <div>Approved by:</div>
-                <div class="sig-space"></div>
-                <div class="sig-line">DR. FERDINAND C. SOMIDO</div>
-                <div class="sig-role">Executive School Director</div>
+                <div style="height:40px;"></div>
+                <div class="sig-line" style="font-size:9pt;">DR. FERDINAND C. SOMIDO</div>
+                <div class="sig-role" style="font-size:8pt;">Executive School Director</div>
               </td>
-              <td>
-                <div class="sig-space"></div>
-                <div class="sig-line">DR. ARCADIO L. TAMAYO</div>
-                <div class="sig-role">Chancellor-UPH-DJGTMU</div>
+              <td class="no-left" style="vertical-align:top; padding:6px 8px; font-size:9pt;">
+                <div style="height:50px;"></div>
+                <div class="sig-line" style="font-size:9pt;">DR. ARCADIO L. TAMAYO</div>
+                <div class="sig-role" style="font-size:8pt;">Chancellor-UPH-DJGTMU</div>
               </td>
             </tr>
           </table>
 
-          <div style="margin-top:5px; font-size:9px;">Provide a copy of accomplishment form to the following:</div>
-          <table class="copy-row">
+          <div class="footer-label">Provide a copy of accomplishment form to the following:</div>
+          <table class="footer-table">
             <tr>
-              <td>
-                <ul class="copies">
-                  <li>Engineering Services Office</li>
-                  <li>Housekeeping Department</li>
-                </ul>
-              </td>
-              <td>
-                <ul class="copies">
-                  <li>Security Department</li>
-                  <li>Audiovisual (MU)</li>
-                </ul>
-              </td>
-              <td>
-                <ul class="copies">
-                  <li>Audiovisual Facilities Office</li>
-                  <li>Athletic Department</li>
-                </ul>
-              </td>
+              <td>&bull; Engineering Services Office<br>&bull; Housekeeping Department</td>
+              <td>&bull; Security Department<br>&bull; Audiovisual (MU)</td>
+              <td>&bull; Audiovisual Facilities Office<br>&bull; Athletic Department</td>
             </tr>
           </table>
         </div>
