@@ -1189,7 +1189,7 @@ def admin_delete_user(id):
     ).all()
 
     placeholder = User.query.filter_by(username='deleted_account').first()
-        placeholder.set_password(os.urandom(32).hex())
+    if not placeholder:
         placeholder = User(username='deleted_account', role='student', department='Archived Accounts')
         placeholder.set_password('deleted_account')
         db.session.add(placeholder)
