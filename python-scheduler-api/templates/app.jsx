@@ -176,20 +176,135 @@ const apiService = {
     return response.json();
   },
 
-  async getDataMiningAnalytics(filters = {}) {
-    const params = new URLSearchParams();
-    if (filters.department && filters.department !== 'All') params.set('department', filters.department);
-    if (filters.heatmapMonth && filters.heatmapMonth !== 'all') params.set('heatmap_month', filters.heatmapMonth);
-    const queryString = params.toString();
-    const endpoint = queryString ? `${API_BASE}/data-mining/analytics?${queryString}` : `${API_BASE}/data-mining/analytics`;
+  async createHoliday(payload) {
+    const response = await fetch(`${API_BASE}/holidays`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || data.error || 'Failed to create holiday');
+    return data;
+  },
 
-    const response = await fetch(endpoint, { credentials: 'include' });
+  async getDataMiningAnalytics() {
+    const response = await fetch(`${API_BASE}/data-mining/analytics`, { credentials: 'include' });
     if (!response.ok) throw new Error('Failed to fetch analytics');
     const payload = await response.json();
     if (payload.status !== 'success') throw new Error(payload.message || 'Analytics fetch failed');
     return payload.data;
+  },
+
+  async adminCreateFacility(payload) {
+    const response = await fetch(`${API_BASE}/admin/facilities`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to create facility');
+    return data;
+  },
+
+  async adminUpdateFacility(id, payload) {
+    const response = await fetch(`${API_BASE}/admin/facilities/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to update facility');
+    return data;
+  },
+
+  async adminDeleteFacility(id) {
+    const response = await fetch(`${API_BASE}/admin/facilities/${id}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to delete facility');
+    return data;
+  },
+
+  async adminUploadFacilityImage(file, previousImageUrl = '') {
+    const formData = new FormData();
+    formData.append('image', file);
+    if (previousImageUrl) {
+      formData.append('previous_image_url', previousImageUrl);
+    }
+    const response = await fetch(`${API_BASE}/admin/facilities/upload-image`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to upload image');
+    return data.image_url;
+  },
+
+  async adminGetUsers() {
+    const response = await fetch(`${API_BASE}/admin/users`, { credentials: 'include' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to fetch users');
+    return data;
+  },
+
+  async adminCreateUser(payload) {
+    const response = await fetch(`${API_BASE}/admin/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to create user');
+    return data;
+  },
+
+  async adminUpdateUser(id, payload) {
+    const response = await fetch(`${API_BASE}/admin/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to update user');
+    return data;
+  },
+
+  async adminDeleteUser(id) {
+    const response = await fetch(`${API_BASE}/admin/users/${id}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to delete user');
+    return data;
+  },
+
+  async updateMyPassword(currentPassword, newPassword) {
+    const response = await fetch(`${API_BASE}/settings/password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to update password');
+    return data;
   }
 };
+
+function confirmDeleteAction(targetLabel) {
+  return window.confirm(
+    `WARNING: You are about to permanently delete ${targetLabel}.\n\nThis action cannot be undone.\n\nPress OK to continue.`
+  );
+}
 
 // ==================== MAIN APP ====================
 function App() {
@@ -249,12 +364,12 @@ function App() {
           return { ...r, notification_type };
         });
     }
-    // Users see their own reservations: denied, deleted, concept-approved, or fully approved
+    // Users see their own reservations: denied/cancelled, concept-approved, or fully approved
     return reservations
       .filter(r => r.user_id === currentUser.id && !r.archived_at)
       .filter(r => {
         if (r.status === 'denied' && !seenNotifications.includes(`user-${r.id}`)) return true;
-        if (r.status === 'deleted' && !seenNotifications.includes(`user-${r.id}`)) return true;
+        if ((r.status === 'cancelled' || r.status === 'deleted') && !seenNotifications.includes(`user-${r.id}`)) return true;
         if (r.status === 'concept-approved' && !seenNotifications.includes(`user-concept-${r.id}`)) return true;
         if (r.status === 'approved' && !seenNotifications.includes(`user-approved-${r.id}`)) return true;
         return false;
@@ -371,7 +486,7 @@ function App() {
     return React.createElement(LoginPage, { onLogin: handleLogin, loading, error });
   }
 
-  const archive = reservations.filter(r => r.archived_at || r.status === 'denied' || r.status === 'deleted');
+  const archive = reservations.filter(r => r.archived_at || r.status === 'denied' || r.status === 'cancelled' || r.status === 'deleted');
 
   // UI matching index-old.jsx (sidebar layout)
   return React.createElement('div', { className: 'flex h-screen bg-slate-50 overflow-hidden' },
@@ -409,11 +524,50 @@ function App() {
       // Main content
       React.createElement('main', { className: 'flex-1 overflow-y-auto p-4 md:p-8' },
         currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
-        currentView === 'calendar' && React.createElement(CalendarView, { events: calendarEvents, rooms, onViewEvent: (e) => { setSelectedRes(e); setActiveModal('eventDetails'); } }),
-        currentView === 'facilities' && React.createElement(FacilitiesView, { rooms, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
+        currentView === 'calendar' && React.createElement(CalendarView, {
+          events: calendarEvents,
+          rooms,
+          isAdmin: isAdminOrPhase1,
+          onAddHoliday: () => setActiveModal('holiday'),
+          onViewEvent: (e) => { setSelectedRes(e); setActiveModal('eventDetails'); }
+        }),
+        currentView === 'facilities' && React.createElement(FacilitiesView, {
+          rooms,
+          isAdmin: isAdminOrPhase1,
+          onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); },
+          onRoomsUpdated: async () => {
+            const data = await apiService.getRooms();
+            setRooms(data);
+          },
+          onNotify: (message) => {
+            setNotification(message);
+            setActiveModal('notification');
+          }
+        }),
+        currentView === 'settings' && isAdminOrPhase1 && React.createElement(SettingsView, {
+          currentUser,
+          rooms,
+          onRoomsUpdated: async () => {
+            const data = await apiService.getRooms();
+            setRooms(data);
+          },
+          onNotify: (message) => {
+            setNotification(message);
+            setActiveModal('notification');
+          }
+        }),
         currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at && r.user_id !== currentUser.id), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
         currentView === 'analytics' && isAdminOrPhase1 && React.createElement(AnalyticsView, { reservations }),
-        currentView === 'archive' && React.createElement(ArchiveView, { archive, user: currentUser, isAdmin: isAdminOrPhase1, onDelete: async (id) => { if (window.confirm('Delete?')) { await apiService.deleteReservation(id); setReservations(reservations.filter(r => r.id !== id)); } } })
+        currentView === 'archive' && React.createElement(ArchiveView, {
+          archive,
+          user: currentUser,
+          isAdmin: isAdminOrPhase1,
+          onDelete: async (id) => {
+            if (!confirmDeleteAction('this reservation record')) return;
+            await apiService.deleteReservation(id);
+            setReservations(reservations.filter(r => r.id !== id));
+          }
+        })
       )
     ),
     // Modals
@@ -508,7 +662,22 @@ function App() {
           setCalendarEvents(events);
           const res = await apiService.getReservations();
           setReservations(res);
-          setNotification('Event deleted and user notified');
+          setNotification('Event cancelled and user notified');
+          setActiveModal('notification');
+        } catch (err) { setError(err.message); }
+        finally { setLoading(false); }
+      },
+      loading
+    }),
+    activeModal === 'holiday' && React.createElement(HolidayModal, {
+      onClose: () => setActiveModal(null),
+      onConfirm: async (payload) => {
+        setLoading(true);
+        try {
+          await apiService.createHoliday(payload);
+          const events = await apiService.getCalendarEvents();
+          setCalendarEvents(events);
+          setNotification('Holiday added to calendar. Reservations are now blocked for that date.');
           setActiveModal('notification');
         } catch (err) { setError(err.message); }
         finally { setLoading(false); }
@@ -558,7 +727,8 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin, mobileMenuOpen
       isAdmin && React.createElement('div', { className: 'pt-4 mt-4 border-t' }, 
         React.createElement('p', { className: 'text-xs font-bold text-slate-400 uppercase mb-2 px-3' }, 'Admin Panel'), 
         React.createElement(NavBtn, { id: 'reservations', label: '📋 Requests' }), 
-        React.createElement(NavBtn, { id: 'analytics', label: '📈 Analytics' })
+        React.createElement(NavBtn, { id: 'analytics', label: '📈 Analytics' }),
+        React.createElement(NavBtn, { id: 'settings', label: '⚙️ Settings' })
       ),
       React.createElement(NavBtn, { id: 'archive', label: '📦 Archive' })
     ),
@@ -611,7 +781,7 @@ function StatCard({ label, val }) {
 }
 
 function Badge({ status }) {
-  const colors = { pending: 'bg-yellow-100 text-yellow-700', 'concept-approved': 'bg-blue-100 text-blue-700', approved: 'bg-green-100 text-green-700', denied: 'bg-red-100 text-red-700', archived: 'bg-amber-100 text-amber-700', deleted: 'bg-slate-100 text-slate-700' };
+  const colors = { pending: 'bg-yellow-100 text-yellow-700', 'concept-approved': 'bg-blue-100 text-blue-700', approved: 'bg-green-100 text-green-700', denied: 'bg-red-100 text-red-700', archived: 'bg-amber-100 text-amber-700', cancelled: 'bg-yellow-100 text-yellow-700', deleted: 'bg-yellow-100 text-yellow-700' };
   return React.createElement('span', { className: `px-3 py-1 rounded-full text-xs font-bold ${colors[status] || 'bg-slate-100 text-slate-700'}` }, status);
 }
 
@@ -668,7 +838,8 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     activity_purpose: '',
     person_in_charge: '',
     contact_number: '',
-    event_date: '',
+    event_start_date: '',
+    event_end_date: '',
     start_hour: '',
     start_minute: '',
     start_period: '',
@@ -688,6 +859,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     engineering_electrical_setup: false,
     engineering_others: ''
   });
+  const [hasEndDate, setHasEndDate] = useState(false);
   const [localError, setLocalError] = useState('');
 
   // Get available equipment based on selected room
@@ -713,7 +885,8 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     if (!form.activity_purpose?.trim()) missingFields.push('Activity Purpose');
     if (!form.person_in_charge?.trim()) missingFields.push('Person In Charge');
     if (!form.contact_number?.trim()) missingFields.push('Contact');
-    if (!form.event_date) missingFields.push('Event Date');
+    if (!form.event_start_date) missingFields.push('Start Date');
+    if (hasEndDate && !form.event_end_date) missingFields.push('End Date');
     if (!form.concept_paper_url?.trim()) missingFields.push('Concept Paper Link');
     if (!form.division?.trim()) missingFields.push('Division');
     if (!form.num_attendees || Number(form.num_attendees) < 1) missingFields.push('Number of Attendees');
@@ -765,26 +938,56 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     }
 
     // Check for double booking against approved calendar events
-    const newStart = startTime;
-    const newEnd = endTime;
-    const newDate = form.event_date;
+    const effectiveEndDate = hasEndDate ? form.event_end_date : form.event_start_date;
+    const newStartIso = `${form.event_start_date}T${startTime}`;
+    const newEndIso = `${effectiveEndDate}T${endTime}`;
+    const newStartDate = new Date(newStartIso);
+    const newEndDate = new Date(newEndIso);
+
+    if (Number.isNaN(newStartDate.getTime()) || Number.isNaN(newEndDate.getTime())) {
+      setLocalError('Please provide valid start/end dates and times.');
+      return;
+    }
+
+    if (newEndDate <= newStartDate) {
+      setLocalError('End date/time must be after start date/time.');
+      return;
+    }
+
     const newRoomId = parseInt(form.room_id);
 
+    const holidayConflict = (calendarEvents || []).find(e => {
+      const isHoliday = e.event_type === 'holiday' || e.is_holiday;
+      if (!isHoliday || !e.start_time || !e.end_time) return false;
+      const holidayStart = new Date(e.start_time);
+      const holidayEnd = new Date(e.end_time);
+      if (Number.isNaN(holidayStart.getTime()) || Number.isNaN(holidayEnd.getTime())) return false;
+      return newStartDate <= holidayEnd && newEndDate >= holidayStart;
+    });
+
+    if (holidayConflict) {
+      const holidayName = holidayConflict.holiday_name || holidayConflict.activity_purpose || 'holiday';
+      setLocalError(`Reservations are suspended on this date due to ${holidayName}. Please pick another date.`);
+      return;
+    }
+
     const conflict = (calendarEvents || []).find(e => {
+      if (e.event_type === 'holiday' || e.is_holiday) return false;
+      const eventStatus = String(e.status || '').toLowerCase();
+      if (eventStatus === 'cancelled' || eventStatus === 'deleted' || eventStatus === 'denied') return false;
       if (e.room_id != newRoomId) return false;
-      const eventDate = e.start_time?.split('T')[0];
-      if (eventDate !== newDate) return false;
-      const eventStart = e.start_time?.split('T')[1]?.substring(0, 5) || '';
-      const eventEnd = e.end_time?.split('T')[1]?.substring(0, 5) || '';
-      // Check time overlap: newStart < eventEnd AND newEnd > eventStart
-      return (newStart < eventEnd) && (newEnd > eventStart);
+      if (!e.start_time || !e.end_time) return false;
+      const eventStart = new Date(e.start_time);
+      const eventEnd = new Date(e.end_time);
+      if (Number.isNaN(eventStart.getTime()) || Number.isNaN(eventEnd.getTime())) return false;
+      return newStartDate < eventEnd && newEndDate > eventStart;
     });
 
     if (conflict) {
       const roomName = rooms?.find(r => r.id == newRoomId)?.name || 'This space';
-      const conflictStart = conflict.start_time?.split('T')[1]?.substring(0, 5) || '';
-      const conflictEnd = conflict.end_time?.split('T')[1]?.substring(0, 5) || '';
-      setLocalError(`Double Booking Detected: ${roomName} is already reserved for "${conflict.activity_purpose}" during this time (${conflictStart}-${conflictEnd}).`);
+      const conflictStart = conflict.start_time ? new Date(conflict.start_time).toLocaleString() : '';
+      const conflictEnd = conflict.end_time ? new Date(conflict.end_time).toLocaleString() : '';
+      setLocalError(`Double Booking Detected: ${roomName} is already reserved for "${conflict.activity_purpose}" during this range (${conflictStart} - ${conflictEnd}).`);
       return;
     }
 
@@ -805,8 +1008,8 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
 
     const formData = {
       ...form,
-      start_time: `${form.event_date}T${startTime}`,
-      end_time: `${form.event_date}T${endTime}`,
+      start_time: newStartIso,
+      end_time: newEndIso,
       equipment_data: {
         ...form.equipment,
         services: servicesData
@@ -819,9 +1022,12 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
   };
 
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
-    React.createElement('div', { className: 'bg-white rounded-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto' },
+    React.createElement('div', { className: 'bg-white rounded-2xl w-full max-w-5xl p-6 max-h-[90vh] overflow-y-auto' },
       React.createElement('div', { className: 'flex justify-between items-center mb-4' },
-        React.createElement('h3', { className: 'font-bold' }, 'New Reservation'),
+        React.createElement('div', {},
+          React.createElement('h3', { className: 'font-bold text-lg text-slate-800' }, 'New Reservation'),
+          React.createElement('p', { className: 'text-xs text-slate-500' }, 'Fill in details by section for faster review')
+        ),
         React.createElement('button', { onClick: onClose, className: 'text-2xl' }, '✕')
       ),
       // Error banner
@@ -829,45 +1035,77 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
         React.createElement('span', {}, '⚠️'),
         React.createElement('p', {}, localError)
       ),
-      React.createElement('form', { onSubmit: handleSubmit, className: 'space-y-3' },
-        React.createElement('select', { 
-          value: form.room_id, 
-          onChange: (e) => setForm({ ...form, room_id: e.target.value, equipment: {} }), 
-          className: 'w-full p-2 border rounded', 
-          required: true 
-        },
-          React.createElement('option', { value: '' }, 'Select space'),
-          rooms.map(r => React.createElement('option', { key: r.id, value: r.id }, `${r.name} (${r.capacity})`)
-        )),
-        React.createElement('input', { placeholder: 'Activity Purpose', value: form.activity_purpose, onChange: (e) => setForm({ ...form, activity_purpose: e.target.value }), className: 'w-full p-2 border rounded', required: true }),
-        React.createElement('input', { placeholder: 'Person In Charge', value: form.person_in_charge, onChange: (e) => setForm({ ...form, person_in_charge: e.target.value }), className: 'w-full p-2 border rounded' }),
-        React.createElement('input', { placeholder: 'Contact', value: form.contact_number, onChange: (e) => setForm({ ...form, contact_number: e.target.value }), className: 'w-full p-2 border rounded' }),
-        React.createElement('input', { placeholder: 'Division', value: form.division, onChange: (e) => setForm({ ...form, division: e.target.value }), className: 'w-full p-2 border rounded' }),
-        React.createElement('input', { type: 'number', placeholder: 'Number of Attendees', min: '1', value: form.num_attendees, onChange: (e) => setForm({ ...form, num_attendees: e.target.value }), className: 'w-full p-2 border rounded' }),
-        // Activity Classification dropdown
-        React.createElement('select', {
-          value: form.activity_classification,
-          onChange: (e) => setForm({ ...form, activity_classification: e.target.value }),
-          className: 'w-full p-2 border rounded'
-        },
-          React.createElement('option', { value: '' }, 'Activity Classification'),
-          ['Institutional', 'Curricular', 'Outside Group', 'Co-Curricular', 'Extra-Curricular'].map(c =>
-            React.createElement('option', { key: c, value: c }, c)
+      React.createElement('form', { onSubmit: handleSubmit, className: 'space-y-4' },
+        React.createElement('div', { className: 'border rounded-xl p-4 bg-slate-50/60' },
+          React.createElement('p', { className: 'text-xs uppercase tracking-wider font-bold text-slate-500 mb-3' }, 'Activity Details'),
+          React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-3' },
+            React.createElement('select', { 
+              value: form.room_id, 
+              onChange: (e) => setForm({ ...form, room_id: e.target.value, equipment: {} }), 
+              className: 'w-full p-2 border rounded bg-white', 
+              required: true 
+            },
+              React.createElement('option', { value: '' }, 'Select space'),
+              rooms.map(r => React.createElement('option', { key: r.id, value: r.id }, `${r.name} (${r.capacity})`)
+            )),
+            React.createElement('input', { placeholder: 'Activity Purpose', value: form.activity_purpose, onChange: (e) => setForm({ ...form, activity_purpose: e.target.value }), className: 'w-full p-2 border rounded bg-white', required: true }),
+            React.createElement('input', { placeholder: 'Person In Charge', value: form.person_in_charge, onChange: (e) => setForm({ ...form, person_in_charge: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
+            React.createElement('input', { placeholder: 'Contact Number', value: form.contact_number, onChange: (e) => setForm({ ...form, contact_number: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
+            React.createElement('input', { placeholder: 'Division', value: form.division, onChange: (e) => setForm({ ...form, division: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
+            React.createElement('input', { type: 'number', placeholder: 'Number of Attendees', min: '1', value: form.num_attendees, onChange: (e) => setForm({ ...form, num_attendees: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
+            React.createElement('select', {
+              value: form.activity_classification,
+              onChange: (e) => setForm({ ...form, activity_classification: e.target.value }),
+              className: 'w-full p-2 border rounded bg-white md:col-span-2'
+            },
+              React.createElement('option', { value: '' }, 'Activity Classification'),
+              ['Institutional', 'Curricular', 'Outside Group', 'Co-Curricular', 'Extra-Curricular'].map(c =>
+                React.createElement('option', { key: c, value: c }, c)
+              )
+            )
           )
         ),
-        // Event date (single day)
-        React.createElement('div', { className: 'space-y-1' },
-          React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Event Date'),
-          React.createElement('input', { type: 'date', value: form.event_date, onChange: (e) => setForm({ ...form, event_date: e.target.value }), className: 'w-full p-2 border rounded', required: true })
-        ),
-        // Start Time - separate hour, minute, and AM/PM dropdowns
-        React.createElement('div', { className: 'space-y-1' },
+
+        React.createElement('div', { className: 'border rounded-xl p-4 bg-slate-50/60' },
+          React.createElement('p', { className: 'text-xs uppercase tracking-wider font-bold text-slate-500 mb-3' }, 'Schedule'),
+          React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-3' },
+            React.createElement('div', { className: 'space-y-1' },
+              React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Start Date'),
+              React.createElement('input', { type: 'date', value: form.event_start_date, onChange: (e) => setForm({ ...form, event_start_date: e.target.value }), className: 'w-full p-2 border rounded bg-white', required: true })
+            ),
+            React.createElement('div', { className: 'space-y-1' },
+              React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Date Range'),
+              React.createElement('label', { className: 'flex items-center gap-2 text-sm text-slate-700 p-2 border rounded bg-white' },
+                React.createElement('input', {
+                  type: 'checkbox',
+                  checked: hasEndDate,
+                  onChange: (e) => {
+                    const checked = e.target.checked;
+                    setHasEndDate(checked);
+                    if (checked) {
+                      setForm({ ...form, event_end_date: form.event_end_date || form.event_start_date });
+                    } else {
+                      setForm({ ...form, event_end_date: '' });
+                    }
+                  }
+                }),
+                'Add end date (multi-day reservation)'
+              ),
+              hasEndDate && React.createElement('input', {
+                type: 'date',
+                value: form.event_end_date,
+                onChange: (e) => setForm({ ...form, event_end_date: e.target.value }),
+                className: 'w-full p-2 border rounded bg-white',
+                required: true
+              })
+            ),
+            React.createElement('div', { className: 'space-y-1' },
           React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Start Time'),
           React.createElement('div', { className: 'flex gap-2 items-center' },
             React.createElement('select', { 
               value: form.start_hour, 
               onChange: (e) => setForm({ ...form, start_hour: e.target.value }), 
-              className: 'w-1/3 p-2 border rounded', 
+              className: 'w-1/3 p-2 border rounded bg-white', 
               required: true 
             },
               React.createElement('option', { value: '' }, 'Hour'),
@@ -877,7 +1115,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             React.createElement('select', { 
               value: form.start_minute, 
               onChange: (e) => setForm({ ...form, start_minute: e.target.value }), 
-              className: 'w-1/3 p-2 border rounded', 
+              className: 'w-1/3 p-2 border rounded bg-white', 
               required: true 
             },
               React.createElement('option', { value: '' }, 'Min'),
@@ -886,7 +1124,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             React.createElement('select', {
               value: form.start_period,
               onChange: (e) => setForm({ ...form, start_period: e.target.value }),
-              className: 'w-1/3 p-2 border rounded',
+              className: 'w-1/3 p-2 border rounded bg-white',
               required: true
             },
               React.createElement('option', { value: '' }, 'AM/PM'),
@@ -894,14 +1132,13 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             )
           )
         ),
-        // End Time - separate hour, minute, and AM/PM dropdowns
-        React.createElement('div', { className: 'space-y-1' },
+            React.createElement('div', { className: 'space-y-1' },
           React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'End Time'),
           React.createElement('div', { className: 'flex gap-2 items-center' },
             React.createElement('select', { 
               value: form.end_hour, 
               onChange: (e) => setForm({ ...form, end_hour: e.target.value }), 
-              className: 'w-1/3 p-2 border rounded', 
+              className: 'w-1/3 p-2 border rounded bg-white', 
               required: true 
             },
               React.createElement('option', { value: '' }, 'Hour'),
@@ -911,7 +1148,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             React.createElement('select', { 
               value: form.end_minute, 
               onChange: (e) => setForm({ ...form, end_minute: e.target.value }), 
-              className: 'w-1/3 p-2 border rounded', 
+              className: 'w-1/3 p-2 border rounded bg-white', 
               required: true 
             },
               React.createElement('option', { value: '' }, 'Min'),
@@ -920,18 +1157,19 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             React.createElement('select', {
               value: form.end_period,
               onChange: (e) => setForm({ ...form, end_period: e.target.value }),
-              className: 'w-1/3 p-2 border rounded',
+              className: 'w-1/3 p-2 border rounded bg-white',
               required: true
             },
               React.createElement('option', { value: '' }, 'AM/PM'),
               AM_PM_OPTIONS.map(period => React.createElement('option', { key: period, value: period }, period))
             )
           )
+            )
+          )
         ),
-        React.createElement('input', { type: 'url', placeholder: 'Concept Paper Google Drive Link', value: form.concept_paper_url, onChange: (e) => setForm({ ...form, concept_paper_url: e.target.value }), className: 'w-full p-2 border rounded', required: true }),
 
         // SERVICES SECTION
-        React.createElement('div', { className: 'mt-4 border-t pt-4 space-y-3' },
+        React.createElement('div', { className: 'space-y-3 border rounded-xl p-4 bg-slate-50/60' },
           React.createElement('p', { className: 'text-sm font-bold text-slate-700' }, 'Services Needed'),
 
           React.createElement('div', { className: 'bg-slate-50 border rounded p-3 space-y-2' },
@@ -1018,6 +1256,11 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             )
           )
         ),
+
+        React.createElement('div', { className: 'border rounded-xl p-4 bg-slate-50/60' },
+          React.createElement('p', { className: 'text-xs uppercase tracking-wider font-bold text-slate-500 mb-3' }, 'Requirements'),
+          React.createElement('input', { type: 'url', placeholder: 'Concept Paper Google Drive Link', value: form.concept_paper_url, onChange: (e) => setForm({ ...form, concept_paper_url: e.target.value }), className: 'w-full p-2 border rounded bg-white', required: true })
+        ),
         
         React.createElement('button', { type: 'submit', disabled: loading, className: 'w-full bg-sky-500 text-white p-2 rounded font-bold mt-4' }, loading ? '...' : 'Create')
       )
@@ -1079,24 +1322,47 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
 
     const start = res.start_time ? new Date(res.start_time) : null;
     const end = res.end_time ? new Date(res.end_time) : null;
-    const dateNeeded = start ? start.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+    const startDateNeeded = start ? start.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+    const endDateNeeded = end ? end.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+    const dateNeeded = startDateNeeded && endDateNeeded
+      ? (startDateNeeded === endDateNeeded ? startDateNeeded : `${startDateNeeded} to ${endDateNeeded}`)
+      : (startDateNeeded || endDateNeeded || '');
     const startTime = start ? start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '';
     const endTime = end ? end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '';
     const dateFiled = res.date_filed ? new Date(res.date_filed).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
-    const roomName = rooms?.find(r => Number(r.id) === Number(res.room_id))?.name || '';
+    const selectedRoom = rooms?.find(r => Number(r.id) === Number(res.room_id));
+    const roomName = selectedRoom?.name || '';
+    const roomCode = (selectedRoom?.code || '').toLowerCase();
+    const normalizedRoomName = roomName.toLowerCase();
 
-    const equipRows = requestedEquip.length > 0
-      ? requestedEquip.map(([item, qty]) => `
-          <div class="line-row"><span class="line-label">${escapeHtml(item)}</span><span class="line-value">${escapeHtml(qty)}</span></div>
-        `).join('')
-      : '<div class="muted">No equipment requested.</div>';
+    const matchesFacility = (...keywords) =>
+      keywords.some((key) => normalizedRoomName.includes(key) || roomCode === key || roomCode.includes(key));
 
-    const engineeringText = [
-      requestedServices.engineering?.aircon ? 'Aircon' : null,
-      requestedServices.engineering?.elevator ? 'Elevator' : null,
-      requestedServices.engineering?.electrical_setup ? 'Electrical Set-up' : null,
-      requestedServices.engineering?.others ? `Others: ${requestedServices.engineering.others}` : null
-    ].filter(Boolean).join(', ') || 'None';
+    const isPAT = matchesFacility('pat', 'performing arts theatre', 'performing arts theater');
+    const isCollegeLobby = matchesFacility('college lobby');
+    const isQuadrangle = matchesFacility('quadrangle', 'quad');
+    const isAchieversPark = matchesFacility('achievers park');
+    const isTvStudio = matchesFacility('tv studio');
+    const isRadioRoom = matchesFacility('radio room');
+    const isStudioRoom = matchesFacility('studio room');
+    const isOthersFacility = Boolean(roomName) && ![
+      isPAT,
+      isCollegeLobby,
+      isQuadrangle,
+      isAchieversPark,
+      isTvStudio,
+      isRadioRoom,
+      isStudioRoom
+    ].some(Boolean);
+
+    const equipmentQty = Object.fromEntries(requestedEquip.map(([item, qty]) => [String(item).toLowerCase(), qty]));
+    const yesNo = (value) => (value ? 'Yes' : 'No');
+    const checkbox = (checked) => (checked ? '☑' : '☐');
+    const hasMatch = (needle) => Object.keys(equipmentQty).some((k) => k.includes(needle));
+    const qtyByNeedle = (needle) => {
+      const entry = Object.entries(equipmentQty).find(([k]) => k.includes(needle));
+      return entry ? entry[1] : '';
+    };
 
     const htmlContent = `
       <html>
@@ -1104,122 +1370,275 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
         <title>Common Facility Request Form</title>
         <style>
           * { box-sizing: border-box; }
-          body { font-family: Arial, sans-serif; margin: 0; padding: 18px; color: #111; }
-          .page { max-width: 920px; margin: 0 auto; border: 2px solid #111; }
-          .top { background: #f3f4f6; border-bottom: 2px solid #111; padding: 10px 16px; text-align: center; }
-          .top h1 { margin: 0; font-size: 22px; letter-spacing: .2px; }
-          .top p { margin: 3px 0 0; font-size: 12px; }
-          .title-wrap { display: grid; grid-template-columns: 1fr 170px; border-bottom: 2px solid #111; }
-          .title { padding: 10px 14px; font-size: 32px; font-weight: 800; text-align: center; }
-          .code { border-left: 2px solid #111; padding: 8px; font-size: 11px; text-align: center; }
-          .section { padding: 10px 14px; border-bottom: 1px solid #111; }
-          .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-          .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
-          .field { margin: 6px 0; font-size: 13px; display: flex; gap: 6px; align-items: baseline; }
-          .field b { min-width: 145px; }
-          .answer { display: inline-block; min-width: 160px; border-bottom: 1px solid #666; padding: 0 4px 1px; font-weight: 600; }
-          .subhead { text-align: center; font-weight: 800; font-size: 18px; margin: 4px 0 8px; }
-          .box { border: 1px solid #111; padding: 8px; }
-          .line-row { display: grid; grid-template-columns: 1fr 80px; border-bottom: 1px solid #ddd; padding: 4px 0; font-size: 12px; }
-          .line-label { font-weight: 600; }
-          .line-value { text-align: right; font-weight: 700; }
-          .muted { color: #666; font-style: italic; font-size: 12px; }
-          .service-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 8px; }
-          .service-col { border: 1px solid #111; min-height: 86px; padding: 8px; }
-          .service-col h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; }
-          .service-col p { margin: 3px 0; font-size: 12px; }
-          .approval { display: grid; grid-template-columns: 1fr 1fr 1fr; border-top: 1px solid #111; }
-          .approval .col { padding: 8px; border-left: 1px solid #111; min-height: 90px; }
-          .approval .col:first-child { border-left: 0; }
-          .line { border-bottom: 1px solid #666; height: 18px; margin-top: 8px; }
-          .small { font-size: 11px; }
-          @media print { body { padding: 0; } .page { border-width: 1px; } }
+          @page { size: 8.5in 13in; margin: 0.28in 0.35in; }
+          body { font-family: Arial, sans-serif; color: #000; margin: 0; font-size: 10.3px; line-height: 1.16; }
+          .page { width: 100%; }
+          .center { text-align: center; }
+          .school { font-size: 17px; font-weight: 700; margin-top: 1px; }
+          .sub { font-size: 10px; margin-top: 1px; }
+          .title-row { position: relative; width: 100%; margin-top: 4px; min-height: 34px; }
+          .title-cell { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font-size: 17px; font-weight: 700; letter-spacing: 0.2px; }
+          .code-cell { position: relative; z-index: 2; margin-left: auto; width: 21%; border: 1px solid #000; text-align: center; padding: 3px; font-size: 9px; background: #fff; }
+          .sp8 { height: 4px; }
+          .sp12 { height: 6px; }
+          .form-grid { width: 100%; border-collapse: collapse; margin-top: 4px; }
+          .form-grid td { width: 50%; vertical-align: top; padding: 2px 6px 2px 0; }
+          .line { display: inline-block; min-width: 145px; border-bottom: 1px solid #000; padding: 0 3px 0; font-weight: 600; }
+          .line-wide { min-width: 190px; }
+          .label { font-weight: 700; }
+          .checkline { font-size: 10px; font-weight: 600; }
+          .classification-heading { font-size: 14px; font-weight: 700; }
+          .classification-option { font-size: 13.5px; font-weight: 700; }
+          .section-title { text-align: center; font-size: 12px; font-weight: 700; margin: 5px 0 4px; }
+          .tri { width: 100%; border-collapse: collapse; }
+          .tri td { width: 33.33%; border: 1px solid #000; vertical-align: top; padding: 4px 6px; }
+          .tri ul { list-style: none; margin: 0; padding: 0; }
+          .tri li { margin: 2px 0; }
+          .gray { background: #e0e0e0; text-align: center; font-weight: 700; }
+          .note { margin-top: 6px; font-size: 9px; font-weight: 700; }
+          .approval { width: 100%; border-collapse: collapse; margin-top: 6px; }
+          .approval td { width: 33.33%; border: 1px solid #000; vertical-align: top; padding: 4px 6px; min-height: 72px; }
+          .sig-space { height: 28px; }
+          .sig-line { border-top: 1px solid #000; text-align: center; font-weight: 700; padding-top: 2px; }
+          .sig-role { text-align: center; font-size: 9px; }
+          .copy-row { width: 100%; border-collapse: collapse; margin-top: 5px; }
+          .copy-row td { width: 33.33%; vertical-align: top; padding: 1px 4px 1px 0; }
+          .copies { margin: 0; padding-left: 16px; }
+          .copies li { margin: 1px 0; }
+          @media print {
+            body {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+              zoom: 0.95;
+            }
+          }
         </style>
       </head>
       <body>
         <div class="page">
-          <div class="top">
-            <h1>University of Perpetual Help System Laguna</h1>
-            <p>City of Binan, Laguna, Philippines</p>
-          </div>
+          <div class="center school">University of Perpetual Help System Laguna</div>
+          <div class="center sub">City of Binan, Laguna, Philippines, 4024</div>
+          <div class="center sub">(02)779-5310 • (049)544-5150 • (049)544-5161</div>
+          <div class="center sub">www.uphsl.edu.ph</div>
 
-          <div class="title-wrap">
-            <div class="title">COMMON FACILITY REQUEST FORM</div>
-            <div class="code">
-              <div><b>UPHS/JH-CFRF-01</b></div>
-              <div>Clean Template</div>
+          <div class="title-row">
+            <div class="title-cell">COMMON FACILITY REQUEST FORM</div>
+            <div class="code-cell">
+              <div>UPHSJ/HK-CFRF-01</div>
+              <div>01-06-2020 01</div>
             </div>
           </div>
 
-          <div class="section grid-2">
-            <div>
-              <div class="field"><b>Activity/Purpose:</b><span class="answer">${escapeHtml(res.activity_purpose)}</span></div>
-              <div class="field"><b>Division:</b><span class="answer">${escapeHtml(res.division)}</span></div>
-              <div class="field"><b>No. of Attendees:</b><span class="answer">${escapeHtml(res.attendees)}</span></div>
-              <div class="field"><b>Date Filed:</b><span class="answer">${escapeHtml(dateFiled)}</span></div>
-            </div>
-            <div>
-              <div class="field"><b>Department:</b><span class="answer">${escapeHtml(res.department)}</span></div>
-              <div class="field"><b>Classification:</b><span class="answer">${escapeHtml(res.classification)}</span></div>
-              <div class="field"><b>Date Needed:</b><span class="answer">${escapeHtml(dateNeeded)}</span></div>
-              <div class="field"><b>Time Needed:</b><span class="answer">${escapeHtml(startTime)} to ${escapeHtml(endTime)}</span></div>
-            </div>
-          </div>
+          <table class="form-grid">
+            <tr>
+              <td><span class="label">Activity/Purpose:</span> <span class="line line-wide">${escapeHtml(res.activity_purpose)}</span></td>
+              <td><span class="label">Department/Company:</span> <span class="line">${escapeHtml(res.department)}</span></td>
+            </tr>
+            <tr>
+              <td><span class="label">Division:</span> <span class="line line-wide">${escapeHtml(res.division)}</span></td>
+              <td class="checkline">${checkbox(res.classification === 'Student')} Student &nbsp; ${checkbox(res.classification === 'Employee')} Employee &nbsp; ${checkbox(Boolean(res.classification && !['Student','Employee'].includes(res.classification)))} Others</td>
+            </tr>
+            <tr>
+              <td><span class="label">Number of Attendees:</span> <span class="line">${escapeHtml(res.attendees)}</span></td>
+              <td><span class="label">Date Needed:</span> <span class="line">${escapeHtml(dateNeeded)}</span></td>
+            </tr>
+            <tr>
+              <td><span class="label">Date Filed:</span> <span class="line">${escapeHtml(dateFiled)}</span></td>
+              <td><span class="label">Time Needed:</span> <span class="line">${escapeHtml(startTime)}</span> to <span class="line">${escapeHtml(endTime)}</span></td>
+            </tr>
+          </table>
 
-          <div class="section grid-2">
-            <div class="field"><b>Person in Charge:</b><span class="answer">${escapeHtml(res.person_in_charge)}</span></div>
-            <div class="field"><b>Contact Number:</b><span class="answer">${escapeHtml(res.contact_number)}</span></div>
-          </div>
+          <table class="form-grid">
+            <tr>
+              <td>
+                <span class="label">Person in Charge of the Activity:</span>
+                <div class="center" style="margin-top:2px;">
+                  <span class="line">${escapeHtml(res.person_in_charge)}</span>
+                </div>
+              </td>
+              <td class="center" rowspan="2" style="vertical-align:top;">
+                <div>
+                  <span class="line line-wide">${escapeHtml(res.contact_number)}</span>
+                </div>
+                <div style="font-size:11px; margin-top:2px;"><i>Contact Number</i></div>
+              </td>
+            </tr>
+            <tr>
+              <td class="center" style="font-size:11px;"><i>Signature over Printed Name</i></td>
+            </tr>
+          </table>
 
-          <div class="section">
-            <div class="subhead">FACILITY REQUEST</div>
-            <div class="field"><b>Requested Facility:</b><span class="answer" style="min-width: 380px;">${escapeHtml(roomName)}</span></div>
-          </div>
+          <div class="sp8"></div>
+          <div><span class="classification-heading">CLASSIFICATION OF ACTIVITIES:</span></div>
+          <table class="form-grid" style="margin-top:4px;">
+            <tr>
+              <td class="classification-option">${checkbox(res.classification === 'Institutional')} Institutional</td>
+              <td class="classification-option">${checkbox(res.classification === 'Curricular')} Curricular</td>
+              <td class="classification-option">${checkbox(res.classification === 'Outside Group')} Outside Group</td>
+            </tr>
+            <tr>
+              <td class="classification-option">${checkbox(res.classification === 'Co-Curricular')} Co-Curricular</td>
+              <td class="classification-option">${checkbox(res.classification === 'Extra Curricular')} Extra Curricular</td>
+              <td></td>
+            </tr>
+          </table>
 
-          <div class="section">
-            <div class="subhead">EQUIPMENT / SERVICES TO BE PROVIDED</div>
-            <div class="box">
-              ${equipRows}
-            </div>
+          <div class="section-title">FACILITY REQUEST</div>
+          <table class="tri">
+            <tr>
+              <td>
+                <ul>
+                  <li>${checkbox(isPAT)} PAT</li>
+                  <li>${checkbox(isCollegeLobby)} COLLEGE LOBBY</li>
+                  <li>${checkbox(isQuadrangle)} QUADRANGLE</li>
+                </ul>
+              </td>
+              <td>
+                <ul>
+                  <li>${checkbox(isAchieversPark)} ACHIEVERS PARK</li>
+                  <li>${checkbox(isTvStudio)} TV STUDIO</li>
+                  <li>${checkbox(isRadioRoom)} RADIO ROOM</li>
+                </ul>
+              </td>
+              <td>
+                <ul>
+                  <li>${checkbox(isStudioRoom)} STUDIO ROOM</li>
+                  <li>${checkbox(isOthersFacility)} OTHERS: ${isOthersFacility ? escapeHtml(roomName) : ''}</li>
+                </ul>
+              </td>
+            </tr>
+          </table>
 
-            <div class="service-grid">
-              <div class="service-col">
-                <h4>Housekeeping</h4>
-                <p>Need HK Staff: <b>${requestedServices.housekeeping?.needed ? 'Yes' : 'No'}</b></p>
-                <p>How Many: <b>${escapeHtml(requestedServices.housekeeping?.count || '')}</b></p>
-              </div>
-              <div class="service-col">
-                <h4>Security</h4>
-                <p>Need Security Guard: <b>${requestedServices.security_guard ? 'Yes' : 'No'}</b></p>
-              </div>
-              <div class="service-col">
-                <h4>Engineering Services</h4>
-                <p><b>${escapeHtml(engineeringText)}</b></p>
-              </div>
-            </div>
-          </div>
+          <div class="section-title">EQUIPMENT/SERVICES TO BE PROVIDED</div>
+          <table class="tri">
+            <tr>
+              <td>
+                <ul>
+                  <li>${checkbox(hasMatch('table'))} Tables ${escapeHtml(qtyByNeedle('table'))}</li>
+                  <li>${checkbox(hasMatch('chair'))} Chairs ${escapeHtml(qtyByNeedle('chair'))}</li>
+                  <li>${checkbox(hasMatch('philippine flag'))} Philippine Flag ${escapeHtml(qtyByNeedle('philippine flag'))}</li>
+                  <li>${checkbox(hasMatch('university flag'))} University Flag ${escapeHtml(qtyByNeedle('university flag'))}</li>
+                  <li>${checkbox(hasMatch('college flag'))} College Flag ${escapeHtml(qtyByNeedle('college flag'))}</li>
+                </ul>
+              </td>
+              <td>
+                <ul>
+                  <li>${checkbox(hasMatch('lcd projector'))} LCD Projector ${escapeHtml(qtyByNeedle('lcd projector'))}</li>
+                  <li>${checkbox(hasMatch('white screen'))} White Screen ${escapeHtml(qtyByNeedle('white screen'))}</li>
+                  <li>${checkbox(hasMatch('tv'))} TV ${escapeHtml(qtyByNeedle('tv'))}</li>
+                  <li>${checkbox(hasMatch('still camera'))} Still Camera ${escapeHtml(qtyByNeedle('still camera'))}</li>
+                  <li>${checkbox(hasMatch('video camera'))} Video Camera ${escapeHtml(qtyByNeedle('video camera'))}</li>
+                </ul>
+              </td>
+              <td>
+                <ul>
+                  <li>${checkbox(hasMatch('sound system'))} Sound System ${escapeHtml(qtyByNeedle('sound system'))}</li>
+                  <li>${checkbox(hasMatch('microphone'))} Microphone ${escapeHtml(qtyByNeedle('microphone'))}</li>
+                  <li>${checkbox(hasMatch('speaker'))} Speaker ${escapeHtml(qtyByNeedle('speaker'))}</li>
+                  <li>${checkbox(hasMatch('lights set-up') || hasMatch('lights setup'))} Lights Set-up ${escapeHtml(qtyByNeedle('lights'))}</li>
+                  <li>${checkbox(hasMatch('podium'))} Podium ${escapeHtml(qtyByNeedle('podium'))} &nbsp;&nbsp; ${checkbox(hasMatch('laptop'))} Laptop ${escapeHtml(qtyByNeedle('laptop'))}</li>
+                </ul>
+              </td>
+            </tr>
+          </table>
 
-          <div class="section small">
-            NOTE: This clean print form intentionally excludes pre-filled checks/signatures so it can be signed manually.
-          </div>
+          <div class="sp8"></div>
+          <table class="tri">
+            <tr>
+              <td class="gray">HOUSEKEEPING</td>
+              <td class="gray">SECURITY</td>
+              <td class="gray">ENGINEERING SERVICES</td>
+            </tr>
+            <tr>
+              <td>
+                <ul>
+                  <li>${checkbox(requestedServices.housekeeping?.needed)} HK Staff ${escapeHtml(requestedServices.housekeeping?.count || '')}</li>
+                </ul>
+              </td>
+              <td>
+                <ul>
+                  <li>${checkbox(requestedServices.security_guard)} Security Guard (${yesNo(requestedServices.security_guard)})</li>
+                </ul>
+              </td>
+              <td>
+                <ul>
+                  <li>${checkbox(requestedServices.engineering?.aircon)} Aircon</li>
+                  <li>${checkbox(requestedServices.engineering?.elevator)} Elevator</li>
+                  <li>${checkbox(requestedServices.engineering?.electrical_setup)} Electrical Set-up</li>
+                  <li>${checkbox(Boolean(requestedServices.engineering?.others))} Others: ${escapeHtml(requestedServices.engineering?.others || '')}</li>
+                </ul>
+              </td>
+            </tr>
+          </table>
 
-          <div class="approval">
-            <div class="col">
-              <b>Noted by:</b>
-              <div class="line"></div>
-              <div class="small">Dean / Department Head</div>
-            </div>
-            <div class="col">
-              <b>Recommending Approval:</b>
-              <div class="line"></div>
-              <div class="small">Head, Facilities Office</div>
-            </div>
-            <div class="col">
-              <b>Approved by:</b>
-              <div class="line"></div>
-              <div class="small">Authorized Signatory</div>
-            </div>
-          </div>
+          <div class="note">NOTE: THIS FORM MUST BE ACCOMPLISHED AND APPROVED WITHIN 5 WORKING DAYS UPON INITIAL RESERVATION TO AVOID CANCELLATION.</div>
+
+          <table class="approval">
+            <tr>
+              <td>
+                <div>Noted by:</div>
+                <div class="sig-space"></div>
+                <div class="sig-line">MR. OLIVER M. JUNIO</div>
+                <div class="sig-role">DEAN/DEPARTMENT HEAD</div>
+              </td>
+              <td>
+                <div>Recommending Approval:</div>
+                <div style="font-size:9px;"><i>(For Audiovisual Facilities UPHSL)</i></div>
+                <div class="sig-space"></div>
+                <div class="sig-line">MR. RUEL B. RILLORAZA</div>
+                <div class="sig-role">Head/Audiovisual Facilities</div>
+              </td>
+              <td>
+                <div>Recommending Approval:</div>
+                <div style="font-size:9px;"><i>(For Athletic Facilities)</i></div>
+                <div class="sig-space"></div>
+                <div class="sig-line">DR. MICHAEL N. VERDEJO, MAED</div>
+                <div class="sig-role">Athletic Director</div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="sig-space"></div>
+                <div class="sig-line">MR. MANUELITO V. CASTRILLO</div>
+                <div class="sig-role">Exec. VP for Administration Jonelta System</div>
+              </td>
+              <td>
+                <div>Approved by:</div>
+                <div class="sig-space"></div>
+                <div class="sig-line">DR. FERDINAND C. SOMIDO</div>
+                <div class="sig-role">Executive School Director</div>
+              </td>
+              <td>
+                <div class="sig-space"></div>
+                <div class="sig-line">DR. ARCADIO L. TAMAYO</div>
+                <div class="sig-role">Chancellor-UPH-DJGTMU</div>
+              </td>
+            </tr>
+          </table>
+
+          <div style="margin-top:5px; font-size:9px;">Provide a copy of accomplishment form to the following:</div>
+          <table class="copy-row">
+            <tr>
+              <td>
+                <ul class="copies">
+                  <li>Engineering Services Office</li>
+                  <li>Housekeeping Department</li>
+                </ul>
+              </td>
+              <td>
+                <ul class="copies">
+                  <li>Security Department</li>
+                  <li>Audiovisual (MU)</li>
+                </ul>
+              </td>
+              <td>
+                <ul class="copies">
+                  <li>Audiovisual Facilities Office</li>
+                  <li>Athletic Department</li>
+                </ul>
+              </td>
+            </tr>
+          </table>
         </div>
       </body>
       </html>
@@ -1465,6 +1884,74 @@ function DeleteEventModal({ event, onClose, onConfirm, loading }) {
   );
 }
 
+function HolidayModal({ onClose, onConfirm, loading }) {
+  const [form, setForm] = useState({
+    title: '',
+    holiday_date: '',
+    notes: ''
+  });
+  const [localError, setLocalError] = useState('');
+
+  const submit = (e) => {
+    e.preventDefault();
+    setLocalError('');
+    if (!form.title.trim()) {
+      setLocalError('Holiday title is required.');
+      return;
+    }
+    if (!form.holiday_date) {
+      setLocalError('Holiday date is required.');
+      return;
+    }
+    onConfirm({
+      title: form.title.trim(),
+      holiday_date: form.holiday_date,
+      notes: (form.notes || '').trim()
+    });
+  };
+
+  return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
+    React.createElement('div', { className: 'bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl' },
+      React.createElement('h3', { className: 'font-bold text-lg mb-1 text-slate-800' }, 'Add Holiday to Calendar'),
+      React.createElement('p', { className: 'text-sm text-slate-500 mb-4' }, 'This will block new reservations on the selected date.'),
+      localError && React.createElement('div', { className: 'mb-3 p-2 text-xs rounded-lg bg-red-50 text-red-700 border border-red-200' }, localError),
+      React.createElement('form', { onSubmit: submit, className: 'space-y-3' },
+        React.createElement('input', {
+          type: 'text',
+          placeholder: 'Holiday title (e.g., Foundation Day)',
+          value: form.title,
+          onChange: (e) => setForm({ ...form, title: e.target.value }),
+          className: 'w-full p-2 border rounded'
+        }),
+        React.createElement('input', {
+          type: 'date',
+          value: form.holiday_date,
+          onChange: (e) => setForm({ ...form, holiday_date: e.target.value }),
+          className: 'w-full p-2 border rounded'
+        }),
+        React.createElement('textarea', {
+          placeholder: 'Notes (optional)',
+          value: form.notes,
+          onChange: (e) => setForm({ ...form, notes: e.target.value }),
+          className: 'w-full p-2 border rounded min-h-[90px]'
+        }),
+        React.createElement('div', { className: 'flex gap-2 pt-1' },
+          React.createElement('button', {
+            type: 'button',
+            onClick: onClose,
+            className: 'flex-1 bg-slate-200 hover:bg-slate-300 p-3 rounded-xl font-semibold transition-colors'
+          }, 'Cancel'),
+          React.createElement('button', {
+            type: 'submit',
+            disabled: loading,
+            className: 'flex-1 bg-blue-500 hover:bg-blue-600 text-white p-3 rounded-xl font-semibold disabled:opacity-50 transition-colors'
+          }, loading ? 'Saving...' : 'Add Holiday')
+        )
+      )
+    )
+  );
+}
+
 function ProfileModal({ user, onClose, onLogout }) {
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
     React.createElement('div', { className: 'bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl relative' },
@@ -1529,15 +2016,11 @@ function ChartCanvas({ type, data, options }) {
   );
 }
 
-function AnalyticsKpiCard({ label, value, detail, onClick, children }) {
-  return React.createElement('div', {
-    className: `bg-white border rounded-3xl p-5 shadow-sm ${onClick ? 'cursor-pointer hover:border-sky-300 transition' : ''}`,
-    onClick
-  },
+function AnalyticsKpiCard({ label, value, detail }) {
+  return React.createElement('div', { className: 'bg-white border rounded-3xl p-5 shadow-sm' },
     React.createElement('p', { className: 'text-xs font-bold uppercase tracking-wider text-slate-400 mb-3' }, label),
     React.createElement('p', { className: 'text-2xl font-bold text-slate-800 leading-tight break-words' }, value),
-    React.createElement('p', { className: 'text-sm text-slate-500 mt-2' }, detail),
-    children
+    React.createElement('p', { className: 'text-sm text-slate-500 mt-2' }, detail)
   );
 }
 
@@ -1590,17 +2073,6 @@ function AnalyticsView({ reservations }) {
   const [analytics, setAnalytics] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const [analyticsError, setAnalyticsError] = useState('');
-  const [selectedDepartment, setSelectedDepartment] = useState('All');
-  const [selectedHeatmapMonth, setSelectedHeatmapMonth] = useState('all');
-  const [showDepartmentPicker, setShowDepartmentPicker] = useState(false);
-
-  const formatMonthOption = (monthKey) => {
-    if (!monthKey || monthKey === 'all') return 'All Months';
-    const [year, month] = monthKey.split('-');
-    const parsed = new Date(Number(year), Number(month) - 1, 1);
-    if (Number.isNaN(parsed.getTime())) return monthKey;
-    return parsed.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-  };
 
   useEffect(() => {
     let isMounted = true;
@@ -1608,18 +2080,8 @@ function AnalyticsView({ reservations }) {
       setLoadingAnalytics(true);
       setAnalyticsError('');
       try {
-        const data = await apiService.getDataMiningAnalytics({
-          department: selectedDepartment,
-          heatmapMonth: selectedHeatmapMonth
-        });
-        if (isMounted) {
-          setAnalytics(data);
-
-          const serverDepartment = data?.filters?.selected_department || 'All';
-          const serverHeatmapMonth = data?.filters?.selected_heatmap_month || 'all';
-          setSelectedDepartment(prev => prev === serverDepartment ? prev : serverDepartment);
-          setSelectedHeatmapMonth(prev => prev === serverHeatmapMonth ? prev : serverHeatmapMonth);
-        }
+        const data = await apiService.getDataMiningAnalytics();
+        if (isMounted) setAnalytics(data);
       } catch (err) {
         if (isMounted) setAnalyticsError(err.message || 'Failed to load analytics data');
       } finally {
@@ -1628,7 +2090,7 @@ function AnalyticsView({ reservations }) {
     })();
 
     return () => { isMounted = false; };
-  }, [reservations.length, selectedDepartment, selectedHeatmapMonth]);
+  }, [reservations.length]);
 
   const fallback = {
     total_reservations: reservations.length,
@@ -1647,13 +2109,6 @@ function AnalyticsView({ reservations }) {
   };
 
   const kpis = analytics?.kpis || fallback;
-  const filters = analytics?.filters || {
-    departments: ['All'],
-    selected_department: selectedDepartment,
-    heatmap_months: ['all'],
-    selected_heatmap_month: selectedHeatmapMonth,
-    selected_heatmap_month_label: formatMonthOption(selectedHeatmapMonth)
-  };
   const charts = analytics?.charts || {
     top_venues: { labels: [], values: [] },
     peak_usage_heatmap: { days: [], hours: [], values: [], max_value: 0 },
@@ -1756,35 +2211,9 @@ function AnalyticsView({ reservations }) {
       }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Top Department',
-        value: selectedDepartment === 'All' ? (kpis.top_department || 'No Data') : selectedDepartment,
-        detail: selectedDepartment === 'All'
-          ? `${kpis.top_department_count || 0} reservations • Click to filter`
-          : `${kpis.top_department_count || 0} reservations • Filter active`,
-        onClick: () => setShowDepartmentPicker((prev) => !prev)
-      },
-        showDepartmentPicker && React.createElement('div', {
-          className: 'mt-4 border-t pt-3 space-y-2',
-          onClick: (e) => e.stopPropagation()
-        },
-          React.createElement('button', {
-            type: 'button',
-            onClick: () => {
-              setSelectedDepartment('All');
-              setShowDepartmentPicker(false);
-            },
-            className: `w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${selectedDepartment === 'All' ? 'bg-sky-100 text-sky-700' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`
-          }, 'Back to Top Department'),
-          (filters.departments || []).filter(dep => dep !== 'All').map(dep => React.createElement('button', {
-            key: dep,
-            type: 'button',
-            onClick: () => {
-              setSelectedDepartment(dep);
-              setShowDepartmentPicker(false);
-            },
-            className: `w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${selectedDepartment === dep ? 'bg-sky-100 text-sky-700' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`
-          }, dep))
-        )
-      ),
+        value: kpis.top_department || 'No Data',
+        detail: `${kpis.top_department_count || 0} reservations`
+      }),
       React.createElement(AnalyticsKpiCard, {
         label: 'Booking Status Leader',
         value: kpis.dominant_status || 'No Data',
@@ -1812,20 +2241,7 @@ function AnalyticsView({ reservations }) {
         })
       ),
       React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-        React.createElement('div', { className: 'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4' },
-          React.createElement('h3', { className: 'font-bold text-slate-800' }, `Peak Usage Time Heatmap (${filters.selected_heatmap_month_label || 'All Months'})`),
-          React.createElement('select', {
-            value: selectedHeatmapMonth,
-            onChange: (e) => setSelectedHeatmapMonth(e.target.value),
-            className: 'border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 bg-white min-w-[170px]'
-          },
-            (filters.heatmap_months || ['all']).map(monthKey => React.createElement(
-              'option',
-              { key: monthKey, value: monthKey },
-              formatMonthOption(monthKey)
-            ))
-          )
-        ),
+        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Peak Usage Time Heatmap'),
         React.createElement(HeatmapChart, { data: charts.peak_usage_heatmap })
       )
     ),
@@ -1902,26 +2318,481 @@ function AnalyticsView({ reservations }) {
   );
 }
 
-function FacilitiesView({ rooms, onBook }) {
-  return React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-6' },
-    rooms.map(r => React.createElement('div', { key: r.id, className: 'bg-white rounded-3xl overflow-hidden shadow-sm border hover:shadow-md transition-all' },
-      React.createElement('div', { className: 'p-6' },
-        React.createElement('h3', { className: 'text-xl font-bold mb-2 text-slate-800' }, r.name),
-        React.createElement('p', { className: 'text-sm text-slate-500 mb-4' }, r.description),
-        React.createElement('div', { className: 'flex items-center gap-4 text-sm text-slate-600 mb-4' },
-          React.createElement('span', { className: 'flex items-center gap-1' }, '👥 ', r.capacity),
-          r.usual_activity && React.createElement('span', { className: 'flex items-center gap-1 text-slate-400' }, '🎯 ', r.usual_activity)
+function FacilitiesView({ rooms, onBook, isAdmin, onRoomsUpdated, onNotify, showBookButton = true, enableManagement = false }) {
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingFacility, setEditingFacility] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+
+  const handleEdit = (facility) => {
+    setEditingFacility(facility);
+    setEditorOpen(true);
+  };
+
+  const handleCreate = () => {
+    setEditingFacility(null);
+    setEditorOpen(true);
+  };
+
+  const handleDelete = async (facility) => {
+    if (!confirmDeleteAction(`facility "${facility.name}"`)) return;
+    try {
+      setBusyId(facility.id);
+      await apiService.adminDeleteFacility(facility.id);
+      await onRoomsUpdated();
+      onNotify('Facility deleted successfully.');
+    } catch (err) {
+      onNotify(err.message || 'Failed to delete facility.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const submitFacility = async (payload) => {
+    if (editingFacility) {
+      await apiService.adminUpdateFacility(editingFacility.id, payload);
+      onNotify('Facility updated successfully.');
+    } else {
+      await apiService.adminCreateFacility(payload);
+      onNotify('Facility created successfully.');
+    }
+    await onRoomsUpdated();
+    setEditorOpen(false);
+    setEditingFacility(null);
+  };
+
+  return React.createElement('div', { className: 'space-y-4' },
+    isAdmin && enableManagement && React.createElement('div', { className: 'flex justify-end' },
+      React.createElement('button', {
+        onClick: handleCreate,
+        className: 'bg-slate-800 text-white px-4 py-2 rounded-xl font-bold hover:bg-slate-700 transition'
+      }, '+ Add Facility')
+    ),
+
+    React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-6' },
+      rooms.map(r => React.createElement('div', { key: r.id, className: 'bg-white rounded-3xl overflow-hidden shadow-sm border hover:shadow-md transition-all' },
+        React.createElement('div', { className: 'aspect-video bg-slate-100 overflow-hidden' },
+          r.image_url
+            ? React.createElement('img', {
+                src: r.image_url,
+                alt: r.name,
+                className: 'w-full h-full object-cover'
+              })
+            : React.createElement('div', { className: 'w-full h-full flex items-center justify-center text-slate-400 text-sm font-semibold' }, 'No facility image')
         ),
-        React.createElement('button', { 
-          onClick: () => onBook(r.id), 
-          className: 'w-full bg-sky-500 text-white px-4 py-3 rounded-xl font-bold hover:bg-sky-600 transition' 
-        }, 'Book This Space')
-      )
-    ))
+        React.createElement('div', { className: 'p-6' },
+          React.createElement('h3', { className: 'text-xl font-bold mb-2 text-slate-800' }, r.name),
+          React.createElement('p', { className: 'text-sm text-slate-500 mb-3' }, r.description || 'No short description.'),
+          r.detailed_info && React.createElement('p', { className: 'text-xs text-slate-600 mb-4 whitespace-pre-line' }, r.detailed_info),
+          React.createElement('div', { className: 'flex items-center gap-4 text-sm text-slate-600 mb-4' },
+            React.createElement('span', { className: 'flex items-center gap-1' }, '👥 ', r.capacity),
+            r.usual_activity && React.createElement('span', { className: 'flex items-center gap-1 text-slate-400' }, '🎯 ', r.usual_activity)
+          ),
+          React.createElement('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-2' },
+            showBookButton && React.createElement('button', {
+              onClick: () => onBook(r.id),
+              className: 'w-full bg-sky-500 text-white px-4 py-3 rounded-xl font-bold hover:bg-sky-600 transition'
+            }, 'Book This Space'),
+            isAdmin && enableManagement && React.createElement(React.Fragment, {},
+              React.createElement('button', {
+                onClick: () => handleEdit(r),
+                className: 'w-full bg-white border border-slate-300 text-slate-700 px-4 py-3 rounded-xl font-bold hover:bg-slate-50 transition'
+              }, 'Edit'),
+              React.createElement('button', {
+                onClick: () => handleDelete(r),
+                disabled: busyId === r.id,
+                className: 'w-full bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl font-bold hover:bg-red-100 transition disabled:opacity-50'
+              }, busyId === r.id ? 'Deleting...' : 'Delete')
+            )
+          )
+        )
+      ))
+    ),
+
+    enableManagement && editorOpen && React.createElement(FacilityEditorModal, {
+      initialFacility: editingFacility,
+      onClose: () => {
+        setEditorOpen(false);
+        setEditingFacility(null);
+      },
+      onSubmit: submitFacility
+    })
   );
 }
 
-function CalendarView({ events, rooms, onViewEvent }) {
+function SettingsView({ currentUser, rooms, onRoomsUpdated, onNotify }) {
+  const [activeTab, setActiveTab] = useState('facilities');
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [showUserForm, setShowUserForm] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [userForm, setUserForm] = useState({ username: '', password: '', role: 'student', department: '' });
+  const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
+  const [saving, setSaving] = useState(false);
+
+  const loadUsers = async () => {
+    try {
+      setUsersLoading(true);
+      const data = await apiService.adminGetUsers();
+      setUsers(data || []);
+    } catch (err) {
+      onNotify(err.message || 'Failed to load users.');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'users') {
+      loadUsers();
+    }
+  }, [activeTab]);
+
+  const openCreateUser = () => {
+    setEditingUser(null);
+    setUserForm({ username: '', password: '', role: 'student', department: '' });
+    setShowUserForm(true);
+  };
+
+  const openEditUser = (user) => {
+    setEditingUser(user);
+    setUserForm({ username: user.username || '', password: '', role: user.role || 'student', department: user.department || '' });
+    setShowUserForm(true);
+  };
+
+  const submitUser = async (e) => {
+    e.preventDefault();
+    try {
+      setSaving(true);
+      if (editingUser) {
+        await apiService.adminUpdateUser(editingUser.id, userForm);
+        onNotify('User updated successfully.');
+      } else {
+        await apiService.adminCreateUser(userForm);
+        onNotify('User created successfully.');
+      }
+      setShowUserForm(false);
+      await loadUsers();
+    } catch (err) {
+      onNotify(err.message || 'Failed to save user.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteUser = async (user) => {
+    if (!confirmDeleteAction(`user "${user.username}"`)) return;
+    try {
+      await apiService.adminDeleteUser(user.id);
+      onNotify('User deleted successfully.');
+      await loadUsers();
+    } catch (err) {
+      onNotify(err.message || 'Failed to delete user.');
+    }
+  };
+
+  const submitPassword = async (e) => {
+    e.preventDefault();
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      onNotify('New password and confirmation do not match.');
+      return;
+    }
+    try {
+      setSaving(true);
+      await apiService.updateMyPassword(passwordForm.current_password, passwordForm.new_password);
+      setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
+      onNotify('Password updated successfully.');
+    } catch (err) {
+      onNotify(err.message || 'Failed to update password.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const TabBtn = ({ id, label }) => React.createElement('button', {
+    onClick: () => setActiveTab(id),
+    className: `px-4 py-2 rounded-lg text-sm font-semibold transition ${activeTab === id ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`
+  }, label);
+
+  return React.createElement('div', { className: 'space-y-6' },
+    React.createElement('div', { className: 'bg-white border rounded-2xl p-6' },
+      React.createElement('h2', { className: 'text-2xl font-bold text-slate-800 mb-2' }, 'Settings'),
+      React.createElement('p', { className: 'text-sm text-slate-500 mb-4' }, 'Manage facilities, users, and security settings.'),
+      React.createElement('div', { className: 'flex flex-wrap gap-2' },
+        React.createElement(TabBtn, { id: 'facilities', label: 'Facilities' }),
+        React.createElement(TabBtn, { id: 'users', label: 'Users' }),
+        React.createElement(TabBtn, { id: 'security', label: 'Security' })
+      )
+    ),
+
+    activeTab === 'facilities' && React.createElement(FacilitiesView, {
+      rooms,
+      isAdmin: true,
+      onBook: () => {},
+      onRoomsUpdated,
+      onNotify,
+      showBookButton: false,
+      enableManagement: true
+    }),
+
+    activeTab === 'users' && React.createElement('div', { className: 'bg-white border rounded-2xl p-6 space-y-4' },
+      React.createElement('div', { className: 'flex justify-between items-center' },
+        React.createElement('h3', { className: 'text-lg font-bold text-slate-800' }, 'User Accounts'),
+        React.createElement('button', { onClick: openCreateUser, className: 'bg-slate-800 text-white px-3 py-2 rounded-lg font-semibold text-sm hover:bg-slate-700' }, '+ Add User')
+      ),
+      usersLoading
+        ? React.createElement('p', { className: 'text-sm text-slate-500' }, 'Loading users...')
+        : React.createElement('div', { className: 'space-y-2' },
+            users.map(u => React.createElement('div', { key: u.id, className: 'border rounded-xl p-3 flex items-center justify-between gap-3' },
+              React.createElement('div', {},
+                React.createElement('p', { className: 'font-semibold text-slate-800 text-sm' }, u.username),
+                React.createElement('p', { className: 'text-xs text-slate-500' }, `${u.role} • ${u.department || 'No department'}`)
+              ),
+              React.createElement('div', { className: 'flex gap-2' },
+                React.createElement('button', { onClick: () => openEditUser(u), className: 'px-3 py-1.5 text-xs font-semibold border rounded-lg hover:bg-slate-50' }, 'Edit'),
+                React.createElement('button', { onClick: () => deleteUser(u), className: 'px-3 py-1.5 text-xs font-semibold border border-red-200 text-red-600 rounded-lg hover:bg-red-50' }, 'Delete')
+              )
+            ))
+          )
+    ),
+
+    activeTab === 'security' && React.createElement('div', { className: 'bg-white border rounded-2xl p-6 space-y-4' },
+      React.createElement('h3', { className: 'text-lg font-bold text-slate-800' }, 'Password & Security'),
+      React.createElement('p', { className: 'text-sm text-slate-500' }, `Signed in as ${currentUser?.username || 'admin'}.`),
+      React.createElement('form', { onSubmit: submitPassword, className: 'grid grid-cols-1 md:grid-cols-3 gap-3' },
+        React.createElement('input', {
+          type: 'password',
+          placeholder: 'Current password',
+          value: passwordForm.current_password,
+          onChange: (e) => setPasswordForm({ ...passwordForm, current_password: e.target.value }),
+          className: 'p-2 border rounded',
+          required: true
+        }),
+        React.createElement('input', {
+          type: 'password',
+          placeholder: 'New password',
+          value: passwordForm.new_password,
+          onChange: (e) => setPasswordForm({ ...passwordForm, new_password: e.target.value }),
+          className: 'p-2 border rounded',
+          required: true
+        }),
+        React.createElement('input', {
+          type: 'password',
+          placeholder: 'Confirm new password',
+          value: passwordForm.confirm_password,
+          onChange: (e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value }),
+          className: 'p-2 border rounded',
+          required: true
+        }),
+        React.createElement('button', {
+          type: 'submit',
+          disabled: saving,
+          className: 'md:col-span-3 bg-sky-500 text-white py-2 rounded-lg font-bold hover:bg-sky-600 disabled:opacity-50'
+        }, saving ? 'Saving...' : 'Update Password')
+      )
+    ),
+
+    showUserForm && React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
+      React.createElement('div', { className: 'bg-white rounded-2xl w-full max-w-md p-5' },
+        React.createElement('div', { className: 'flex justify-between items-center mb-4' },
+          React.createElement('h4', { className: 'font-bold text-slate-800' }, editingUser ? 'Edit User' : 'Create User'),
+          React.createElement('button', { onClick: () => setShowUserForm(false), className: 'text-xl text-slate-500' }, '✕')
+        ),
+        React.createElement('form', { onSubmit: submitUser, className: 'space-y-3' },
+          React.createElement('input', {
+            placeholder: 'Username',
+            value: userForm.username,
+            onChange: (e) => setUserForm({ ...userForm, username: e.target.value }),
+            className: 'w-full p-2 border rounded',
+            required: true
+          }),
+          React.createElement('input', {
+            type: 'password',
+            placeholder: editingUser ? 'New password (optional)' : 'Password',
+            value: userForm.password,
+            onChange: (e) => setUserForm({ ...userForm, password: e.target.value }),
+            className: 'w-full p-2 border rounded',
+            required: !editingUser
+          }),
+          React.createElement('select', {
+            value: userForm.role,
+            onChange: (e) => setUserForm({ ...userForm, role: e.target.value }),
+            className: 'w-full p-2 border rounded'
+          },
+            React.createElement('option', { value: 'student' }, 'student'),
+            React.createElement('option', { value: 'admin_phase1' }, 'admin_phase1'),
+            React.createElement('option', { value: 'admin' }, 'admin')
+          ),
+          React.createElement('input', {
+            placeholder: 'Department',
+            value: userForm.department,
+            onChange: (e) => setUserForm({ ...userForm, department: e.target.value }),
+            className: 'w-full p-2 border rounded'
+          }),
+          React.createElement('div', { className: 'flex gap-2 pt-1' },
+            React.createElement('button', {
+              type: 'button',
+              onClick: () => setShowUserForm(false),
+              className: 'flex-1 border border-slate-300 rounded-lg py-2 font-medium'
+            }, 'Cancel'),
+            React.createElement('button', {
+              type: 'submit',
+              disabled: saving,
+              className: 'flex-1 bg-slate-800 text-white rounded-lg py-2 font-bold hover:bg-slate-700 disabled:opacity-50'
+            }, saving ? 'Saving...' : (editingUser ? 'Save Changes' : 'Create User'))
+          )
+        )
+      )
+    )
+  );
+}
+
+function FacilityEditorModal({ initialFacility, onClose, onSubmit }) {
+  const [form, setForm] = useState({
+    code: initialFacility?.code || '',
+    name: initialFacility?.name || '',
+    capacity: initialFacility?.capacity || '',
+    description: initialFacility?.description || '',
+    usual_activity: initialFacility?.usual_activity || '',
+    detailed_info: initialFacility?.detailed_info || '',
+    image_url: initialFacility?.image_url || ''
+  });
+  const [imageUrlInput, setImageUrlInput] = useState(
+    initialFacility?.image_url && /^https?:\/\//i.test(initialFacility.image_url)
+      ? initialFacility.image_url
+      : ''
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const uploadImage = async (file) => {
+    try {
+      setSaving(true);
+      setError('');
+      const imageUrl = await apiService.adminUploadFacilityImage(file, form.image_url);
+      setForm((prev) => ({ ...prev, image_url: imageUrl }));
+    } catch (err) {
+      setError(err.message || 'Image upload failed.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    try {
+      setSaving(true);
+      setError('');
+      await onSubmit({
+        code: form.code,
+        name: form.name,
+        capacity: Number(form.capacity),
+        description: form.description,
+        usual_activity: form.usual_activity,
+        detailed_info: form.detailed_info,
+        image_url: (imageUrlInput || '').trim() || form.image_url
+      });
+    } catch (err) {
+      setError(err.message || 'Failed to save facility.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
+    React.createElement('div', { className: 'bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6' },
+      React.createElement('div', { className: 'flex justify-between items-center mb-4' },
+        React.createElement('h3', { className: 'text-xl font-bold text-slate-800' }, initialFacility ? 'Edit Facility' : 'Add Facility'),
+        React.createElement('button', { onClick: onClose, className: 'text-2xl text-slate-500' }, '✕')
+      ),
+      error && React.createElement('div', { className: 'mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm border border-red-200' }, error),
+      React.createElement('form', { onSubmit: submit, className: 'space-y-4' },
+        React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-3 gap-3' },
+          React.createElement('input', {
+            value: form.code,
+            onChange: (e) => setForm({ ...form, code: e.target.value }),
+            placeholder: 'Facility code (e.g. PAT)',
+            className: 'p-2 border rounded'
+          }),
+          React.createElement('input', {
+            value: form.name,
+            onChange: (e) => setForm({ ...form, name: e.target.value }),
+            placeholder: 'Facility name',
+            className: 'p-2 border rounded md:col-span-2',
+            required: true
+          })
+        ),
+        React.createElement('input', {
+          type: 'number',
+          min: '1',
+          value: form.capacity,
+          onChange: (e) => setForm({ ...form, capacity: e.target.value }),
+          placeholder: 'Capacity',
+          className: 'p-2 border rounded w-full',
+          required: true
+        }),
+        React.createElement('textarea', {
+          value: form.description,
+          onChange: (e) => setForm({ ...form, description: e.target.value }),
+          placeholder: 'Short description for cards',
+          className: 'p-2 border rounded w-full min-h-[70px]'
+        }),
+        React.createElement('input', {
+          value: form.usual_activity,
+          onChange: (e) => setForm({ ...form, usual_activity: e.target.value }),
+          placeholder: 'Usual activity (e.g. Seminars, Conferences)',
+          className: 'p-2 border rounded w-full'
+        }),
+        React.createElement('textarea', {
+          value: form.detailed_info,
+          onChange: (e) => setForm({ ...form, detailed_info: e.target.value }),
+          placeholder: 'Detailed facility information (features, rules, accessibility, floor/location, etc.)',
+          className: 'p-2 border rounded w-full min-h-[110px]'
+        }),
+        React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-3 items-start' },
+          React.createElement('input', {
+            value: imageUrlInput,
+            onChange: (e) => {
+              const val = e.target.value;
+              setImageUrlInput(val);
+              setForm({ ...form, image_url: val });
+            },
+            placeholder: 'External Image URL (optional)',
+            className: 'p-2 border rounded w-full'
+          }),
+          React.createElement('div', { className: 'space-y-2' },
+            React.createElement('input', {
+              type: 'file',
+              accept: 'image/*',
+              onChange: (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) uploadImage(file);
+              },
+              className: 'block w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:border file:rounded-lg file:bg-slate-50 file:text-slate-700'
+            }),
+            React.createElement('p', { className: 'text-xs text-slate-500' }, 'You can paste an external URL or upload a file. Uploaded file URLs are hidden from this box.')
+          )
+        ),
+        form.image_url && React.createElement('div', { className: 'rounded-xl border overflow-hidden bg-slate-50' },
+          React.createElement('img', { src: form.image_url, alt: 'Facility preview', className: 'w-full h-44 object-cover' })
+        ),
+        React.createElement('div', { className: 'flex gap-2 pt-2' },
+          React.createElement('button', {
+            type: 'button',
+            onClick: onClose,
+            className: 'flex-1 border border-slate-300 text-slate-700 rounded-lg py-2 font-medium hover:bg-slate-50'
+          }, 'Cancel'),
+          React.createElement('button', {
+            type: 'submit',
+            disabled: saving,
+            className: 'flex-1 bg-sky-500 text-white rounded-lg py-2 font-bold hover:bg-sky-600 disabled:opacity-50'
+          }, saving ? 'Saving...' : (initialFacility ? 'Save Changes' : 'Create Facility'))
+        )
+      )
+    )
+  );
+}
+
+function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [filterRoom, setFilterRoom] = useState('all');
   const [hoveredEvent, setHoveredEvent] = useState(null);
@@ -1951,6 +2822,66 @@ function CalendarView({ events, rooms, onViewEvent }) {
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
+  const isHolidayEvent = (event) => event?.event_type === 'holiday' || event?.is_holiday;
+
+  const getEventCategory = (event) => {
+    if (isHolidayEvent(event)) return 'holiday';
+
+    const status = String(event?.status || '').toLowerCase();
+    if (status === 'deleted' || status === 'denied' || status === 'cancelled') return 'cancelled';
+
+    const now = new Date();
+    const start = event?.start_time ? new Date(event.start_time) : null;
+    const end = event?.end_time ? new Date(event.end_time) : null;
+    if (start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && now >= start && now <= end) {
+      return 'ongoing';
+    }
+
+    return 'plotting';
+  };
+
+  const eventCategoryStyles = {
+    plotting: {
+      card: 'bg-slate-500 text-white border-l-2 border-slate-700 hover:bg-slate-600',
+      badge: 'bg-slate-100 text-slate-700',
+      label: 'Plotting'
+    },
+    ongoing: {
+      card: 'bg-emerald-500 text-white border-l-2 border-emerald-700 hover:bg-emerald-600',
+      badge: 'bg-emerald-100 text-emerald-700',
+      label: 'Ongoing'
+    },
+    cancelled: {
+      card: 'bg-yellow-400 text-slate-900 border-l-2 border-yellow-600 hover:bg-yellow-500',
+      badge: 'bg-yellow-100 text-yellow-700',
+      label: 'Cancelled'
+    },
+    holiday: {
+      card: 'bg-blue-500 text-white border-l-2 border-blue-700 hover:bg-blue-600',
+      badge: 'bg-blue-100 text-blue-700',
+      label: 'Holiday'
+    }
+  };
+
+  const monthlyEvents = (events || []).filter((e) => {
+    if (!e.start_time) return false;
+    const eventDate = new Date(e.start_time);
+    if (Number.isNaN(eventDate.getTime())) return false;
+
+    const matchesMonth = eventDate.getFullYear() === year && eventDate.getMonth() === month;
+    const matchesRoom = isHolidayEvent(e) || filterRoom === 'all' || e.room_id == filterRoom;
+    return matchesMonth && matchesRoom;
+  }).sort((a, b) => {
+    const aDate = new Date(a.start_time);
+    const bDate = new Date(b.start_time);
+    const byDate = aDate - bDate;
+    if (byDate !== 0) return byDate;
+
+    const aHoliday = isHolidayEvent(a) ? 1 : 0;
+    const bHoliday = isHolidayEvent(b) ? 1 : 0;
+    return bHoliday - aHoliday;
+  });
+
   return React.createElement('div', { className: 'bg-white rounded-2xl border border-slate-200 p-8 shadow-sm relative' },
     // Header with controls
     React.createElement('div', { className: 'flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6' },
@@ -1961,6 +2892,10 @@ function CalendarView({ events, rooms, onViewEvent }) {
         )
       ),
       React.createElement('div', { className: 'flex flex-wrap items-center gap-3' },
+        isAdmin && React.createElement('button', {
+          onClick: onAddHoliday,
+          className: 'px-3 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold'
+        }, '+ Add Holiday'),
         rooms && rooms.length > 0 && React.createElement('select', { 
           value: filterRoom, 
           onChange: (e) => setFilterRoom(e.target.value),
@@ -1989,8 +2924,12 @@ function CalendarView({ events, rooms, onViewEvent }) {
           if (!e.start_time) return false;
           const eventDate = e.start_time.split('T')[0];
           const matchesDate = eventDate === dateStr;
-          const matchesRoom = filterRoom === 'all' || e.room_id == filterRoom;
+          const matchesRoom = isHolidayEvent(e) || filterRoom === 'all' || e.room_id == filterRoom;
           return matchesDate && matchesRoom;
+        }).sort((a, b) => {
+          const aHoliday = isHolidayEvent(a) ? 1 : 0;
+          const bHoliday = isHolidayEvent(b) ? 1 : 0;
+          return bHoliday - aHoliday;
         }) : [];
 
         return React.createElement('div', { 
@@ -1999,15 +2938,19 @@ function CalendarView({ events, rooms, onViewEvent }) {
         },
           React.createElement('span', { className: `text-sm font-bold p-1 ${day ? 'text-slate-400' : 'text-transparent'}` }, day || '.'),
           React.createElement('div', { className: 'mt-1 space-y-1' },
-            dayEvents.slice(0, 3).map(e => 
-              React.createElement('div', { 
-                key: e.id, 
-                className: 'bg-sky-500 text-white text-[9px] p-1 rounded font-bold shadow-sm border-l-2 border-sky-700 truncate cursor-pointer hover:bg-sky-600 transition-colors',
+            dayEvents.slice(0, 3).map(e => {
+              const category = getEventCategory(e);
+              const itemClass = `text-[9px] p-1 rounded font-bold shadow-sm truncate cursor-pointer transition-colors ${eventCategoryStyles[category].card}`;
+
+              return React.createElement('div', {
+                key: e.id,
+                className: itemClass,
                 onMouseEnter: () => setHoveredEvent(e),
                 onMouseLeave: () => setHoveredEvent(null),
                 onMouseMove: handleMouseMove,
                 onClick: () => onViewEvent && onViewEvent(e)
-              }, e.activity_purpose)
+              }, `${eventCategoryStyles[category].label.toUpperCase()}: ${e.activity_purpose}`);
+            }
             ),
             dayEvents.length > 3 && React.createElement('div', { className: 'text-[9px] text-slate-400 font-bold' }, `+${dayEvents.length - 3} more`)
           )
@@ -2025,15 +2968,15 @@ function CalendarView({ events, rooms, onViewEvent }) {
         React.createElement('div', { className: 'space-y-2 pt-1' },
           React.createElement('div', { className: 'flex items-center gap-2 text-xs text-slate-600' },
             React.createElement('span', {}, '🕐'),
-            React.createElement('span', {}, formatTime(hoveredEvent.start_time), ' - ', formatTime(hoveredEvent.end_time))
+            React.createElement('span', {}, isHolidayEvent(hoveredEvent) ? 'Whole day class suspension' : `${formatTime(hoveredEvent.start_time)} - ${formatTime(hoveredEvent.end_time)}`)
           ),
           React.createElement('div', { className: 'flex items-center gap-2 text-xs text-slate-600' },
             React.createElement('span', {}, '📍'),
-            React.createElement('span', { className: 'font-semibold' }, hoveredEvent.room_name || (rooms?.find(r => r.id == hoveredEvent.room_id)?.name) || 'Unknown')
+            React.createElement('span', { className: 'font-semibold' }, isHolidayEvent(hoveredEvent) ? 'University-wide' : (hoveredEvent.room_name || (rooms?.find(r => r.id == hoveredEvent.room_id)?.name) || 'Unknown'))
           ),
           React.createElement('div', { className: 'flex items-center gap-2 text-xs text-slate-600' },
             React.createElement('span', {}, '👤'),
-            React.createElement('span', {}, hoveredEvent.person_in_charge || 'N/A')
+            React.createElement('span', {}, isHolidayEvent(hoveredEvent) ? (hoveredEvent.holiday_name || 'Holiday') : (hoveredEvent.person_in_charge || 'N/A'))
           )
         ),
         React.createElement('div', { className: 'mt-2 text-[8px] text-sky-400 font-bold uppercase italic' }, 'Click to view full details')
@@ -2042,22 +2985,24 @@ function CalendarView({ events, rooms, onViewEvent }) {
 
     // Events list below calendar
     React.createElement('div', { className: 'mt-6 pt-6 border-t' },
-      React.createElement('h4', { className: 'font-bold text-slate-800 mb-4' }, '📋 Upcoming Approved Events'),
-      events.length === 0 
-        ? React.createElement('p', { className: 'text-slate-400 py-4 text-center text-sm' }, 'No approved events yet.')
+      React.createElement('h4', { className: 'font-bold text-slate-800 mb-4' }, '📋 Upcoming Events and Holidays'),
+      monthlyEvents.length === 0 
+        ? React.createElement('p', { className: 'text-slate-400 py-4 text-center text-sm' }, `No events or admin-set holidays for ${monthName}.`)
         : React.createElement('div', { className: 'space-y-2 max-h-[200px] overflow-y-auto' },
-            events.slice(0, 10).map(e =>
-              React.createElement('div', { 
-                key: e.id, 
-                className: 'p-3 bg-slate-50 rounded-lg flex justify-between items-center cursor-pointer hover:bg-sky-50 transition',
-                onClick: () => onViewEvent && onViewEvent(e)
-              },
-                React.createElement('div', {},
-                  React.createElement('p', { className: 'font-bold text-slate-800 text-sm' }, e.activity_purpose),
-                  React.createElement('p', { className: 'text-xs text-slate-500' }, e.start_time?.split('T')[0], ' • ', formatTime(e.start_time), ' - ', formatTime(e.end_time))
-                ),
-                React.createElement('span', { className: 'px-2 py-1 bg-green-100 text-green-700 rounded-full text-[10px] font-bold' }, 'Approved')
-              )
+            monthlyEvents.slice(0, 10).map(e => {
+                const category = getEventCategory(e);
+                return React.createElement('div', { 
+                  key: e.id, 
+                  className: 'p-3 bg-slate-50 rounded-lg flex justify-between items-center cursor-pointer hover:bg-sky-50 transition',
+                  onClick: () => onViewEvent && onViewEvent(e)
+                },
+                  React.createElement('div', {},
+                    React.createElement('p', { className: 'font-bold text-slate-800 text-sm' }, e.activity_purpose),
+                    React.createElement('p', { className: 'text-xs text-slate-500' }, e.start_time?.split('T')[0], ' • ', category === 'holiday' ? 'Whole day' : `${formatTime(e.start_time)} - ${formatTime(e.end_time)}`)
+                  ),
+                  React.createElement('span', { className: `px-2 py-1 rounded-full text-[10px] font-bold ${eventCategoryStyles[category].badge}` }, eventCategoryStyles[category].label)
+                );
+              }
             )
           )
     )
@@ -2069,7 +3014,7 @@ function ArchiveView({ archive, user, isAdmin, onDelete }) {
   
   const getArchiveLabel = (item) => {
     if (item.status === 'denied') return { text: 'Denied', color: 'bg-red-100 text-red-700' };
-    if (item.status === 'deleted') return { text: 'Deleted', color: 'bg-slate-100 text-slate-700' };
+    if (item.status === 'cancelled' || item.status === 'deleted') return { text: 'Cancelled', color: 'bg-yellow-100 text-yellow-700' };
     if (item.status === 'approved' && item.archived_at) return { text: 'Archived (Approved)', color: 'bg-amber-100 text-amber-700' };
     return { text: item.status, color: 'bg-slate-100 text-slate-700' };
   };
@@ -2108,6 +3053,17 @@ function NotificationModal({ message, onClose }) {
 
 function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDeleteClick }) {
   if (!event) return null;
+  const isHoliday = event.event_type === 'holiday' || event.is_holiday;
+  const status = String(event.status || '').toLowerCase();
+  const isCancelled = status === 'deleted' || status === 'denied' || status === 'cancelled';
+  const now = new Date();
+  const start = event.start_time ? new Date(event.start_time) : null;
+  const end = event.end_time ? new Date(event.end_time) : null;
+  const isOngoing = !isHoliday && !isCancelled && start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && now >= start && now <= end;
+  const statusLabel = isHoliday ? 'Holiday' : (isCancelled ? 'Cancelled' : (isOngoing ? 'Ongoing' : 'Plotting'));
+  const statusColor = isHoliday
+    ? 'bg-blue-100 text-blue-700'
+    : (isCancelled ? 'bg-yellow-100 text-yellow-700' : (isOngoing ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'));
 
   const formatDateTime = (isoString) => {
     if (!isoString) return 'N/A';
@@ -2143,7 +3099,7 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
       React.createElement('div', { className: 'flex justify-between items-start mb-6' },
         React.createElement('div', {},
           React.createElement('h3', { className: 'text-2xl font-bold text-slate-800 mb-2' }, event.activity_purpose),
-          React.createElement('span', { className: 'px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold' }, 'Approved Event')
+          React.createElement('span', { className: `px-3 py-1 rounded-full text-xs font-bold ${statusColor}` }, statusLabel)
         ),
         React.createElement('button', { onClick: onClose, className: 'p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600' }, '✕')
       ),
@@ -2164,7 +3120,7 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           React.createElement('span', { className: 'text-2xl' }, '🕐'),
           React.createElement('div', {},
             React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Time'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, formatTime(event.start_time), ' - ', formatTime(event.end_time))
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? 'Whole day reservation suspension' : `${formatTime(event.start_time)} - ${formatTime(event.end_time)}`)
           )
         ),
 
@@ -2173,7 +3129,7 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           React.createElement('span', { className: 'text-2xl' }, '📍'),
           React.createElement('div', {},
             React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Facility'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, roomName)
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? 'University-wide' : roomName)
           )
         ),
 
@@ -2181,8 +3137,8 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
         React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
           React.createElement('span', { className: 'text-2xl' }, '👤'),
           React.createElement('div', {},
-            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Person in Charge'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, event.person_in_charge || 'N/A')
+            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, isHoliday ? 'Holiday' : 'Person in Charge'),
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? (event.holiday_name || 'Holiday') : (event.person_in_charge || 'N/A'))
           )
         ),
 
@@ -2200,11 +3156,11 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
       React.createElement('div', { className: 'mt-6 flex gap-3' },
         // Close button
         React.createElement('button', { 
-          onClick: onClose, 
-          className: `${isAdmin ? 'flex-1' : 'w-full'} bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-xl font-bold transition-colors` 
+          onClick: onClose,
+          className: `${isAdmin && !isHoliday ? 'flex-1' : 'w-full'} bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-xl font-bold transition-colors` 
         }, 'Close'),
         // Delete button (admin only)
-        isAdmin && React.createElement('button', { 
+        isAdmin && !isHoliday && React.createElement('button', { 
           onClick: onDeleteClick,
           disabled: loading,
           className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2' 
@@ -2335,7 +3291,7 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
     if (isAdmin) return 'bg-sky-50 border-sky-100 hover:border-sky-300';
     if (n.status === 'concept-approved') return 'bg-blue-50 border-blue-100 hover:border-blue-300';
     if (n.status === 'approved') return 'bg-green-50 border-green-100 hover:border-green-300';
-    if (n.status === 'deleted') return 'bg-orange-50 border-orange-100';
+    if (n.status === 'cancelled' || n.status === 'deleted') return 'bg-yellow-50 border-yellow-100';
     return 'bg-red-50 border-red-100';
   };
 
@@ -2348,7 +3304,7 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
     }
     if (n.status === 'concept-approved') return 'Phase 1 Approved!';
     if (n.status === 'approved') return 'Fully Approved!';
-    if (n.status === 'deleted') return 'Event Deleted by Admin';
+    if (n.status === 'cancelled' || n.status === 'deleted') return 'Event Cancelled by Admin';
     return 'Reservation Denied';
   };
 
@@ -2356,7 +3312,7 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
     if (isAdmin) return 'text-sky-600';
     if (n.status === 'concept-approved') return 'text-blue-600';
     if (n.status === 'approved') return 'text-green-600';
-    if (n.status === 'deleted') return 'text-orange-600';
+    if (n.status === 'cancelled' || n.status === 'deleted') return 'text-yellow-600';
     return 'text-red-500';
   };
 
@@ -2407,7 +3363,7 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
                         ? React.createElement('p', { className: 'italic bg-white/50 p-2 rounded-lg border mt-1 border-blue-100/50 text-blue-700' }, 'Your concept paper was approved! Please submit your final form.')
                         : n.status === 'approved'
                           ? React.createElement('p', { className: 'italic bg-white/50 p-2 rounded-lg border mt-1 border-green-100/50 text-green-700' }, 'Your reservation is fully approved and visible on the calendar!')
-                          : n.denial_reason && React.createElement('p', { className: `italic bg-white/50 p-2 rounded-lg border mt-1 ${n.status === 'deleted' ? 'border-orange-100/50 text-orange-700' : 'border-red-100/50 text-red-700'}` }, n.denial_reason)
+                          : n.denial_reason && React.createElement('p', { className: `italic bg-white/50 p-2 rounded-lg border mt-1 ${(n.status === 'cancelled' || n.status === 'deleted') ? 'border-yellow-100/50 text-yellow-700' : 'border-red-100/50 text-red-700'}` }, n.denial_reason)
                       )
                 ),
                 React.createElement('p', { className: 'text-[10px] text-slate-400 mt-2' }, 
