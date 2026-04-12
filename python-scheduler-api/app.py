@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from models import db, User, Room, Reservation, Holiday 
 from data_mining.analytics import build_analytics_snapshot
 from data_mining.forecast_utils import forecast_all_academic_periods, forecast_for_period, forecast_current_semester
-from data_mining.train_holt_winters_model import retrain_all_historical_data
+from data_mining.train_sarimax_model import retrain_all_historical_data
 from scheduler import start_training_scheduler, get_next_retrain_at_iso
 
 app = Flask(__name__)
@@ -821,7 +821,7 @@ def retrain_forecast_model():
         metadata = retrain_all_historical_data(include_statuses=['approved'])
         return jsonify({
             'status': 'success',
-            'message': 'Model retrained using approved reservations only.',
+            'message': 'SARIMAX model retrained using approved reservations only.',
             'metadata': metadata,
             'next_retrain_at': get_next_retrain_at_iso(),
             'retrain_basis': 'approved_only',

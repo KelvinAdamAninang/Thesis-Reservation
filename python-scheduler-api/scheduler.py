@@ -6,7 +6,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from data_mining.train_sarimax_model import retrain_all_historical_data as retrain_sarimax
-from data_mining.train_holt_winters_model import build_monthly_reservation_series
+from data_mining.train_sarimax_model import build_monthly_reservation_series
 
 
 # Retrain at semester boundaries (3 times per year):

@@ -5,17 +5,14 @@ import calendar
 
 import pandas as pd
 
-from data_mining.train_holt_winters_model import build_monthly_reservation_series
-from data_mining.train_sarimax_model import build_features
+from data_mining.train_sarimax_model import build_features, build_monthly_reservation_series
 
 
 # Data context: Using cleaned monthly data from Jan 2024 - Mar 2026 (27 months)
 # Train/Test split: 23 months training, 4 months testing
-# Primary model: SARIMAX with Semester Features
-# Fallback model: Holt-Winters (Simple Exponential Smoothing)
+# Model: SARIMAX with Semester Features
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SARIMAX_ARTIFACT_PATH = os.path.join(BASE_DIR, 'model_artifacts', 'sarimax_model.pkl')
-HOLT_WINTERS_ARTIFACT_PATH = os.path.join(BASE_DIR, 'model_artifacts', 'holt_winters_model.pkl')
 
 SEMESTER_DEFINITIONS = {
     'first_semester': (8, 12),   # Aug-Dec
@@ -62,25 +59,17 @@ def _next_period_dates(period_key, now=None, reference_month_start=None):
 
 
 def load_model_bundle(artifact_path=SARIMAX_ARTIFACT_PATH):
-    """Load SARIMAX model bundle (tries SARIMAX first, falls back to Holt-Winters)."""
-    paths_to_try = [artifact_path, HOLT_WINTERS_ARTIFACT_PATH]
-    
-    for path in paths_to_try:
-        if not os.path.exists(path):
-            continue
-            
-        try:
-            with open(path, 'rb') as f:
-                bundle = pickle.load(f)
-            if 'model' not in bundle or 'metadata' not in bundle:
-                continue
-            return bundle
-        except Exception:
-            continue
-    
-    raise FileNotFoundError(
-        'No model artifact found. Run retraining first to create a model file.'
-    )
+    """Load SARIMAX model bundle only."""
+    if not os.path.exists(artifact_path):
+        raise FileNotFoundError('SARIMAX model artifact not found. Run retraining first to create a model file.')
+
+    with open(artifact_path, 'rb') as f:
+        bundle = pickle.load(f)
+
+    if 'model' not in bundle or 'metadata' not in bundle:
+        raise ValueError('Invalid SARIMAX model artifact format.')
+
+    return bundle
 
 
 def _forecast_to_target_months(model_fit, last_observed_month_str, target_months, metadata=None):
