@@ -17,6 +17,7 @@ from data_mining.train_sarimax_model import retrain_all_historical_data
 from scheduler import start_training_scheduler, get_next_retrain_at_iso
 
 app = Flask(__name__)
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Enable CORS
 CORS(app, supports_credentials=True, origins=[
@@ -28,7 +29,7 @@ CORS(app, supports_credentials=True, origins=[
 app.config['SECRET_KEY'] = 'thesis-secret-key-123'
 
 # Load environment variables from your .env file
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(APP_DIR, '.env'))
 
 # Grab the Supabase URL from the environment
 db_url = os.getenv("DATABASE_URL")
@@ -58,6 +59,45 @@ GEMINI_URL = os.getenv(
     "GEMINI_URL",
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
 )
+
+
+def _clean_env_value(value):
+    return str(value or '').strip().strip('"').strip("'")
+
+
+def _get_runtime_gemini_config():
+    api_key = _clean_env_value(os.getenv("GEMINI_API_KEY", GEMINI_API_KEY))
+    api_url = _clean_env_value(os.getenv("GEMINI_URL", GEMINI_URL))
+    if not api_url.startswith('http'):
+        api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    return api_key, api_url
+
+FACILITIES_ASSISTANT_SYSTEM_PROMPT = """You are the official AI Facilities Booking Assistant for our University. Your goal is to help students file their initial reservation requests.
+
+Your Persona:
+You are helpful, polite, and highly organized. You speak professionally but are approachable.
+
+The Booking Workflow:
+You handle STEP 1 of our school's 2-stage approval process.
+- You collect the initial details and a Google Drive link for the student's "Concept Paper".
+- You DO NOT approve reservations. You only submit them for "Concept Review" by the Administration.
+
+Your Strict Rules:
+1. NEVER hallucinate or invent dates, times, or availability.
+2. To successfully file a reservation, you MUST gather ALL of the following information from the student:
+    - The Facility/Room they want to book
+    - Date and Start/End Time
+    - Purpose of the activity
+    - Number of attendees
+    - Name of the person in charge
+    - A valid Google Drive link to their uploaded Concept Paper. The link MUST contain "drive.google.com".
+3. The Chancellor's Signature Rule: Once the user provides the Concept Paper link, you MUST explicitly ask them: "Has this concept paper been signed by the Chancellor?"
+    - If they say NO: Refuse to proceed. Politely inform them that the Chancellor's signature is strictly required before a reservation can be filed.
+    - If they say YES: Proceed to the next step.
+4. Once you have all the required information and the signature confirmation, summarize the request for the user to confirm.
+5. When the user confirms, inform them that their request is being sent to the Administration for "Concept Review".
+6. The 5-Day Rule Warning: You must also explicitly inform the user: "Please note that once Stage 1 is approved, you will have exactly 5 days to complete Stage 2 (Final Form submission), or your reservation will be voided."
+7. Finally, output the reservation details in a strict JSON format so our backend can process it. Ensure the JSON includes a "status" field set to "concept_review". Do not include any markdown formatting around the JSON."""
 
 # Initialize extensions
 db.init_app(app)
@@ -348,6 +388,76 @@ def api_logout():
     except Exception:
         app.logger.info("/api/logout called")
     return jsonify({'status': 'success'})
+
+
+@app.route('/api/ai/chat', methods=['POST'])
+@login_required
+def ai_chat():
+    api_key, api_url = _get_runtime_gemini_config()
+    if not api_key:
+        return jsonify({'error': 'Gemini API key is not configured on the server.'}), 500
+
+    payload = request.get_json(silent=True) or {}
+    messages = payload.get('messages', [])
+    facilities = payload.get('facilities', [])
+
+    if not isinstance(messages, list) or not messages:
+        return jsonify({'error': 'Messages are required.'}), 400
+
+    facility_names = [str(f).strip() for f in facilities if str(f).strip()]
+    facility_context = ''
+    if facility_names:
+        facility_context = '\n\nAvailable facilities from system records: ' + ', '.join(facility_names)
+
+    gemini_contents = []
+    for msg in messages:
+        role = 'user' if str(msg.get('role', 'user')).lower() == 'user' else 'model'
+        text = str(msg.get('text', '')).strip()
+        if not text:
+            continue
+        gemini_contents.append({
+            'role': role,
+            'parts': [{'text': text}]
+        })
+
+    if not gemini_contents:
+        return jsonify({'error': 'No valid message text provided.'}), 400
+
+    request_body = {
+        'systemInstruction': {
+            'parts': [{'text': FACILITIES_ASSISTANT_SYSTEM_PROMPT + facility_context}]
+        },
+        'contents': gemini_contents,
+        'generationConfig': {
+            'temperature': 0.2,
+            'topP': 0.9,
+            'topK': 40,
+            'maxOutputTokens': 1024
+        }
+    }
+
+    try:
+        response = requests.post(
+            f"{api_url}?key={api_key}",
+            json=request_body,
+            timeout=45
+        )
+        response.raise_for_status()
+        result = response.json()
+
+        candidates = result.get('candidates') or []
+        if not candidates:
+            return jsonify({'error': 'No response from Gemini.'}), 502
+
+        parts = (candidates[0].get('content') or {}).get('parts') or []
+        reply_text = ''.join(part.get('text', '') for part in parts).strip()
+        if not reply_text:
+            return jsonify({'error': 'Gemini returned an empty response.'}), 502
+
+        return jsonify({'reply': reply_text})
+    except requests.RequestException as exc:
+        app.logger.error('Gemini API call failed: %s', exc)
+        return jsonify({'error': 'Unable to reach Gemini service right now.'}), 502
 
 # Get all rooms
 @app.route('/api/rooms', methods=['GET'])

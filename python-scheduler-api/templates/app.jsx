@@ -320,6 +320,18 @@ const apiService = {
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Failed to update password');
     return data;
+  },
+
+  async askFacilitiesAssistant(messages, facilities = []) {
+    const response = await fetch(`${API_BASE}/ai/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ messages, facilities })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || data.message || 'Failed to contact AI assistant');
+    return data;
   }
 };
 
@@ -3429,15 +3441,15 @@ function AIChatbotWidget({ user, rooms }) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      text: `Hi ${user?.username || 'there'}! I can help with booking spaces, approvals, and calendar questions.`
+      text: `Hello ${user?.username || 'there'}! I am your Facilities Booking Assistant for Stage 1 (Concept Review). I can help you file your initial reservation request.`
     }
   ]);
   const listRef = useRef(null);
 
   const quickPrompts = [
-    'How do I book a room?',
-    'What are available facilities?',
-    'How does approval work?'
+    'I want to file a reservation request',
+    'What details do you need from me?',
+    'What is the Stage 1 and 5-day rule?'
   ];
 
   useEffect(() => {
@@ -3446,45 +3458,27 @@ function AIChatbotWidget({ user, rooms }) {
     }
   }, [messages, isTyping]);
 
-  const buildReply = (question) => {
-    const text = (question || '').toLowerCase();
-    const roomNames = (rooms || []).slice(0, 4).map(r => r.name);
-
-    if (!text.trim()) {
-      return 'Ask me anything about reservations, forms, and facility usage.';
-    }
-    if (text.includes('book') || text.includes('reserve') || text.includes('reservation')) {
-      return 'To book a space, open Facilities or Dashboard, click Book This Space, complete the reservation form, then submit your concept paper link.';
-    }
-    if (text.includes('facility') || text.includes('room') || text.includes('space')) {
-      return roomNames.length > 0
-        ? `Current facilities include: ${roomNames.join(', ')}. You can open Facilities to view details and capacity.`
-        : 'You can view all spaces from the Facilities tab and book directly from there.';
-    }
-    if (text.includes('approve') || text.includes('approval') || text.includes('status')) {
-      return 'Approval has two steps: Stage 1 approves the concept paper, then Stage 2 reviews your signed facility form before final approval.';
-    }
-    if (text.includes('calendar') || text.includes('event')) {
-      return 'Approved reservations appear in the Event Calendar view, where you can filter by facility and open event details.';
-    }
-    if (text.includes('hello') || text.includes('hi') || text.includes('hey')) {
-      return 'Hello! Need help with booking, forms, or reservation tracking?';
-    }
-    return 'I can help with booking steps, available facilities, approval flow, and calendar events. Try one of the quick prompts below.';
-  };
-
-  const sendMessage = (rawText) => {
+  const sendMessage = async (rawText) => {
     const text = (rawText || '').trim();
     if (!text || isTyping) return;
 
-    setMessages(prev => [...prev, { role: 'user', text }]);
+    const nextMessages = [...messages, { role: 'user', text }];
+    setMessages(nextMessages);
     setInput('');
     setIsTyping(true);
 
-    window.setTimeout(() => {
-      setMessages(prev => [...prev, { role: 'assistant', text: buildReply(text) }]);
+    try {
+      const facilities = (rooms || []).map(r => r.name).filter(Boolean);
+      const result = await apiService.askFacilitiesAssistant(nextMessages, facilities);
+      setMessages(prev => [...prev, { role: 'assistant', text: result.reply || 'No response from assistant.' }]);
+    } catch (err) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        text: `I cannot reach the booking assistant right now. ${err.message || 'Please try again in a moment.'}`
+      }]);
+    } finally {
       setIsTyping(false);
-    }, 500);
+    }
   };
 
   if (!isOpen) {
@@ -3498,7 +3492,7 @@ function AIChatbotWidget({ user, rooms }) {
     React.createElement('div', { className: 'bg-sky-500 text-white px-4 py-3 flex justify-between items-center' },
       React.createElement('div', {},
         React.createElement('p', { className: 'font-bold text-sm' }, 'VacanSee AI Assistant'),
-        React.createElement('p', { className: 'text-[10px] text-sky-100' }, 'Frontend demo chatbot')
+        React.createElement('p', { className: 'text-[10px] text-sky-100' }, 'Gemini-powered booking assistant')
       ),
       React.createElement('button', {
         onClick: () => setIsOpen(false),
