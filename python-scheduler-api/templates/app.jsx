@@ -179,12 +179,12 @@ const apiService = {
     return response.json();
   },
 
-  async deleteEventWithReason(id, reason) {
+  async deleteEventWithReason(id, reason, action = 'cancel') {
     const response = await fetch(`${API_BASE}/reservations/${id}/delete-event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ reason })
+      body: JSON.stringify({ reason, action })
     });
     if (!response.ok) throw new Error('Failed to delete event');
     return response.json();
@@ -342,6 +342,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [checkingSession, setCheckingSession] = useState(true);
+  const [eventActionType, setEventActionType] = useState('delete');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [seenNotifications, setSeenNotifications] = useState(() => {
     try { return JSON.parse(localStorage.getItem('seenNotifications') || '[]'); } catch { return []; }
@@ -672,20 +673,24 @@ function App() {
       isAdmin,
       loading,
       onClose: () => setActiveModal(null),
-      onDeleteClick: () => setActiveModal('deleteEvent')
+      onDeleteClick: (actionType) => {
+        setEventActionType(actionType || 'delete');
+        setActiveModal('deleteEvent');
+      }
     }),
     activeModal === 'deleteEvent' && React.createElement(DeleteEventModal, {
       event: selectedRes,
+      actionType: eventActionType,
       onClose: () => setActiveModal('eventDetails'),
       onConfirm: async (reason) => {
         setLoading(true);
         try {
-          await apiService.deleteEventWithReason(selectedRes.id, reason);
+          await apiService.deleteEventWithReason(selectedRes.id, reason, eventActionType);
           const events = await apiService.getCalendarEvents();
           setCalendarEvents(events);
           const res = await apiService.getReservations();
           setReservations(res);
-          setNotification('Event cancelled and user notified');
+          setNotification(eventActionType === 'cancel' ? 'Event cancelled and user notified' : 'Event deleted permanently');
           setActiveModal('notification');
         } catch (err) { setError(err.message); }
         finally { setLoading(false); }
@@ -872,6 +877,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     end_period: '',
     concept_paper_url: '',
     division: '',
+    requester_type: '',
     num_attendees: '',
     activity_classification: '',
     equipment: {},
@@ -892,11 +898,12 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
   const availableEquip = selectedRoomObj ? EQUIPMENT_DATA[selectedRoomObj.name] : [];
 
   const handleEquipChange = (item, qty) => {
+    const nextValue = qty === '' ? '' : (parseInt(qty, 10) || 0);
     setForm({
       ...form,
       equipment: {
         ...form.equipment,
-        [item]: parseInt(qty) || 0
+        [item]: nextValue
       }
     });
   };
@@ -914,6 +921,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     if (hasEndDate && !form.event_end_date) missingFields.push('End Date');
     if (!form.concept_paper_url?.trim()) missingFields.push('Concept Paper Link');
     if (!form.division?.trim()) missingFields.push('Division');
+    if (!form.requester_type) missingFields.push('Requester Type (Student/Employee/Other)');
     if (!form.num_attendees || Number(form.num_attendees) < 1) missingFields.push('Number of Attendees');
     if (!form.activity_classification) missingFields.push('Activity Classification');
 
@@ -1033,6 +1041,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
         count: form.housekeeping_needed ? Number(form.housekeeping_count || 0) : 0
       },
       security_guard: !!form.security_guard_needed,
+      requester_type: form.requester_type,
       engineering: {
         aircon: !!form.engineering_aircon,
         elevator: !!form.engineering_elevator,
@@ -1108,11 +1117,24 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
               React.createElement('p', { className: 'col-span-3 text-[11px] text-slate-500' }, contactRule.label)
             ),
             React.createElement('input', { placeholder: 'Division', value: form.division, onChange: (e) => setForm({ ...form, division: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
+            React.createElement('div', { className: 'w-full p-2 border rounded bg-white' },
+              React.createElement('p', { className: 'text-xs font-semibold text-slate-600 mb-2' }, 'Requester Type'),
+              React.createElement('div', { className: 'flex flex-wrap gap-4 text-sm text-slate-700' },
+                ['Student', 'Employee', 'Other'].map((type) => React.createElement('label', { key: type, className: 'inline-flex items-center gap-2 cursor-pointer' },
+                  React.createElement('input', {
+                    type: 'checkbox',
+                    checked: form.requester_type === type,
+                    onChange: () => setForm({ ...form, requester_type: form.requester_type === type ? '' : type })
+                  }),
+                  type
+                ))
+              )
+            ),
             React.createElement('input', { type: 'number', placeholder: 'Number of Attendees', min: '1', value: form.num_attendees, onChange: (e) => setForm({ ...form, num_attendees: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
             React.createElement('select', {
               value: form.activity_classification,
               onChange: (e) => setForm({ ...form, activity_classification: e.target.value }),
-              className: 'w-full p-2 border rounded bg-white md:col-span-2'
+              className: 'w-full p-2 border rounded bg-white'
             },
               React.createElement('option', { value: '' }, 'Activity Classification'),
               ['Institutional', 'Curricular', 'Outside Group', 'Co-Curricular', 'Extra-Curricular'].map(c =>
@@ -1304,8 +1326,30 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
                 React.createElement('input', { 
                   type: 'number', 
                   min: '0',
-                  value: form.equipment[item] || 0,
+                  value: form.equipment[item] ?? 0,
                   onChange: (e) => handleEquipChange(item, e.target.value),
+                  onFocus: () => {
+                    if ((form.equipment[item] ?? 0) === 0) {
+                      setForm({
+                        ...form,
+                        equipment: {
+                          ...form.equipment,
+                          [item]: ''
+                        }
+                      });
+                    }
+                  },
+                  onBlur: () => {
+                    if (form.equipment[item] === '') {
+                      setForm({
+                        ...form,
+                        equipment: {
+                          ...form.equipment,
+                          [item]: 0
+                        }
+                      });
+                    }
+                  },
                   className: 'w-12 p-1 text-xs border rounded text-center bg-white'
                 })
               )
@@ -1412,7 +1456,12 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
     const attendeeCount = firstNonEmpty(res.attendees, res.num_attendees, res.participants);
     const personInCharge = firstNonEmpty(res.person_in_charge, res.requestor_name, res.requested_by, res.full_name);
     const contactNumber = firstNonEmpty(res.contact_number, res.contact, res.phone_number, res.mobile_number);
-    const normalizedRequesterType = firstNonEmpty(res.requester_type, res.requestor_type, res.user_type).toLowerCase();
+    const normalizedRequesterType = firstNonEmpty(
+      res.equipment_data?.services?.requester_type,
+      res.requester_type,
+      res.requestor_type,
+      res.user_type
+    ).toLowerCase();
     const requesterIsStudent = normalizedRequesterType.includes('student');
     const requesterIsEmployee = normalizedRequesterType.includes('employee') || normalizedRequesterType.includes('faculty') || normalizedRequesterType.includes('staff');
     const requesterIsOther = Boolean(normalizedRequesterType) && !requesterIsStudent && !requesterIsEmployee;
@@ -1547,7 +1596,9 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
             border: none;
             padding: 3px 6px;
             font-size: 10pt;
+            text-align: center;
           }
+          .classification-option { text-align: center; }
           .chk {
             display: flex;
             align-items: center;
@@ -1897,6 +1948,10 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
               React.createElement('div', {},
                 React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'Contact'),
                 React.createElement('p', { className: 'font-medium text-slate-700' }, res.contact_number || 'N/A')
+              ),
+              React.createElement('div', {},
+                React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'Division'),
+                React.createElement('p', { className: 'font-medium text-slate-700' }, res.division || 'N/A')
               )
             )
           ),
@@ -2039,18 +2094,30 @@ function DenyModal({ res, onClose, onConfirm, loading }) {
   );
 }
 
-function DeleteEventModal({ event, onClose, onConfirm, loading }) {
+function DeleteEventModal({ event, actionType, onClose, onConfirm, loading }) {
   const [reason, setReason] = useState('');
+  const isCancelAction = actionType === 'cancel';
+  const title = isCancelAction ? '⛔ Cancel Event' : '🗑️ Delete Event Permanently';
+  const description = isCancelAction
+    ? 'Are you sure you want to cancel "'
+    : 'Are you sure you want to permanently delete "';
+  const detail = isCancelAction
+    ? '"? The user will be notified.'
+    : '"? This action cannot be undone.';
+  const placeholder = isCancelAction
+    ? 'Reason for cancellation (required)...'
+    : 'Reason for permanent deletion (required)...';
+  const confirmLabel = isCancelAction ? 'Cancel Event' : 'Delete Permanently';
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
     React.createElement('div', { className: 'bg-white rounded-3xl p-6 max-w-sm shadow-2xl' },
-      React.createElement('h3', { className: 'font-bold text-lg mb-2 text-slate-800' }, '🗑️ Delete Event'),
+      React.createElement('h3', { className: 'font-bold text-lg mb-2 text-slate-800' }, title),
       React.createElement('p', { className: 'text-sm text-slate-600 mb-4' }, 
-        'Are you sure you want to delete "', React.createElement('strong', {}, event?.activity_purpose), '"? The user will be notified.'
+        description, React.createElement('strong', {}, event?.activity_purpose), detail
       ),
       React.createElement('textarea', { 
         value: reason, 
         onChange: (e) => setReason(e.target.value), 
-        placeholder: 'Reason for deletion (required)...', 
+        placeholder, 
         className: 'w-full p-3 border rounded-xl mb-4 text-sm focus:outline-none focus:ring-2 focus:ring-red-300', 
         rows: 3 
       }),
@@ -2060,7 +2127,7 @@ function DeleteEventModal({ event, onClose, onConfirm, loading }) {
           onClick: () => reason && onConfirm(reason), 
           disabled: !reason || loading, 
           className: 'flex-1 bg-red-500 hover:bg-red-600 text-white p-3 rounded-xl font-semibold disabled:opacity-50 transition-colors' 
-        }, loading ? 'Deleting...' : 'Delete')
+        }, loading ? (isCancelAction ? 'Cancelling...' : 'Deleting...') : confirmLabel)
       )
     )
   );
@@ -3242,6 +3309,9 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
   const start = event.start_time ? new Date(event.start_time) : null;
   const end = event.end_time ? new Date(event.end_time) : null;
   const isOngoing = !isHoliday && !isCancelled && start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && now >= start && now <= end;
+  const eventActionType = isCancelled ? 'delete' : (isOngoing ? 'cancel' : 'delete');
+  const eventActionLabel = eventActionType === 'cancel' ? 'Cancel Event' : 'Delete Event';
+  const eventActionIcon = eventActionType === 'cancel' ? '⛔' : '🗑️';
   const statusLabel = isHoliday ? 'Holiday' : (isCancelled ? 'Cancelled' : (isOngoing ? 'Ongoing' : 'Plotting'));
   const statusColor = isHoliday
     ? 'bg-blue-100 text-blue-700'
@@ -3343,10 +3413,10 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
         }, 'Close'),
         // Delete button (admin only)
         isAdmin && !isHoliday && React.createElement('button', { 
-          onClick: onDeleteClick,
+          onClick: () => onDeleteClick(eventActionType),
           disabled: loading,
           className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2' 
-        }, '🗑️ Delete Event')
+        }, `${eventActionIcon} ${eventActionLabel}`)
       )
     )
   );

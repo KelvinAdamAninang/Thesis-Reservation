@@ -603,14 +603,31 @@ def delete_event(id):
     if not reservation:
         return jsonify({'error': 'Reservation not found'}), 404
     
-    data = request.get_json()
+    data = request.get_json() or {}
     reason = data.get('reason', 'No reason provided')
-    
-    # Mark as cancelled (not denied) so users can still see it in calendar history.
+    action = str(data.get('action', '')).strip().lower()
+
+    current_status = str(reservation.status or '').lower()
+    is_cancelled = current_status in ['cancelled', 'deleted', 'denied']
+
+    now = datetime.now()
+    start_time = reservation.start_time
+    end_time = reservation.end_time
+    is_ongoing = bool(start_time and end_time and start_time <= now <= end_time and not is_cancelled)
+
+    expected_action = 'delete' if is_cancelled or not is_ongoing else 'cancel'
+    if action and action != expected_action:
+        return jsonify({'error': f'Invalid action for this event. Expected "{expected_action}".'}), 400
+
+    if expected_action == 'delete':
+        db.session.delete(reservation)
+        db.session.commit()
+        return jsonify({'status': 'success', 'message': 'Event deleted permanently'})
+
     reservation.status = 'cancelled'
     reservation.denial_reason = reason
-    reservation.archived_at = datetime.now()
-    
+    reservation.archived_at = now
+
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'Event cancelled and user notified'})
 
