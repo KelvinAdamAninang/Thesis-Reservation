@@ -1,0 +1,4 @@
+Model,MAE,RMSE,MASE,Dir.Acc%,Var.Ratio,Pearson R,Rank (by MAE)
+HW Level Only (SES baseline),2.75,3.0606,0.4802,0.0,0.0,,1
+"SARIMA(1, 1, 1)x(1, 0, 1, 6)",3.1735,3.8618,0.5541,66.7,1.2912,0.3024,2
+Seasonal Naive (s=6),5.75,6.7639,1.004,66.7,3.7551,-0.0562,3

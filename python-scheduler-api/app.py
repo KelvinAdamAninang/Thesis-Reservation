@@ -1,12 +1,20 @@
 import os
 import json
+import uuid
 import requests
+from urllib.parse import urlparse
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_cors import CORS
-from datetime import datetime
-from models import db, User, Room, Reservation 
+from datetime import datetime, date
+from sqlalchemy import inspect
+from sqlalchemy import or_
+from dotenv import load_dotenv
+from models import db, User, Room, Reservation, Holiday 
 from data_mining.analytics import build_analytics_snapshot
+from data_mining.forecast_utils import forecast_all_academic_periods, forecast_for_period, forecast_current_semester
+from data_mining.train_sarimax_model import retrain_all_historical_data
+from scheduler import start_training_scheduler, get_next_retrain_at_iso
 
 app = Flask(__name__)
 
@@ -19,31 +27,114 @@ CORS(app, supports_credentials=True, origins=[
 # CONFIG
 app.config['SECRET_KEY'] = 'thesis-secret-key-123'
 
-# Ensure instance directory exists and use an absolute DB path
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
-os.makedirs(INSTANCE_DIR, exist_ok=True)
-DB_PATH = os.path.join(INSTANCE_DIR, 'school.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + DB_PATH.replace('\\', '/')
+# Load environment variables from your .env file
+load_dotenv()
+
+# Grab the Supabase URL from the environment
+db_url = os.getenv("DATABASE_URL")
+
+# Fix the SQLAlchemy URI quirk (changes postgres:// to postgresql://)
+if db_url and db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+if db_url:
+    parsed = urlparse(db_url)
+    host = (parsed.hostname or "").lower()
+    # Common typo guard: "ssupabase.co" breaks DNS resolution.
+    if "ssupabase.co" in host:
+        raise RuntimeError(
+            "Invalid DATABASE_URL host detected. Did you mean '.supabase.co' instead of '.ssupabase.co'?"
+        )
+
+# Configure SQLAlchemy to use Supabase
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # AI CONFIG (Gemini API)
-GEMINI_API_KEY = ""
-GEMINI_URL = ""
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_URL = os.getenv(
+    "GEMINI_URL",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+)
 
 # Initialize extensions
 db.init_app(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+training_scheduler = None
 
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
 
+
+def _display_username(user):
+    if not user:
+        return 'Unknown'
+    if user.username == 'deleted_account':
+        return 'Deleted Account'
+    return user.username
+
+
+def _get_manual_holiday_on_date(day_value):
+    holiday = Holiday.query.filter_by(holiday_date=day_value).first()
+    return holiday
+
+
+def _get_manual_holiday_in_range(start_date, end_date):
+    return Holiday.query.filter(
+        Holiday.holiday_date >= start_date,
+        Holiday.holiday_date <= end_date
+    ).order_by(Holiday.holiday_date.asc()).first()
+
+
+def _build_manual_holiday_events(from_date=None):
+    query = Holiday.query
+    if from_date is not None:
+        query = query.filter(Holiday.holiday_date >= from_date)
+
+    holidays = query.order_by(Holiday.holiday_date.asc(), Holiday.id.asc()).all()
+    events = []
+    for h in holidays:
+        start_dt = datetime.combine(h.holiday_date, datetime.min.time())
+        end_dt = datetime.combine(h.holiday_date, datetime.max.time().replace(microsecond=0))
+        events.append({
+            'id': f'holiday-{h.id}',
+            'holiday_id': h.id,
+            'room_id': None,
+            'room_name': 'University-wide',
+            'activity_purpose': f'{h.title} (No Classes)',
+            'person_in_charge': 'Admin',
+            'start_time': start_dt.isoformat(),
+            'end_time': end_dt.isoformat(),
+            'department': 'Academic Calendar',
+            'event_type': 'holiday',
+            'is_holiday': True,
+            'holiday_name': h.title,
+            'notes': h.notes or '',
+        })
+    return events
+
 # Create tables
 with app.app_context():
     db.create_all()
+
+
+def _ensure_room_columns():
+    """Backfill new room columns for existing SQLite databases without migrations."""
+    inspector = inspect(db.engine)
+    columns = {c['name'] for c in inspector.get_columns('rooms')}
+
+    with db.engine.begin() as conn:
+        if 'detailed_info' not in columns:
+            conn.exec_driver_sql("ALTER TABLE rooms ADD COLUMN detailed_info TEXT")
+        if 'image_url' not in columns:
+            conn.exec_driver_sql("ALTER TABLE rooms ADD COLUMN image_url VARCHAR(500)")
+
+
+with app.app_context():
+    _ensure_room_columns()
 
 
 @app.before_request
@@ -155,8 +246,8 @@ def setup():
             {'user': 'admin_phase1', 'pass': 'phase1', 'role': 'admin_phase1', 'dept': 'Administration'},
             {'user': 'ccs', 'pass': '1234', 'role': 'student', 'dept': 'College of Computer Studies'},
             {'user': 'cas', 'pass': '1234', 'role': 'student', 'dept': 'College of Arts & Sciences'},
-            {'user': 'eng', 'pass': '1234', 'role': 'student', 'dept': 'College of Engineering'},
-            {'user': 'avi', 'pass': '1234', 'role': 'student', 'dept': 'College of Nursing'},
+            {'user': 'ceaa', 'pass': '1234', 'role': 'student', 'dept': 'College of Engineering and Aviation'},
+            {'user': 'coc', 'pass': '1234', 'role': 'student', 'dept': 'College of Criminalogy'},
         ]
         
         for u_data in users_to_add:
@@ -261,7 +352,9 @@ def get_rooms():
         'name': room.name,
         'capacity': room.capacity,
         'description': room.description,
-        'usual_activity': room.usual_activity
+        'usual_activity': room.usual_activity,
+        'detailed_info': room.detailed_info,
+        'image_url': room.image_url
     } for room in rooms]
     return jsonify(rooms_list)
 
@@ -269,8 +362,17 @@ def get_rooms():
 @app.route('/api/calendar-events', methods=['GET'])
 @login_required
 def get_calendar_events():
-    # Return all approved reservations for the calendar (including archived approved events)
-    reservations = Reservation.query.filter_by(status='approved').all()
+    # Return calendar-relevant reservations:
+    # - approved events (normal / ongoing / plotting)
+    # - cancelled events (legacy deleted also treated as cancelled)
+    reservations = Reservation.query.filter(
+        or_(
+            Reservation.status == 'approved',
+            Reservation.status == 'cancelled',
+            Reservation.status == 'deleted'
+        )
+    ).all()
+
     events_list = [{
         'id': r.id,
         'room_id': r.room_id,
@@ -279,8 +381,17 @@ def get_calendar_events():
         'person_in_charge': r.person_in_charge or 'N/A',
         'start_time': r.start_time.isoformat() if r.start_time else None,
         'end_time': r.end_time.isoformat() if r.end_time else None,
-        'department': r.requester.department if r.requester else 'Unknown'
+        'department': r.requester.department if r.requester else 'Unknown',
+        'status': 'cancelled' if r.status == 'deleted' else r.status,
+        'event_type': 'reservation',
+        'is_holiday': False,
     } for r in reservations]
+
+    # Include admin-managed holidays as class-suspension markers.
+    holiday_events = _build_manual_holiday_events(from_date=date.today())
+    events_list.extend(holiday_events)
+
+    events_list.sort(key=lambda e: (e.get('start_time') or '', str(e.get('activity_purpose') or '').lower()))
     return jsonify(events_list)
 
 # Get all reservations (Admin and admin_phase1 see all, users see their own)
@@ -295,7 +406,7 @@ def get_reservations():
     reservations_list = [{
         'id': r.id,
         'user_id': r.user_id,
-        'user': r.requester.username if r.requester else 'Unknown',
+        'user': _display_username(r.requester),
         'department': r.requester.department if r.requester else 'Unknown',
         'room_id': r.room_id,
         'room_name': db.session.get(Room, r.room_id).name if db.session.get(Room, r.room_id) else 'Unknown',
@@ -333,7 +444,7 @@ def get_reservation(id):
     return jsonify({
         'id': reservation.id,
         'user_id': reservation.user_id,
-        'user': reservation.requester.username if reservation.requester else 'Unknown',
+        'user': _display_username(reservation.requester),
         'department': reservation.requester.department if reservation.requester else 'Unknown',
         'room_id': reservation.room_id,
         'room_name': db.session.get(Room, reservation.room_id).name if db.session.get(Room, reservation.room_id) else 'Unknown',
@@ -362,6 +473,16 @@ def create_reservation():
     data = request.get_json()
     
     try:
+        start_time = datetime.fromisoformat(data['start_time'])
+        end_time = datetime.fromisoformat(data['end_time'])
+
+        holiday = _get_manual_holiday_in_range(start_time.date(), end_time.date())
+        if holiday:
+            return jsonify({
+                'status': 'error',
+                'message': f"Reservations are suspended on holidays. Conflict: {holiday.title} ({holiday.holiday_date.isoformat()})."
+            }), 400
+
         reservation = Reservation(
             user_id=current_user.id,
             room_id=data['room_id'],
@@ -371,8 +492,8 @@ def create_reservation():
             classification=data.get('classification', ''),
             person_in_charge=data['person_in_charge'],
             contact_number=data['contact_number'],
-            start_time=datetime.fromisoformat(data['start_time']),
-            end_time=datetime.fromisoformat(data['end_time']),
+            start_time=start_time,
+            end_time=end_time,
             concept_paper_url=data.get('concept_paper_url', ''),
             status='pending',
             date_filed=datetime.now()
@@ -433,6 +554,12 @@ def approve_final(id):
     reservation = db.session.get(Reservation, id)
     if not reservation:
         return jsonify({'error': 'Reservation not found'}), 404
+
+    holiday = _get_manual_holiday_in_range(reservation.start_time.date(), reservation.end_time.date())
+    if holiday:
+        return jsonify({
+            'error': f"Cannot approve final reservation due to holiday conflict: {holiday.title} ({holiday.holiday_date.isoformat()})."
+        }), 400
     
     reservation.status = 'approved'
     db.session.commit()
@@ -458,7 +585,7 @@ def deny_reservation(id):
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'Reservation denied'})
 
-# Delete event from calendar (Admin only) - with notification to user
+# Cancel event from calendar (Admin only) - with notification to user
 @app.route('/api/reservations/<int:id>/delete-event', methods=['POST'])
 @login_required
 def delete_event(id):
@@ -472,13 +599,13 @@ def delete_event(id):
     data = request.get_json()
     reason = data.get('reason', 'No reason provided')
     
-    # Mark as deleted (not denied) so users get notified
-    reservation.status = 'deleted'
+    # Mark as cancelled (not denied) so users can still see it in calendar history.
+    reservation.status = 'cancelled'
     reservation.denial_reason = reason
     reservation.archived_at = datetime.now()
     
     db.session.commit()
-    return jsonify({'status': 'success', 'message': 'Event deleted and user notified'})
+    return jsonify({'status': 'success', 'message': 'Event cancelled and user notified'})
 
 # Archive approved reservation - Admin and admin_phase1 can archive
 @app.route('/api/reservations/<int:id>/archive', methods=['POST'])
@@ -518,17 +645,17 @@ def delete_reservation(id):
 def get_archive():
     from sqlalchemy import or_
     if current_user.role in ['admin', 'admin_phase1']:
-        # Include denied, deleted, or any reservation with archived_at set
+        # Include denied, cancelled (including legacy deleted), or any reservation with archived_at set
         archived = Reservation.query.filter(
             or_(
-                Reservation.status.in_(['denied', 'deleted']),
+                Reservation.status.in_(['denied', 'cancelled', 'deleted']),
                 Reservation.archived_at != None
             )
         ).all()
     else:
         archived = Reservation.query.filter_by(user_id=current_user.id).filter(
             or_(
-                Reservation.status.in_(['denied', 'deleted']),
+                Reservation.status.in_(['denied', 'cancelled', 'deleted']),
                 Reservation.archived_at != None
             )
         ).all()
@@ -536,7 +663,7 @@ def get_archive():
     archive_list = [{
         'id': r.id,
         'user_id': r.user_id,
-        'user': r.requester.username if r.requester else 'Unknown',
+        'user': _display_username(r.requester),
         'department': r.requester.department if r.requester else 'Unknown',
         'room_id': r.room_id,
         'activity_purpose': r.activity_purpose,
@@ -548,6 +675,43 @@ def get_archive():
     } for r in archived]
     
     return jsonify(archive_list)
+
+
+@app.route('/api/holidays', methods=['POST'])
+@login_required
+def create_holiday():
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    data = request.get_json() or {}
+    title = (data.get('title') or '').strip()
+    holiday_date_raw = (data.get('holiday_date') or '').strip()
+    notes = (data.get('notes') or '').strip()
+
+    if not title:
+        return jsonify({'status': 'error', 'message': 'Holiday title is required'}), 400
+    if not holiday_date_raw:
+        return jsonify({'status': 'error', 'message': 'Holiday date is required'}), 400
+
+    try:
+        holiday_date = datetime.fromisoformat(holiday_date_raw).date()
+    except ValueError:
+        return jsonify({'status': 'error', 'message': 'Invalid holiday date format'}), 400
+
+    existing = Holiday.query.filter_by(holiday_date=holiday_date).first()
+    if existing:
+        return jsonify({'status': 'error', 'message': f'A holiday is already set on {holiday_date.isoformat()} ({existing.title}).'}), 400
+
+    holiday = Holiday(
+        title=title,
+        holiday_date=holiday_date,
+        notes=notes,
+        created_by=current_user.id
+    )
+    db.session.add(holiday)
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'id': holiday.id, 'message': 'Holiday added to calendar'})
 
 # Get analytics - Admin only
 @app.route('/api/analytics', methods=['GET'])
@@ -592,6 +756,78 @@ def get_data_mining_analytics():
         return jsonify({'status': 'success', 'data': payload})
     except Exception as e:
         app.logger.exception("Failed to build analytics snapshot")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/data-mining/forecast/periods', methods=['GET'])
+@login_required
+def get_forecast_periods():
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        payload = forecast_all_academic_periods()
+        return jsonify({
+            'status': 'success',
+            'data': payload,
+            'next_retrain_at': get_next_retrain_at_iso(),
+            'retrain_basis': 'approved_only',
+        })
+    except Exception as e:
+        app.logger.exception('Failed to build semester forecasts')
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/data-mining/forecast/period/<period_key>', methods=['GET'])
+@login_required
+def get_forecast_period(period_key):
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        payload = forecast_for_period(period_key)
+        return jsonify({'status': 'success', 'data': payload})
+    except Exception as e:
+        app.logger.exception('Failed to build period forecast for %s', period_key)
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/data-mining/forecast/current-semester', methods=['GET'])
+@login_required
+def get_current_semester_forecast():
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        payload = forecast_current_semester()
+        return jsonify({
+            'status': 'success',
+            'data': payload,
+            'next_retrain_at': get_next_retrain_at_iso(),
+            'retrain_basis': 'approved_only',
+        })
+    except Exception as e:
+        app.logger.exception('Failed to build current semester forecast')
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/data-mining/forecast/retrain', methods=['POST'])
+@login_required
+def retrain_forecast_model():
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        metadata = retrain_all_historical_data(include_statuses=['approved'])
+        return jsonify({
+            'status': 'success',
+            'message': 'SARIMAX model retrained using approved reservations only.',
+            'metadata': metadata,
+            'next_retrain_at': get_next_retrain_at_iso(),
+            'retrain_basis': 'approved_only',
+        })
+    except Exception as e:
+        app.logger.exception('Failed to retrain forecasting model')
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
@@ -651,6 +887,43 @@ def _require_admin_settings_access():
     return None
 
 
+def _uploaded_facility_image_path(image_url):
+    """Resolve a local facility upload URL to an absolute file path, if safe and valid."""
+    if not image_url:
+        return None
+
+    value = (image_url or '').strip()
+    if not value:
+        return None
+
+    parsed = urlparse(value)
+    url_path = (parsed.path or value).strip()
+    prefix = '/static/uploads/'
+
+    if not url_path.startswith(prefix):
+        return None
+
+    filename = os.path.basename(url_path)
+    if not filename:
+        return None
+
+    uploads_dir = os.path.join(app.static_folder, 'uploads')
+    return os.path.join(uploads_dir, filename)
+
+
+def _delete_uploaded_facility_image(image_url):
+    """Best-effort deletion of a previously uploaded facility image from /static/uploads."""
+    filepath = _uploaded_facility_image_path(image_url)
+    if not filepath:
+        return
+
+    try:
+        if os.path.isfile(filepath):
+            os.remove(filepath)
+    except Exception as exc:
+        app.logger.warning("Could not delete old facility image '%s': %s", filepath, exc)
+
+
 @app.route('/api/admin/facilities', methods=['GET'])
 @login_required
 def admin_get_facilities():
@@ -666,7 +939,9 @@ def admin_get_facilities():
             'name': room.name,
             'capacity': room.capacity,
             'description': room.description,
-            'usual_activity': room.usual_activity
+            'usual_activity': room.usual_activity,
+            'detailed_info': room.detailed_info,
+            'image_url': room.image_url
         }
         for room in rooms
     ])
@@ -695,7 +970,9 @@ def admin_create_facility():
         name=name,
         capacity=int(capacity),
         description=(data.get('description') or '').strip(),
-        usual_activity=(data.get('usual_activity') or '').strip()
+        usual_activity=(data.get('usual_activity') or '').strip(),
+        detailed_info=(data.get('detailed_info') or '').strip(),
+        image_url=(data.get('image_url') or '').strip()
     )
     db.session.add(room)
     db.session.commit()
@@ -731,9 +1008,74 @@ def admin_update_facility(id):
     room.capacity = int(capacity)
     room.description = (data.get('description') or '').strip()
     room.usual_activity = (data.get('usual_activity') or '').strip()
+    room.detailed_info = (data.get('detailed_info') or '').strip()
+    new_image_url = (data.get('image_url') or '').strip()
+    old_image_url = (room.image_url or '').strip()
+
+    # If image is replaced/removed, delete the old locally uploaded file.
+    if old_image_url and old_image_url != new_image_url:
+        _delete_uploaded_facility_image(old_image_url)
+
+    room.image_url = new_image_url
 
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'Facility updated'})
+
+
+@app.route('/api/admin/facilities/upload-image', methods=['POST'])
+@login_required
+def admin_upload_facility_image():
+    denied = _require_admin_settings_access()
+    if denied:
+        return denied
+
+    if 'image' not in request.files:
+        return jsonify({'status': 'error', 'message': 'No image file provided'}), 400
+
+    image_file = request.files['image']
+    if image_file.filename == '':
+        return jsonify({'status': 'error', 'message': 'Empty filename'}), 400
+
+    previous_image_url = (request.form.get('previous_image_url') or '').strip()
+
+    ext = os.path.splitext(image_file.filename)[1].lower()
+    allowed = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
+    if ext not in allowed:
+        return jsonify({'status': 'error', 'message': 'Unsupported image format'}), 400
+
+    uploads_dir = os.path.join(app.static_folder, 'uploads')
+    os.makedirs(uploads_dir, exist_ok=True)
+
+    filename = f"facility_{uuid.uuid4().hex}{ext}"
+    filepath = os.path.join(uploads_dir, filename)
+    image_file.save(filepath)
+
+    # When user uploads a replacement, remove the prior local uploaded file.
+    _delete_uploaded_facility_image(previous_image_url)
+
+    return jsonify({'status': 'success', 'image_url': f'/static/uploads/{filename}'})
+
+
+@app.route('/api/admin/facilities/<int:id>', methods=['DELETE'])
+@login_required
+def admin_delete_facility(id):
+    denied = _require_admin_settings_access()
+    if denied:
+        return denied
+
+    room = db.session.get(Room, id)
+    if not room:
+        return jsonify({'status': 'error', 'message': 'Facility not found'}), 404
+
+    has_reservations = Reservation.query.filter_by(room_id=id).first()
+    if has_reservations:
+        return jsonify({'status': 'error', 'message': 'Cannot delete facility with existing reservations'}), 409
+
+    _delete_uploaded_facility_image((room.image_url or '').strip())
+
+    db.session.delete(room)
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Facility deleted'})
 
 
 @app.route('/api/admin/users', methods=['GET'])
@@ -752,6 +1094,7 @@ def admin_get_users():
             'department': user.department
         }
         for user in users
+        if user.username != 'deleted_account'
     ])
 
 
@@ -814,5 +1157,49 @@ def admin_update_user(id):
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'User account updated'})
 
+
+@app.route('/api/admin/users/<int:id>', methods=['DELETE'])
+@login_required
+def admin_delete_user(id):
+    denied = _require_admin_settings_access()
+    if denied:
+        return denied
+
+    if current_user.id == id:
+        return jsonify({'status': 'error', 'message': 'You cannot delete your own account'}), 409
+
+    user = db.session.get(User, id)
+    if not user:
+        return jsonify({'status': 'error', 'message': 'User not found'}), 404
+
+    if user.username == 'deleted_account':
+        return jsonify({'status': 'error', 'message': 'System account cannot be deleted'}), 409
+
+    # Remove pending reservations owned by the account, but preserve calendar-visible
+    # reservations by reassigning them to a placeholder account.
+    pending_reservations = Reservation.query.filter_by(user_id=id, status='pending').all()
+    for reservation in pending_reservations:
+        db.session.delete(reservation)
+
+    remaining_reservations = Reservation.query.filter(
+        Reservation.user_id == id,
+        Reservation.status != 'pending'
+    ).all()
+
+    placeholder = User.query.filter_by(username='deleted_account').first()
+    if not placeholder:
+        placeholder = User(username='deleted_account', role='student', department='Archived Accounts')
+        placeholder.set_password('deleted_account')
+        db.session.add(placeholder)
+        db.session.flush()
+
+    for reservation in remaining_reservations:
+        reservation.user_id = placeholder.id
+
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'User account deleted'})
+
 if __name__ == '__main__':
+    training_scheduler = start_training_scheduler(app)
     app.run(debug=True)
