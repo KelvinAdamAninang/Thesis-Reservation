@@ -80,3 +80,14 @@ class Reservation(db.Model):
             self.equipment_data = json.dumps(equipment_dict)
         else:
             self.equipment_data = None
+
+
+class Holiday(db.Model):
+    __tablename__ = 'holidays'
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(150), nullable=False)
+    holiday_date = db.Column(db.Date, nullable=False, index=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)

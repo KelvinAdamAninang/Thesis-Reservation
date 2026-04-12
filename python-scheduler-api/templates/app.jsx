@@ -176,6 +176,18 @@ const apiService = {
     return response.json();
   },
 
+  async createHoliday(payload) {
+    const response = await fetch(`${API_BASE}/holidays`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || data.error || 'Failed to create holiday');
+    return data;
+  },
+
   async getDataMiningAnalytics() {
     const response = await fetch(`${API_BASE}/data-mining/analytics`, { credentials: 'include' });
     if (!response.ok) throw new Error('Failed to fetch analytics');
@@ -285,25 +297,6 @@ const apiService = {
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Failed to update password');
     return data;
-  },
-
-  async getDataMiningForecast() {
-    const response = await fetch(`${API_BASE}/data-mining/forecast`, { credentials: 'include' });
-    if (!response.ok) throw new Error('Failed to fetch forecast');
-    const payload = await response.json();
-    if (payload.status !== 'success') throw new Error(payload.message || 'Forecast fetch failed');
-    return payload;
-  },
-
-  async retrainForecastModel() {
-    const response = await fetch(`${API_BASE}/data-mining/forecast/retrain`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include'
-    });
-    const data = await response.json();
-    // Note: 400 status is expected for warning responses, don't throw
-    return { status: response.status, data };
   }
 };
 
@@ -531,7 +524,13 @@ function App() {
       // Main content
       React.createElement('main', { className: 'flex-1 overflow-y-auto p-4 md:p-8' },
         currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
-        currentView === 'calendar' && React.createElement(CalendarView, { events: calendarEvents, rooms, onViewEvent: (e) => { setSelectedRes(e); setActiveModal('eventDetails'); } }),
+        currentView === 'calendar' && React.createElement(CalendarView, {
+          events: calendarEvents,
+          rooms,
+          isAdmin: isAdminOrPhase1,
+          onAddHoliday: () => setActiveModal('holiday'),
+          onViewEvent: (e) => { setSelectedRes(e); setActiveModal('eventDetails'); }
+        }),
         currentView === 'facilities' && React.createElement(FacilitiesView, {
           rooms,
           isAdmin: isAdminOrPhase1,
@@ -559,7 +558,6 @@ function App() {
         }),
         currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at && r.user_id !== currentUser.id), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
         currentView === 'analytics' && isAdminOrPhase1 && React.createElement(AnalyticsView, { reservations }),
-        currentView === 'forecast' && isAdminOrPhase1 && React.createElement(ForecastView, { onNotify: (message) => { setNotification(message); setActiveModal('notification'); } }),
         currentView === 'archive' && React.createElement(ArchiveView, {
           archive,
           user: currentUser,
@@ -671,6 +669,21 @@ function App() {
       },
       loading
     }),
+    activeModal === 'holiday' && React.createElement(HolidayModal, {
+      onClose: () => setActiveModal(null),
+      onConfirm: async (payload) => {
+        setLoading(true);
+        try {
+          await apiService.createHoliday(payload);
+          const events = await apiService.getCalendarEvents();
+          setCalendarEvents(events);
+          setNotification('Holiday added to calendar. Reservations are now blocked for that date.');
+          setActiveModal('notification');
+        } catch (err) { setError(err.message); }
+        finally { setLoading(false); }
+      },
+      loading
+    }),
     React.createElement(AIChatbotWidget, { user: currentUser, rooms })
   );
 }
@@ -715,7 +728,6 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin, mobileMenuOpen
         React.createElement('p', { className: 'text-xs font-bold text-slate-400 uppercase mb-2 px-3' }, 'Admin Panel'), 
         React.createElement(NavBtn, { id: 'reservations', label: '📋 Requests' }), 
         React.createElement(NavBtn, { id: 'analytics', label: '📈 Analytics' }),
-        React.createElement(NavBtn, { id: 'forecast', label: '🔮 Forecast' }),
         React.createElement(NavBtn, { id: 'settings', label: '⚙️ Settings' })
       ),
       React.createElement(NavBtn, { id: 'archive', label: '📦 Archive' })
@@ -936,7 +948,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     });
 
     if (holidayConflict) {
-      const holidayName = holidayConflict.holiday_name || holidayConflict.activity_purpose || 'Philippine holiday';
+      const holidayName = holidayConflict.holiday_name || holidayConflict.activity_purpose || 'holiday';
       setLocalError(`Reservations are suspended on this date due to ${holidayName}. Please pick another date.`);
       return;
     }
@@ -1811,6 +1823,74 @@ function DeleteEventModal({ event, onClose, onConfirm, loading }) {
   );
 }
 
+function HolidayModal({ onClose, onConfirm, loading }) {
+  const [form, setForm] = useState({
+    title: '',
+    holiday_date: '',
+    notes: ''
+  });
+  const [localError, setLocalError] = useState('');
+
+  const submit = (e) => {
+    e.preventDefault();
+    setLocalError('');
+    if (!form.title.trim()) {
+      setLocalError('Holiday title is required.');
+      return;
+    }
+    if (!form.holiday_date) {
+      setLocalError('Holiday date is required.');
+      return;
+    }
+    onConfirm({
+      title: form.title.trim(),
+      holiday_date: form.holiday_date,
+      notes: (form.notes || '').trim()
+    });
+  };
+
+  return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
+    React.createElement('div', { className: 'bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl' },
+      React.createElement('h3', { className: 'font-bold text-lg mb-1 text-slate-800' }, 'Add Holiday to Calendar'),
+      React.createElement('p', { className: 'text-sm text-slate-500 mb-4' }, 'This will block new reservations on the selected date.'),
+      localError && React.createElement('div', { className: 'mb-3 p-2 text-xs rounded-lg bg-red-50 text-red-700 border border-red-200' }, localError),
+      React.createElement('form', { onSubmit: submit, className: 'space-y-3' },
+        React.createElement('input', {
+          type: 'text',
+          placeholder: 'Holiday title (e.g., Foundation Day)',
+          value: form.title,
+          onChange: (e) => setForm({ ...form, title: e.target.value }),
+          className: 'w-full p-2 border rounded'
+        }),
+        React.createElement('input', {
+          type: 'date',
+          value: form.holiday_date,
+          onChange: (e) => setForm({ ...form, holiday_date: e.target.value }),
+          className: 'w-full p-2 border rounded'
+        }),
+        React.createElement('textarea', {
+          placeholder: 'Notes (optional)',
+          value: form.notes,
+          onChange: (e) => setForm({ ...form, notes: e.target.value }),
+          className: 'w-full p-2 border rounded min-h-[90px]'
+        }),
+        React.createElement('div', { className: 'flex gap-2 pt-1' },
+          React.createElement('button', {
+            type: 'button',
+            onClick: onClose,
+            className: 'flex-1 bg-slate-200 hover:bg-slate-300 p-3 rounded-xl font-semibold transition-colors'
+          }, 'Cancel'),
+          React.createElement('button', {
+            type: 'submit',
+            disabled: loading,
+            className: 'flex-1 bg-blue-500 hover:bg-blue-600 text-white p-3 rounded-xl font-semibold disabled:opacity-50 transition-colors'
+          }, loading ? 'Saving...' : 'Add Holiday')
+        )
+      )
+    )
+  );
+}
+
 function ProfileModal({ user, onClose, onLogout }) {
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
     React.createElement('div', { className: 'bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl relative' },
@@ -2651,7 +2731,7 @@ function FacilityEditorModal({ initialFacility, onClose, onSubmit }) {
   );
 }
 
-function CalendarView({ events, rooms, onViewEvent }) {
+function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [filterRoom, setFilterRoom] = useState('all');
   const [hoveredEvent, setHoveredEvent] = useState(null);
@@ -2751,6 +2831,10 @@ function CalendarView({ events, rooms, onViewEvent }) {
         )
       ),
       React.createElement('div', { className: 'flex flex-wrap items-center gap-3' },
+        isAdmin && React.createElement('button', {
+          onClick: onAddHoliday,
+          className: 'px-3 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold'
+        }, '+ Add Holiday'),
         rooms && rooms.length > 0 && React.createElement('select', { 
           value: filterRoom, 
           onChange: (e) => setFilterRoom(e.target.value),
@@ -2831,7 +2915,7 @@ function CalendarView({ events, rooms, onViewEvent }) {
           ),
           React.createElement('div', { className: 'flex items-center gap-2 text-xs text-slate-600' },
             React.createElement('span', {}, '👤'),
-            React.createElement('span', {}, isHolidayEvent(hoveredEvent) ? (hoveredEvent.holiday_name || 'Philippine Holiday') : (hoveredEvent.person_in_charge || 'N/A'))
+            React.createElement('span', {}, isHolidayEvent(hoveredEvent) ? (hoveredEvent.holiday_name || 'Holiday') : (hoveredEvent.person_in_charge || 'N/A'))
           )
         ),
         React.createElement('div', { className: 'mt-2 text-[8px] text-sky-400 font-bold uppercase italic' }, 'Click to view full details')
@@ -2842,7 +2926,7 @@ function CalendarView({ events, rooms, onViewEvent }) {
     React.createElement('div', { className: 'mt-6 pt-6 border-t' },
       React.createElement('h4', { className: 'font-bold text-slate-800 mb-4' }, '📋 Upcoming Events and Holidays'),
       monthlyEvents.length === 0 
-        ? React.createElement('p', { className: 'text-slate-400 py-4 text-center text-sm' }, `No events or holidays for ${monthName}.`)
+        ? React.createElement('p', { className: 'text-slate-400 py-4 text-center text-sm' }, `No events or admin-set holidays for ${monthName}.`)
         : React.createElement('div', { className: 'space-y-2 max-h-[200px] overflow-y-auto' },
             monthlyEvents.slice(0, 10).map(e => {
                 const category = getEventCategory(e);
@@ -2894,102 +2978,6 @@ function ArchiveView({ archive, user, isAdmin, onDelete }) {
           React.createElement('button', { onClick: () => onDelete(a.id), className: 'px-4 py-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 font-medium transition' }, 'Delete')
         );
       })
-  );
-}
-
-function ForecastView({ onNotify }) {
-  const [forecast, setForecast] = useState(null);
-  const [loadingForecast, setLoadingForecast] = useState(true);
-  const [retrainingForecast, setRetrainingForecast] = useState(false);
-  const [forecastError, setForecastError] = useState('');
-
-  useEffect(() => {
-    (async () => {
-      setLoadingForecast(true);
-      setForecastError('');
-      try {
-        const data = await apiService.getDataMiningForecast();
-        setForecast(data.data || null);
-      } catch (err) {
-        setForecastError(err.message || 'Failed to load forecast data');
-      } finally {
-        setLoadingForecast(false);
-      }
-    })();
-  }, []);
-
-  const handleRetrainForecast = async () => {
-    setRetrainingForecast(true);
-    try {
-      const response = await apiService.retrainForecastModel();
-      const result = response.data;
-
-      if (result.status === 'warning') {
-        // Insufficient data warning
-        const message = result.message || 'Cannot retrain: insufficient data';
-        const recommendation = result.recommendation || '';
-        const warningMsg = `${message}\n\n${recommendation}`;
-        alert(`⚠️ Warning\n\n${warningMsg}`);
-      } else if (result.status === 'success') {
-        // Successful retrain with guidelines
-        const guidelines = result.warning || 
-          'Manual SARIMAX retraining should only be performed if:\n  • A new venue was added\n  • An old venue was removed\n  • Sudden data spike (e.g., mandatory reservation)';
-        const nextRetrain = result.next_retrain_at 
-          ? new Date(result.next_retrain_at).toLocaleDateString()
-          : 'Unknown';
-        alert(`✓ Success!\n\n${result.message || 'Model retrained successfully'}\n\nNext scheduled retrain: ${nextRetrain}\n\n${guidelines}`);
-        // Refresh forecast data
-        const data = await apiService.getDataMiningForecast();
-        setForecast(data.data || null);
-      } else if (result.status === 'error') {
-        alert(`✗ Error\n\n${result.message || 'Failed to retrain model'}`);
-      }
-    } catch (err) {
-      alert(`✗ Error\n\n${err.message || 'An unexpected error occurred during retraining'}`);
-    } finally {
-      setRetrainingForecast(false);
-    }
-  };
-
-  if (loadingForecast) {
-    return React.createElement('div', { className: 'bg-white border rounded-3xl p-8 text-center text-slate-500' }, 'Loading forecast...');
-  }
-
-  return React.createElement('div', { className: 'space-y-6' },
-    forecastError && React.createElement('div', { className: 'bg-red-50 border border-red-200 text-red-800 p-3 rounded-xl text-sm' },
-      'Forecast Error: ', forecastError
-    ),
-
-    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-      React.createElement('div', { className: 'flex justify-between items-center mb-4' },
-        React.createElement('h3', { className: 'font-bold text-slate-800 text-lg' }, 'Venue Reservation Forecast'),
-        React.createElement('button', {
-          onClick: handleRetrainForecast,
-          disabled: retrainingForecast,
-          className: `px-4 py-2 rounded-xl font-bold transition ${
-            retrainingForecast 
-              ? 'bg-slate-300 text-slate-600 cursor-not-allowed'
-              : 'bg-sky-500 text-white hover:bg-sky-600'
-          }`
-        }, retrainingForecast ? 'Retraining...' : '🔄 Retrain Model')
-      ),
-      React.createElement('p', { className: 'text-sm text-slate-600 mb-4' }, 
-        'Solid line shows historical actual data. Dashed line shows future predictions based on SARIMAX model with semester-aware features.'
-      ),
-      React.createElement('div', { className: 'h-96 bg-slate-50 rounded-lg flex items-center justify-center' },
-        React.createElement('p', { className: 'text-slate-400' }, 'Forecast chart will display here')
-      )
-    ),
-
-    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-      React.createElement('h3', { className: 'font-bold text-slate-800 text-lg mb-4' }, 'Model Information'),
-      forecast && React.createElement('div', { className: 'space-y-2 text-sm text-slate-700' },
-        React.createElement('p', {}, 'Model Type: ', React.createElement('span', { className: 'font-semibold' }, forecast.model_type || 'SARIMAX with Semester Features')),
-        forecast.last_trained && React.createElement('p', {}, 'Last Trained: ', React.createElement('span', { className: 'font-semibold' }, new Date(forecast.last_trained).toLocaleDateString())),
-        forecast.training_samples && React.createElement('p', {}, 'Training Data Points: ', React.createElement('span', { className: 'font-semibold' }, forecast.training_samples)),
-        forecast.model_accuracy && React.createElement('p', {}, 'Model Accuracy (MAE): ', React.createElement('span', { className: 'font-semibold' }, forecast.model_accuracy))
-      )
-    )
   );
 }
 
@@ -3071,7 +3059,7 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           React.createElement('span', { className: 'text-2xl' }, '🕐'),
           React.createElement('div', {},
             React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Time'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? 'Whole day class suspension' : `${formatTime(event.start_time)} - ${formatTime(event.end_time)}`)
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? 'Whole day reservation suspension' : `${formatTime(event.start_time)} - ${formatTime(event.end_time)}`)
           )
         ),
 
@@ -3089,7 +3077,7 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           React.createElement('span', { className: 'text-2xl' }, '👤'),
           React.createElement('div', {},
             React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, isHoliday ? 'Holiday' : 'Person in Charge'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? (event.holiday_name || 'Philippine Holiday') : (event.person_in_charge || 'N/A'))
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? (event.holiday_name || 'Holiday') : (event.person_in_charge || 'N/A'))
           )
         ),
 
