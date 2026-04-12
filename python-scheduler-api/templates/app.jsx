@@ -348,6 +348,18 @@ const apiService = {
     return data;
   },
 
+  async updateMyProfile(username) {
+    const response = await fetch(`${API_BASE}/settings/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ username })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to update profile');
+    return data;
+  },
+
   async askFacilitiesAssistant(messages, facilities = []) {
     const response = await fetch(`${API_BASE}/ai/chat`, {
       method: 'POST',
@@ -770,7 +782,12 @@ function App() {
       loading 
     }),
     activeModal === 'deny' && React.createElement(DenyModal, { res: selectedRes, onClose: () => setActiveModal('details'), onConfirm: async (reason) => { setLoading(true); try { await apiService.denyReservation(selectedRes.id, reason); await refreshReservationsOnly(); setNotification('Denied'); setActiveModal('notification'); } catch (err) { setError(err.message); } finally { setLoading(false); } }, loading }),
-    activeModal === 'profile' && React.createElement(ProfileModal, { user: currentUser, onClose: () => setActiveModal(null), onLogout: handleLogout }),
+    activeModal === 'profile' && React.createElement(ProfileModal, {
+      user: currentUser,
+      onClose: () => setActiveModal(null),
+      onLogout: handleLogout,
+      onProfileUpdated: (nextUser) => setCurrentUser(nextUser)
+    }),
     activeModal === 'notifications' && React.createElement(NotificationsListModal, {
       notifications: getUnreadNotifications(),
       user: currentUser,
@@ -2327,7 +2344,47 @@ function HolidayModal({ onClose, onConfirm, loading }) {
   );
 }
 
-function ProfileModal({ user, onClose, onLogout }) {
+function ProfileModal({ user, onClose, onLogout, onProfileUpdated }) {
+  const [nameInput, setNameInput] = useState(user.username || '');
+  const [saving, setSaving] = useState(false);
+  const [localError, setLocalError] = useState('');
+
+  useEffect(() => {
+    setNameInput(user.username || '');
+    setLocalError('');
+  }, [user]);
+
+  const handleSaveProfile = async () => {
+    const nextName = (nameInput || '').trim();
+    if (!nextName) {
+      setLocalError('Profile name is required.');
+      return;
+    }
+
+    if (nextName === user.username) {
+      onClose();
+      return;
+    }
+
+    setSaving(true);
+    setLocalError('');
+    try {
+      const result = await apiService.updateMyProfile(nextName);
+      const nextUser = {
+        ...user,
+        username: result?.user?.username || nextName,
+      };
+      if (onProfileUpdated) {
+        onProfileUpdated(nextUser);
+      }
+      onClose();
+    } catch (err) {
+      setLocalError(err.message || 'Failed to update profile name.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
     React.createElement('div', { className: 'bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl relative' },
       React.createElement('button', { onClick: onClose, className: 'absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 transition-colors' }, '✕'),
@@ -2340,21 +2397,31 @@ function ProfileModal({ user, onClose, onLogout }) {
 
       React.createElement('div', { className: 'space-y-6 border-t pt-6' },
         React.createElement('div', { className: 'flex flex-col' },
-          React.createElement('span', { className: 'text-xs font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Department'),
-          React.createElement('span', { className: 'text-sm font-semibold text-slate-700' }, user.department)
+          React.createElement('span', { className: 'text-xs font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Profile Name'),
+          React.createElement('input', {
+            value: nameInput,
+            onChange: (e) => setNameInput(e.target.value),
+            className: 'w-full p-2 border rounded-lg text-sm font-semibold text-slate-700',
+            placeholder: 'Enter profile name'
+          })
         ),
         React.createElement('div', { className: 'flex flex-col' },
-          React.createElement('span', { className: 'text-xs font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Status'),
-          React.createElement('div', { className: 'flex items-center gap-2 text-green-600' },
-            React.createElement('span', {}, '✓'),
-            React.createElement('span', { className: 'text-sm font-semibold' }, 'Active Verified')
-          )
+          React.createElement('span', { className: 'text-xs font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Department'),
+          React.createElement('span', { className: 'text-sm font-semibold text-slate-700' }, user.department || 'N/A')
         )
       ),
 
+      localError && React.createElement('p', { className: 'text-xs text-red-500 mt-3 text-center' }, localError),
+
+      React.createElement('button', {
+        onClick: handleSaveProfile,
+        disabled: saving,
+        className: 'w-full mt-6 p-3 rounded-2xl bg-sky-500 text-white hover:bg-sky-600 font-bold transition-all text-sm disabled:opacity-50'
+      }, saving ? 'Saving...' : 'Save Profile'),
+
       React.createElement('button', {
         onClick: onLogout,
-        className: 'w-full mt-10 flex items-center justify-center gap-2 p-3 rounded-2xl bg-slate-50 text-red-500 hover:bg-red-50 font-bold transition-all text-sm border border-slate-100'
+        className: 'w-full mt-3 flex items-center justify-center gap-2 p-3 rounded-2xl bg-slate-50 text-red-500 hover:bg-red-50 font-bold transition-all text-sm border border-slate-100'
       }, '🚪 Sign Out')
     )
   );
