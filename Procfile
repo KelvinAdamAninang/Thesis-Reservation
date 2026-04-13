@@ -1,1 +1,1 @@
-web: cd python-scheduler-api && gunicorn --config gunicorn_config.py app:app
+web: gunicorn --chdir python-scheduler-api --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 app:app
