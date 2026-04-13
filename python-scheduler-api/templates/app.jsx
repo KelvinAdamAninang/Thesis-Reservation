@@ -1041,6 +1041,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     if (!form.concept_paper_url?.trim()) missingFields.push('Concept Paper Link');
     if (form.concept_paper_url?.trim() && !isValidGoogleDriveLink(form.concept_paper_url)) {
       missingFields.push('Concept Paper Link must be a valid Google Drive or Docs link');
+    }
     if (!form.division?.trim()) missingFields.push('Division');
     if (!form.requester_type) missingFields.push('Requester Type (Student/Employee/Other)');
     if (!form.num_attendees || Number(form.num_attendees) < 1) missingFields.push('Number of Attendees');
