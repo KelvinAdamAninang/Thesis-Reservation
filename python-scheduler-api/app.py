@@ -224,9 +224,14 @@ def _build_manual_holiday_events(from_date=None):
         })
     return events
 
-# Create tables
-with app.app_context():
-    db.create_all()
+# Create tables (disabled - tables already exist in production Supabase)
+# Uncomment if deploying to a new database that has no tables yet
+# with app.app_context():
+#     try:
+#         db.create_all()
+#         app.logger.info("Database tables created/verified successfully")
+#     except Exception as e:
+#         app.logger.warning(f"Could not create database tables on startup: {e}")
 
 
 def _ensure_room_columns():
@@ -252,8 +257,13 @@ def _ensure_reservation_columns():
 
 
 with app.app_context():
-    _ensure_room_columns()
-    _ensure_reservation_columns()
+    try:
+        _ensure_room_columns()
+        _ensure_reservation_columns()
+        app.logger.info("Database schema verification completed")
+    except Exception as e:
+        app.logger.warning(f"Could not verify database schema on startup: {e}")
+        app.logger.warning("Schema checks will be attempted again on first database access")
 
 
 def _auto_cancel_overdue_stage2_reservations():
