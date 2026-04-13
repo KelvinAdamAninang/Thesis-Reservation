@@ -749,6 +749,7 @@ function App() {
       loading 
     }),
     activeModal === 'deny' && React.createElement(DenyModal, { res: selectedRes, onClose: () => setActiveModal('details'), onConfirm: async (reason) => { setLoading(true); try { await apiService.denyReservation(selectedRes.id, reason); await refreshReservationsOnly(); setNotification('Denied'); setActiveModal('notification'); } catch (err) { setError(err.message); } finally { setLoading(false); } }, loading }),
+
     activeModal === 'profile' && React.createElement(ProfileModal, {
       user: currentUser,
       onClose: () => setActiveModal(null),
@@ -813,8 +814,8 @@ function App() {
 
 // Components
 function LoginPage({ onLogin, loading, error }) {
-  const [username, setUsername] = useState();
-  const [password, setPassword] = useState();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const handleSubmit = (e) => { e.preventDefault(); onLogin(username, password); };
   const loginBgStyle = {
