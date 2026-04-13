@@ -58,12 +58,16 @@ if db_url and db_url.startswith("postgres://"):
 if db_url:
     parsed = urlparse(db_url)
     host = (parsed.hostname or "").lower()
-    is_expected_supabase_host = host == "supabase.co" or host.endswith(".supabase.co")
+    is_expected_supabase_host = (
+        host == "supabase.co" or 
+        host.endswith(".supabase.co") or 
+        host.endswith(".pooler.supabase.com")  # Support Supabase connection pooling
+    )
     looks_like_supabase_host = "supabase" in host
     # Guard against malformed Supabase hostnames without rejecting non-Supabase/local database hosts.
     if looks_like_supabase_host and not is_expected_supabase_host:
         raise RuntimeError(
-            "Invalid DATABASE_URL host detected. Supabase hosts must be 'supabase.co' or end with '.supabase.co'."
+            "Invalid DATABASE_URL host detected. Supabase hosts must be 'supabase.co', end with '.supabase.co', or end with '.pooler.supabase.com'."
         )
 
 # Configure SQLAlchemy to use Supabase
