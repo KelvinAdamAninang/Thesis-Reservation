@@ -309,55 +309,123 @@ def _auto_cancel_overdue_stage2_reservations():
 
 def _generate_monthly_report():
     """Generate and notify admins of monthly report from booking data."""
-    import csv
-    from io import StringIO
-    
+
     try:
         now = datetime.now()
-        current_month = now.month
-        current_year = now.year
-        
-        # Build report from approved reservations for this month
-        reservations = Reservation.query.filter(
-            Reservation.status == 'approved',
-            Reservation.start_time.isnot(None)
-        ).all()
-        
-        report_data = []
-        for r in reservations:
-            if r.start_time and r.start_time.month == current_month and r.start_time.year == current_year:
-                room = db.session.get(Room, r.room_id) if r.room_id else None
-                report_data.append({
-                    'date': r.start_time.date(),
-                    'activity': r.activity_purpose,
-                    'facility': room.name if room else 'Unknown',
-                    'requester': r.requester.username if r.requester else 'Unknown',
-                    'department': r.requester.department if r.requester else 'Unknown',
-                    'status': r.status
-                })
-        
+        payload = _build_monthly_report_payload(now.year, now.month)
+        report_data = payload['items']
+
         # Get all admin users and send them notifications
         admins = User.query.filter(User.role.in_(['admin', 'admin_phase1'])).all()
-        
-        report_text = f"Monthly Report - {current_month}/{current_year}\n\n"
+
+        report_text = f"Monthly Report - {payload['month']}/{payload['year']}\n\n"
         report_text += f"Total Approved Reservations: {len(report_data)}\n\n"
-        
+
         if report_data:
             report_text += "Summary:\n"
-            for item in sorted(report_data, key=lambda x: x['date']):
+            for item in report_data:
                 report_text += f"- {item['date']}: {item['activity']} at {item['facility']} ({item['requester']})\n"
-        
-        app.logger.info(f"Monthly report generated: {len(report_data)} reservations for {current_month}/{current_year}")
-        
+
+        app.logger.info(f"Monthly report generated: {len(report_data)} reservations for {payload['month']}/{payload['year']}")
+
         # Log admin notifications
         for admin in admins:
             app.logger.info(f"Monthly report notification sent to admin: {admin.username}")
-        
+
         return len(report_data)
-    
+
     except Exception as e:
         app.logger.error(f"Failed to generate monthly report: {e}")
         return 0
+
+
+def _build_monthly_report_payload(year, month):
+    """Build monthly approved-reservations report payload for API and scheduler use."""
+    month = int(month)
+    year = int(year)
+    start_date = datetime(year, month, 1)
+    if month == 12:
+        end_date = datetime(year + 1, 1, 1)
+    else:
+        end_date = datetime(year, month + 1, 1)
+
+    reservations = Reservation.query.filter(
+        Reservation.status == 'approved',
+        Reservation.start_time.isnot(None),
+        Reservation.start_time >= start_date,
+        Reservation.start_time < end_date
+    ).all()
+
+    report_data = []
+    for r in reservations:
+        room = db.session.get(Room, r.room_id) if r.room_id else None
+        requester = r.requester.username if r.requester else 'Unknown'
+        department = r.requester.department if r.requester else 'Unknown'
+        report_data.append({
+            'id': r.id,
+            'date': r.start_time.date().isoformat(),
+            'start_time': r.start_time.isoformat() if r.start_time else None,
+            'end_time': r.end_time.isoformat() if r.end_time else None,
+            'activity': r.activity_purpose,
+            'facility': room.name if room else 'Unknown',
+            'requester': requester,
+            'department': department,
+            'status': r.status,
+        })
+
+    report_data.sort(key=lambda item: item['date'])
+
+    return {
+        'year': year,
+        'month': month,
+        'total_approved_reservations': len(report_data),
+        'generated_at': datetime.now().isoformat(),
+        'items': report_data,
+    }
+
+
+def _parse_report_month_year(req_year, req_month):
+    now = datetime.now()
+    try:
+        year = int(req_year or now.year)
+        month = int(req_month or now.month)
+        if month < 1 or month > 12:
+            raise ValueError('month out of range')
+        return year, month
+    except Exception:
+        raise ValueError('Invalid month/year. Month must be 1-12 and year must be numeric.')
+
+
+@app.route('/api/data-mining/reports/monthly', methods=['GET'])
+@login_required
+def get_monthly_report():
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        year, month = _parse_report_month_year(request.args.get('year'), request.args.get('month'))
+        payload = _build_monthly_report_payload(year, month)
+        return jsonify({'status': 'success', 'data': payload})
+    except Exception as e:
+        app.logger.exception('Failed to build monthly report payload')
+        return jsonify({'status': 'error', 'message': str(e)}), 400
+
+
+@app.route('/api/data-mining/reports/monthly/generate', methods=['POST'])
+@login_required
+def generate_monthly_report_now():
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        body = request.get_json(silent=True) or {}
+        year, month = _parse_report_month_year(body.get('year'), body.get('month'))
+        payload = _build_monthly_report_payload(year, month)
+        app.logger.info('Manual monthly report generated by %s for %s/%s (%s reservations)', current_user.username, month, year, payload['total_approved_reservations'])
+        return jsonify({'status': 'success', 'data': payload, 'message': 'Monthly report generated'})
+    except Exception as e:
+        app.logger.exception('Failed to generate monthly report manually')
+        return jsonify({'status': 'error', 'message': str(e)}), 400
 
 
 def _is_reloader_process():

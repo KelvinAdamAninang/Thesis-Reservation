@@ -245,6 +245,32 @@ const apiService = {
     return payload;
   },
 
+  async getMonthlyReport(year, month) {
+    const params = new URLSearchParams();
+    if (year) params.set('year', String(year));
+    if (month) params.set('month', String(month));
+    const response = await fetch(`${API_BASE}/data-mining/reports/monthly?${params.toString()}`, { credentials: 'include' });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') {
+      throw new Error(payload.message || payload.error || 'Failed to fetch monthly report');
+    }
+    return payload;
+  },
+
+  async generateMonthlyReport(year, month) {
+    const response = await fetch(`${API_BASE}/data-mining/reports/monthly/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ year, month })
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') {
+      throw new Error(payload.message || payload.error || 'Failed to generate monthly report');
+    }
+    return payload;
+  },
+
   async adminCreateFacility(payload) {
     const response = await fetch(`${API_BASE}/admin/facilities`, {
       method: 'POST',
@@ -2537,7 +2563,7 @@ function getSemesterDateRange(semester) {
 function formatSemesterLabel(semester) {
   if (semester === 1) return '1st Sem (Aug-Dec)';
   if (semester === 2) return '2nd Sem (Jan-May)';
-  return 'Summer (Jun-Jul)';
+  return 'Summer Sem (Jun-Jul)';
 }
 
 function getAvailableSemesters(heatmapMonthKeys) {
@@ -2571,7 +2597,14 @@ function AnalyticsView({ reservations }) {
   const [analytics, setAnalytics] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const [analyticsError, setAnalyticsError] = useState('');
-  const [forecastPayload, setForecastPayload] = useState(null);
+  const [forecastPayload, setForecastPayload] = useState(() => {
+    try {
+      const raw = localStorage.getItem('analyticsForecastCache');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
   const [forecastError, setForecastError] = useState('');
   const [loadingForecast, setLoadingForecast] = useState(true);
   const [retrainingForecast, setRetrainingForecast] = useState(false);
@@ -2579,6 +2612,12 @@ function AnalyticsView({ reservations }) {
   const [selectedSemesterYear, setSelectedSemesterYear] = useState('');
   const [selectedSemester, setSelectedSemester] = useState('all');
   const [showDepartmentPicker, setShowDepartmentPicker] = useState(false);
+  const [monthlyReport, setMonthlyReport] = useState(null);
+  const [loadingMonthlyReport, setLoadingMonthlyReport] = useState(false);
+  const [monthlyReportError, setMonthlyReportError] = useState('');
+  const [generatingMonthlyReport, setGeneratingMonthlyReport] = useState(false);
+  const [reportMonth, setReportMonth] = useState(String(new Date().getMonth() + 1));
+  const [reportYear, setReportYear] = useState(String(new Date().getFullYear()));
 
   useEffect(() => {
     let isMounted = true;
@@ -2634,9 +2673,27 @@ function AnalyticsView({ reservations }) {
       setForecastError('');
       try {
         const payload = await apiService.getCurrentSemesterForecast();
-        if (isMounted) setForecastPayload(payload);
+        if (isMounted) {
+          const hasSeries = Array.isArray(payload?.data?.series) && payload.data.series.length > 0;
+          setForecastPayload((prev) => {
+            if (hasSeries) return payload;
+            if (prev?.data?.series?.length) return prev;
+            return payload;
+          });
+          if (hasSeries) {
+            try {
+              localStorage.setItem('analyticsForecastCache', JSON.stringify(payload));
+            } catch {
+              // Ignore localStorage errors.
+            }
+          } else {
+            setForecastError('Latest forecast is temporarily empty. Showing last available forecast if present.');
+          }
+        }
       } catch (err) {
-        if (isMounted) setForecastError(err.message || 'Failed to load forecast');
+        if (isMounted) {
+          setForecastError((prevError) => prevError || err.message || 'Failed to load forecast');
+        }
       } finally {
         if (isMounted) setLoadingForecast(false);
       }
@@ -2650,13 +2707,57 @@ function AnalyticsView({ reservations }) {
     setForecastError('');
     try {
       const payload = await apiService.getCurrentSemesterForecast();
-      setForecastPayload(payload);
+      const hasSeries = Array.isArray(payload?.data?.series) && payload.data.series.length > 0;
+      setForecastPayload((prev) => {
+        if (hasSeries) return payload;
+        if (prev?.data?.series?.length) return prev;
+        return payload;
+      });
+      if (hasSeries) {
+        try {
+          localStorage.setItem('analyticsForecastCache', JSON.stringify(payload));
+        } catch {
+          // Ignore localStorage errors.
+        }
+      } else {
+        setForecastError('Latest forecast is temporarily empty. Showing last available forecast if present.');
+      }
     } catch (err) {
       setForecastError(err.message || 'Failed to load forecast');
     } finally {
       setLoadingForecast(false);
     }
   };
+
+  const loadMonthlyReport = async (year, month) => {
+    setLoadingMonthlyReport(true);
+    setMonthlyReportError('');
+    try {
+      const payload = await apiService.getMonthlyReport(year, month);
+      setMonthlyReport(payload.data);
+    } catch (err) {
+      setMonthlyReportError(err.message || 'Failed to fetch monthly report');
+    } finally {
+      setLoadingMonthlyReport(false);
+    }
+  };
+
+  const handleGenerateMonthlyReport = async () => {
+    setGeneratingMonthlyReport(true);
+    setMonthlyReportError('');
+    try {
+      const payload = await apiService.generateMonthlyReport(reportYear, reportMonth);
+      setMonthlyReport(payload.data);
+    } catch (err) {
+      setMonthlyReportError(err.message || 'Failed to generate monthly report');
+    } finally {
+      setGeneratingMonthlyReport(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMonthlyReport(reportYear, reportMonth);
+  }, [reportYear, reportMonth, reservations.length]);
 
   const handleRetrainForecast = async () => {
     const proceed = window.confirm(
@@ -2777,7 +2878,7 @@ function AnalyticsView({ reservations }) {
   const heatmapMonthKeys = (filterData.heatmap_months || ['all']).filter((key) => key !== 'all');
   const availableSemesters = getAvailableSemesters(heatmapMonthKeys);
   const semesterYears = Object.keys(availableSemesters).sort((a, b) => Number(b) - Number(a));
-  const semestersForSelectedYear = selectedSemesterYear && availableSemesters[selectedSemesterYear] ? availableSemesters[selectedSemesterYear] : [];
+  const semestersForSelectedYear = selectedSemesterYear ? [1, 2, 3] : [];
 
   const handleSemesterYearChange = (year) => {
     if (year === 'all') {
@@ -2976,6 +3077,62 @@ function AnalyticsView({ reservations }) {
                 scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
               }
             })
+    ),
+
+    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+      React.createElement('div', { className: 'flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4' },
+        React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Monthly Report'),
+        React.createElement('div', { className: 'flex flex-wrap items-center gap-2' },
+          React.createElement('select', {
+            className: 'border rounded-lg px-2 py-1 text-sm',
+            value: reportMonth,
+            onChange: (e) => setReportMonth(e.target.value)
+          },
+            Array.from({ length: 12 }, (_, i) => i + 1).map((m) => React.createElement('option', { key: m, value: String(m) }, formatMonthName(String(m).padStart(2, '0'))))
+          ),
+          React.createElement('input', {
+            className: 'border rounded-lg px-2 py-1 text-sm w-24',
+            type: 'number',
+            value: reportYear,
+            onChange: (e) => setReportYear(e.target.value)
+          }),
+          React.createElement('button', {
+            className: 'px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60',
+            disabled: generatingMonthlyReport,
+            onClick: handleGenerateMonthlyReport,
+          }, generatingMonthlyReport ? 'Generating...' : 'Generate Report')
+        )
+      ),
+      monthlyReportError && React.createElement('div', { className: 'mb-3 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-sm' }, monthlyReportError),
+      loadingMonthlyReport
+        ? React.createElement('p', { className: 'text-slate-500 text-sm' }, 'Loading monthly report...')
+        : React.createElement('div', { className: 'space-y-3' },
+            React.createElement('p', { className: 'text-sm text-slate-700' },
+              `Total Approved Reservations: ${monthlyReport?.total_approved_reservations || 0}`
+            ),
+            React.createElement('div', { className: 'max-h-56 overflow-y-auto border rounded-xl' },
+              !monthlyReport?.items?.length
+                ? React.createElement('p', { className: 'p-3 text-sm text-slate-500' }, 'No approved reservations for this month.')
+                : React.createElement('table', { className: 'w-full text-sm' },
+                    React.createElement('thead', { className: 'sticky top-0 bg-slate-50 border-b' },
+                      React.createElement('tr', {},
+                        React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Date'),
+                        React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Activity'),
+                        React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Facility'),
+                        React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Requester')
+                      )
+                    ),
+                    React.createElement('tbody', {},
+                      monthlyReport.items.map((item) => React.createElement('tr', { key: `${item.id}-${item.date}`, className: 'border-b last:border-b-0' },
+                        React.createElement('td', { className: 'p-2 text-slate-700' }, item.date),
+                        React.createElement('td', { className: 'p-2 text-slate-700' }, item.activity || 'N/A'),
+                        React.createElement('td', { className: 'p-2 text-slate-700' }, item.facility || 'N/A'),
+                        React.createElement('td', { className: 'p-2 text-slate-700' }, item.requester || 'N/A')
+                      ))
+                    )
+                  )
+            )
+          )
     ),
 
     React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
@@ -3876,10 +4033,73 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
+  const formatDate = (isoString) => {
+    if (!isoString) return 'N/A';
+    const date = new Date(isoString);
+    return date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  };
+
+  const roomName = event.room_name || (rooms?.find(r => r.id == event.room_id)?.name) || 'Unknown Facility';
+
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
-    React.createElement('div', { className: 'bg-white rounded-2xl p-6 max-w-sm shadow-2xl' },
-      React.createElement('h3', { className: 'text-lg font-bold text-slate-800 mb-4' }, event?.activity_purpose || 'Event'),
-      React.createElement('button', { onClick: onClose, className: 'w-full bg-sky-500 text-white p-2 rounded' }, 'Close')
+    React.createElement('div', { className: 'bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl' },
+      React.createElement('div', { className: 'flex justify-between items-start mb-6' },
+        React.createElement('div', {},
+          React.createElement('h3', { className: 'text-2xl font-bold text-slate-800 mb-2' }, event.activity_purpose),
+          React.createElement('span', { className: `px-3 py-1 rounded-full text-xs font-bold ${statusColor}` }, statusLabel)
+        ),
+        React.createElement('button', { onClick: onClose, className: 'p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600' }, '✕')
+      ),
+
+      React.createElement('div', { className: 'space-y-4' },
+        React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+          React.createElement('span', { className: 'text-2xl' }, '📅'),
+          React.createElement('div', {},
+            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Date'),
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, formatDate(event.start_time))
+          )
+        ),
+        React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+          React.createElement('span', { className: 'text-2xl' }, '🕐'),
+          React.createElement('div', {},
+            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Time'),
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? 'Whole day reservation suspension' : `${formatTime(event.start_time)} - ${formatTime(event.end_time)}`)
+          )
+        ),
+        React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+          React.createElement('span', { className: 'text-2xl' }, '📍'),
+          React.createElement('div', {},
+            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Facility'),
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? 'University-wide' : roomName)
+          )
+        ),
+        React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+          React.createElement('span', { className: 'text-2xl' }, '👤'),
+          React.createElement('div', {},
+            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, isHoliday ? 'Holiday' : 'Person in Charge'),
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? (event.holiday_name || 'Holiday') : (event.person_in_charge || 'N/A'))
+          )
+        ),
+        event.department && React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+          React.createElement('span', { className: 'text-2xl' }, '🏛️'),
+          React.createElement('div', {},
+            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Department'),
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, event.department)
+          )
+        )
+      ),
+
+      React.createElement('div', { className: 'mt-6 flex gap-3' },
+        React.createElement('button', {
+          onClick: onClose,
+          className: `${isAdmin && !isHoliday ? 'flex-1' : 'w-full'} bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-xl font-bold transition-colors`
+        }, 'Close'),
+        isAdmin && !isHoliday && React.createElement('button', {
+          onClick: () => onDeleteClick(eventActionType),
+          disabled: loading,
+          className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2'
+        }, `${eventActionIcon} ${eventActionLabel}`)
+      )
     )
   );
 }
