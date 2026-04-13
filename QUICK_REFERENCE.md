@@ -190,7 +190,7 @@ pip check
   itsdangerous==2.2.0
 @@ -26,13 +26,13 @@
   MarkupSafe==3.0.3
-  proto-plus==1.22.0
+  proto-plus==1.23.0
 -protobuf==4.24.4
 +protobuf==5.29.6
   pyasn1==0.6.3
