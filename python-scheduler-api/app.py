@@ -2,7 +2,7 @@ import os
 import json
 import uuid
 from urllib.parse import urlparse
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, session
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_cors import CORS
 from datetime import datetime, date, timedelta
@@ -44,6 +44,13 @@ CORS(app, supports_credentials=True, origins=allowed_origins)
 
 # CONFIG
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+
+# Session Configuration for persistent login across browser tabs
+app.config['SESSION_COOKIE_SECURE'] = True  # Only send over HTTPS in production
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevent JavaScript access to session cookie
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Allow cross-site navigation but not embedded requests
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)  # Session lasts 7 days
+app.config['SESSION_REFRESH_EACH_REQUEST'] = True  # Refresh session on each request
 
 # Load environment variables from your .env file
 load_dotenv(dotenv_path=DOTENV_PATH, override=True)
@@ -501,7 +508,8 @@ def login():
         return redirect(url_for('index'))
 
     if user.check_password(password):
-        login_user(user)
+        session.permanent = True
+        login_user(user, remember=True)
         app.logger.info("/login success - user_id=%s username=%s", user.id, user.username)
         return redirect(url_for('index'))
     else:
@@ -599,7 +607,8 @@ def api_login():
         return jsonify({'status': 'error', 'message': 'Invalid username or password'}), 401
 
     if user.check_password(password):
-        login_user(user)
+        session.permanent = True
+        login_user(user, remember=True)
         app.logger.info("/api/login success - user_id=%s username=%s", user.id, user.username)
         return jsonify({
             'status': 'success',
