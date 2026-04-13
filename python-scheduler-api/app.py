@@ -759,10 +759,9 @@ def get_calendar_events():
         if normalized_status == 'concept-approved':
             return 'plotting'
 
+        # All approved events show as green (ongoing), regardless of time
         if normalized_status == 'approved':
-            now = datetime.now()
-            if reservation.start_time and reservation.end_time and reservation.start_time <= now <= reservation.end_time:
-                return 'ongoing'
+            return 'ongoing'
 
         return 'plotting'
 
