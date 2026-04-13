@@ -1023,6 +1023,14 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     setLocalError('');
 
     const missingFields = [];
+    
+    // Helper to validate Google Drive links
+    const isValidGoogleDriveLink = (url) => {
+      if (!url) return true; // Allow empty for now 
+      const trimmed = url.trim();
+      return trimmed.includes('drive.google.com') || trimmed.includes('docs.google.com');
+    };
+    
     if (!form.room_id) missingFields.push('Space');
     if (!form.activity_purpose?.trim()) missingFields.push('Activity Purpose');
     if (!form.person_in_charge?.trim()) missingFields.push('Person In Charge');
@@ -1030,6 +1038,8 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     if (!form.event_start_date) missingFields.push('Start Date');
     if (hasEndDate && !form.event_end_date) missingFields.push('End Date');
     if (!form.concept_paper_url?.trim()) missingFields.push('Concept Paper Link');
+    if (form.concept_paper_url?.trim() && !isValidGoogleDriveLink(form.concept_paper_url)) {
+      missingFields.push('Concept Paper Link must be a valid Google Drive or Docs link');
     if (!form.division?.trim()) missingFields.push('Division');
     if (!form.requester_type) missingFields.push('Requester Type (Student/Employee/Other)');
     if (!form.num_attendees || Number(form.num_attendees) < 1) missingFields.push('Number of Attendees');
@@ -1201,7 +1211,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
               required: true 
             },
               React.createElement('option', { value: '' }, 'Select space'),
-              rooms.map(r => React.createElement('option', { key: r.id, value: r.id }, `${r.name} (${r.capacity})`)
+              [...rooms].reverse().map(r => React.createElement('option', { key: r.id, value: r.id }, `${r.name} (${r.capacity})`)
             )),
             React.createElement('input', { placeholder: 'Activity Purpose', value: form.activity_purpose, onChange: (e) => setForm({ ...form, activity_purpose: e.target.value }), className: 'w-full p-2 border rounded bg-white', required: true }),
             React.createElement('input', { placeholder: 'Person In Charge', value: form.person_in_charge, onChange: (e) => setForm({ ...form, person_in_charge: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
@@ -1469,7 +1479,15 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
 
         React.createElement('div', { className: 'border rounded-xl p-4 bg-slate-50/60' },
           React.createElement('p', { className: 'text-xs uppercase tracking-wider font-bold text-slate-500 mb-3' }, 'Requirements'),
-          React.createElement('input', { type: 'url', placeholder: 'Concept Paper Google Drive Link', value: form.concept_paper_url, onChange: (e) => setForm({ ...form, concept_paper_url: e.target.value }), className: 'w-full p-2 border rounded bg-white', required: true })
+          React.createElement('input', { 
+            type: 'url', 
+            placeholder: 'Concept Paper Google Drive Link (docs.google.com or drive.google.com)', 
+            value: form.concept_paper_url, 
+            onChange: (e) => setForm({ ...form, concept_paper_url: e.target.value }), 
+            className: 'w-full p-2 border rounded bg-white', 
+            required: true,
+            pattern: '.*drive\\.google\\.com|.*docs\\.google\\.com'
+          })
         ),
         
         React.createElement('button', { type: 'submit', disabled: loading, className: 'w-full bg-sky-500 text-white p-2 rounded font-bold mt-4' }, loading ? '...' : 'Create')
@@ -1632,7 +1650,7 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
           }
           .page {
             width: 8.5in;
-            min-height: 13in;
+            min-height: 14in;
             background: white;
             padding: 0.5in 0.75in;
             box-shadow: 0 4px 20px rgba(0,0,0,0.3);
@@ -1781,8 +1799,9 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
             width: 33.33%;
           }
           @media print {
+            @page { size: legal; margin: 0.5in; }
             body { background: white; padding: 0; }
-            .page { box-shadow: none; }
+            .page { box-shadow: none; margin: 0; width: 8.5in; min-height: 14in; }
           }
         </style>
       </head>
@@ -2150,11 +2169,21 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
                         type: 'url', 
                         value: finalFormLink, 
                         onChange: (e) => setFinalFormLink(e.target.value),
-                        placeholder: 'Paste signed form link here...', 
+                        placeholder: 'Paste Google Drive or Docs link here...', 
                         className: 'w-full border border-slate-300 p-2 rounded-lg text-xs bg-white focus:ring-2 focus:ring-sky-500 outline-none' 
                       }),
                       React.createElement('button', { 
-                        onClick: () => { if(finalFormLink) onUploadFinalForm(res.id, finalFormLink); }, 
+                        onClick: () => { 
+                          if (!finalFormLink?.trim()) {
+                            alert('Please provide a link');
+                            return;
+                          }
+                          if (!(finalFormLink.includes('drive.google.com') || finalFormLink.includes('docs.google.com'))) {
+                            alert('Link must be from Google Drive or Google Docs');
+                            return;
+                          }
+                          onUploadFinalForm(res.id, finalFormLink); 
+                        }, 
                         disabled: !finalFormLink || loading,
                         className: 'w-full bg-sky-500 hover:bg-sky-600 text-white py-2 rounded-lg font-bold text-xs shadow-md transition-colors disabled:opacity-50'
                       }, loading ? 'Submitting...' : 'Submit Form Link')

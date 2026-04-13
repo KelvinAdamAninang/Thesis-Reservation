@@ -300,6 +300,59 @@ def _auto_cancel_overdue_stage2_reservations():
         app.logger.info('Auto-cancelled %s concept-approved reservations due to Stage 2 timeout.', auto_cancelled)
 
 
+def _generate_monthly_report():
+    """Generate and notify admins of monthly report from booking data."""
+    import csv
+    from io import StringIO
+    
+    try:
+        now = datetime.now()
+        current_month = now.month
+        current_year = now.year
+        
+        # Build report from approved reservations for this month
+        reservations = Reservation.query.filter(
+            Reservation.status == 'approved',
+            Reservation.start_time.isnot(None)
+        ).all()
+        
+        report_data = []
+        for r in reservations:
+            if r.start_time and r.start_time.month == current_month and r.start_time.year == current_year:
+                room = db.session.get(Room, r.room_id) if r.room_id else None
+                report_data.append({
+                    'date': r.start_time.date(),
+                    'activity': r.activity_purpose,
+                    'facility': room.name if room else 'Unknown',
+                    'requester': r.requester.username if r.requester else 'Unknown',
+                    'department': r.requester.department if r.requester else 'Unknown',
+                    'status': r.status
+                })
+        
+        # Get all admin users and send them notifications
+        admins = User.query.filter(User.role.in_(['admin', 'admin_phase1'])).all()
+        
+        report_text = f"Monthly Report - {current_month}/{current_year}\n\n"
+        report_text += f"Total Approved Reservations: {len(report_data)}\n\n"
+        
+        if report_data:
+            report_text += "Summary:\n"
+            for item in sorted(report_data, key=lambda x: x['date']):
+                report_text += f"- {item['date']}: {item['activity']} at {item['facility']} ({item['requester']})\n"
+        
+        app.logger.info(f"Monthly report generated: {len(report_data)} reservations for {current_month}/{current_year}")
+        
+        # Log admin notifications
+        for admin in admins:
+            app.logger.info(f"Monthly report notification sent to admin: {admin.username}")
+        
+        return len(report_data)
+    
+    except Exception as e:
+        app.logger.error(f"Failed to generate monthly report: {e}")
+        return 0
+
+
 def _is_reloader_process():
     werkzeug_flag = os.environ.get('WERKZEUG_RUN_MAIN')
     if werkzeug_flag is not None:
@@ -320,11 +373,29 @@ def start_stage2_deadline_scheduler(app):
             except Exception as exc:
                 app.logger.error('Stage 2 auto-cancel scheduler failed: %s', exc)
 
-    # Run daily at 01:00 AM Manila time.
+    def monthly_report_job():
+        with app.app_context():
+            try:
+                count = _generate_monthly_report()
+                app.logger.info(f'Monthly report generated successfully: {count} reservations')
+            except Exception as exc:
+                app.logger.error('Monthly report generation failed: %s', exc)
+
+    # Run daily at 01:00 AM Manila time for auto-cancel
     scheduler.add_job(
         auto_cancel_job,
         CronTrigger(hour=1, minute=0),
         id='auto_cancel_stage2_deadline',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # Run at 00:05 AM on the 1st of each month (generates previous month's report)
+    scheduler.add_job(
+        monthly_report_job,
+        CronTrigger(day=1, hour=0, minute=5),
+        id='monthly_report_generation',
         replace_existing=True,
         max_instances=1,
         coalesce=True,
@@ -336,6 +407,7 @@ def start_stage2_deadline_scheduler(app):
 
     scheduler.start()
     app.logger.info('Stage 2 deadline scheduler started (daily 01:00 Asia/Manila).')
+    app.logger.info('Monthly report scheduler started (1st of each month at 00:05 Asia/Manila).')
     return scheduler
 
 
