@@ -840,7 +840,7 @@ function LoginPage({ onLogin, loading, error }) {
       ),
       error && React.createElement('p', { className: 'text-red-500 text-center mb-4' }, error),
       React.createElement('button', { type: 'submit', disabled: loading, className: 'w-full bg-sky-500 text-white p-3 rounded-lg font-bold' }, loading ? 'Signing in...' : 'Sign In'),
-      React.createElement('p', { className: 'text-xs text-slate-400 text-center mt-6' }, "Try: admin/admin123 or ccs/1234")
+      React.createElement('p', { className: 'text-xs text-slate-400 text-center mt-6' }, "Try: Guest/Guesting123")
     )
   );
 }
@@ -2488,6 +2488,54 @@ function HeatmapChart({ data }) {
   );
 }
 
+// Helper functions for semester management
+function getCurrentSemester() {
+  const currentMonth = new Date().getMonth() + 1; // 1-12
+  if (currentMonth >= 8) return 1; // Aug-Dec = 1st Sem
+  if (currentMonth >= 1 && currentMonth <= 5) return 2; // Jan-May = 2nd Sem
+  return 3; // Jun-Jul = Summer
+}
+
+function getSemesterDateRange(semester) {
+  // Returns { startMonth: "MM", endMonth: "MM" }
+  if (semester === 1) return { startMonth: '08', endMonth: '12' }; // 1st Sem: Aug-Dec
+  if (semester === 2) return { startMonth: '01', endMonth: '05' }; // 2nd Sem: Jan-May
+  return { startMonth: '06', endMonth: '07' }; // Summer: Jun-Jul
+}
+
+function formatSemesterLabel(semester) {
+  if (semester === 1) return '1st Sem (Aug-Dec)';
+  if (semester === 2) return '2nd Sem (Jan-May)';
+  return 'Summer (Jun-Jul)';
+}
+
+function getAvailableSemesters(heatmapMonthKeys) {
+  // Extract unique semesters from available month keys
+  // Returns object like: { '2026': [1, 2, 3], '2025': [1, 2] }
+  const semesters = {};
+  
+  heatmapMonthKeys.forEach((key) => {
+    if (key === 'all') return;
+    const [year, month] = key.split('-');
+    const monthNum = parseInt(month);
+    
+    let semester;
+    if (monthNum >= 8) semester = 1;
+    else if (monthNum >= 1 && monthNum <= 5) semester = 2;
+    else semester = 3;
+    
+    if (!semesters[year]) semesters[year] = new Set();
+    semesters[year].add(semester);
+  });
+  
+  // Convert Sets to sorted arrays
+  Object.keys(semesters).forEach((year) => {
+    semesters[year] = Array.from(semesters[year]).sort((a, b) => a - b);
+  });
+  
+  return semesters;
+}
+
 function AnalyticsView({ reservations }) {
   const [analytics, setAnalytics] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
@@ -2497,9 +2545,8 @@ function AnalyticsView({ reservations }) {
   const [loadingForecast, setLoadingForecast] = useState(true);
   const [retrainingForecast, setRetrainingForecast] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState('All');
-  const [selectedHeatmapMonth, setSelectedHeatmapMonth] = useState('');
-  const [selectedHeatmapYear, setSelectedHeatmapYear] = useState('all');
-  const [selectedHeatmapMonthNumber, setSelectedHeatmapMonthNumber] = useState('all');
+  const [selectedSemesterYear, setSelectedSemesterYear] = useState('');
+  const [selectedSemester, setSelectedSemester] = useState('all');
   const [showDepartmentPicker, setShowDepartmentPicker] = useState(false);
 
   useEffect(() => {
@@ -2508,22 +2555,34 @@ function AnalyticsView({ reservations }) {
       setLoadingAnalytics(true);
       setAnalyticsError('');
       try {
+        // Calculate heatmap_month from selected semester
+        let heatmapMonth = 'all';
+        if (selectedSemester !== 'all' && selectedSemesterYear) {
+          const range = getSemesterDateRange(parseInt(selectedSemester));
+          heatmapMonth = `${selectedSemesterYear}-${range.startMonth}`;
+        }
+        
         const data = await apiService.getDataMiningAnalytics({
           department: selectedDepartment,
-          heatmap_month: selectedHeatmapMonth || undefined,
+          heatmap_month: heatmapMonth !== 'all' ? heatmapMonth : undefined,
         });
         if (isMounted) {
           setAnalytics(data);
-          if (!selectedHeatmapMonth && data?.filters?.selected_heatmap_month) {
+          // Initialize semester selection on first load
+          if (!selectedSemesterYear && data?.filters?.selected_heatmap_month) {
             const initialKey = data.filters.selected_heatmap_month;
-            setSelectedHeatmapMonth(initialKey);
             if (initialKey !== 'all' && /^\d{4}-\d{2}$/.test(initialKey)) {
               const [year, month] = initialKey.split('-');
-              setSelectedHeatmapYear(year);
-              setSelectedHeatmapMonthNumber(month);
+              const monthNum = parseInt(month);
+              let semester;
+              if (monthNum >= 8) semester = 1;
+              else if (monthNum >= 1 && monthNum <= 5) semester = 2;
+              else semester = 3;
+              setSelectedSemesterYear(year);
+              setSelectedSemester(String(semester));
             } else {
-              setSelectedHeatmapYear('all');
-              setSelectedHeatmapMonthNumber('all');
+              setSelectedSemesterYear('');
+              setSelectedSemester('all');
             }
           }
         }
@@ -2535,7 +2594,7 @@ function AnalyticsView({ reservations }) {
     })();
 
     return () => { isMounted = false; };
-  }, [reservations.length, selectedDepartment, selectedHeatmapMonth]);
+  }, [reservations.length, selectedDepartment, selectedSemesterYear, selectedSemester]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2685,48 +2744,37 @@ function AnalyticsView({ reservations }) {
   const filterData = analytics?.filters || { departments: ['All'], heatmap_months: ['all'] };
   const departmentOptions = filterData.departments || ['All'];
   const heatmapMonthKeys = (filterData.heatmap_months || ['all']).filter((key) => key !== 'all');
-  const heatmapYears = Array.from(new Set(heatmapMonthKeys.map((key) => key.split('-')[0]))).sort((a, b) => Number(b) - Number(a));
-  const monthsForSelectedYear = selectedHeatmapYear === 'all'
-    ? []
-    : heatmapMonthKeys
-        .filter((key) => key.startsWith(`${selectedHeatmapYear}-`))
-        .map((key) => key.split('-')[1])
-        .sort((a, b) => Number(a) - Number(b));
+  const availableSemesters = getAvailableSemesters(heatmapMonthKeys);
+  const semesterYears = Object.keys(availableSemesters).sort((a, b) => Number(b) - Number(a));
+  const semestersForSelectedYear = selectedSemesterYear && availableSemesters[selectedSemesterYear] ? availableSemesters[selectedSemesterYear] : [];
 
-  const handleHeatmapYearChange = (year) => {
-    setSelectedHeatmapYear(year);
-
+  const handleSemesterYearChange = (year) => {
     if (year === 'all') {
-      setSelectedHeatmapMonthNumber('all');
-      setSelectedHeatmapMonth('all');
+      setSelectedSemesterYear('');
+      setSelectedSemester('all');
       return;
     }
-
-    const keysForYear = heatmapMonthKeys
-      .filter((key) => key.startsWith(`${year}-`))
-      .sort((a, b) => b.localeCompare(a));
-
-    if (!keysForYear.length) {
-      setSelectedHeatmapMonthNumber('all');
-      setSelectedHeatmapMonth('all');
-      return;
+    
+    setSelectedSemesterYear(year);
+    const semestersForYear = availableSemesters[year] || [];
+    if (semestersForYear.length > 0) {
+      const currentSem = getCurrentSemester();
+      if (semestersForYear.includes(currentSem)) {
+        setSelectedSemester(String(currentSem));
+      } else {
+        setSelectedSemester(String(semestersForYear[semestersForYear.length - 1]));
+      }
+    } else {
+      setSelectedSemester('all');
     }
-
-    const latestForYear = keysForYear[0];
-    setSelectedHeatmapMonth(latestForYear);
-    setSelectedHeatmapMonthNumber(latestForYear.split('-')[1]);
   };
 
-  const handleHeatmapMonthChange = (monthNumber) => {
-    setSelectedHeatmapMonthNumber(monthNumber);
-
-    if (selectedHeatmapYear === 'all' || monthNumber === 'all') {
-      setSelectedHeatmapMonth('all');
+  const handleSemesterChange = (semester) => {
+    if (semester === 'all') {
+      setSelectedSemester('all');
       return;
     }
-
-    const monthKey = `${selectedHeatmapYear}-${monthNumber}`;
-    setSelectedHeatmapMonth(heatmapMonthKeys.includes(monthKey) ? monthKey : 'all');
+    setSelectedSemester(semester);
   };
 
   const formatMonthName = (monthNumber) => {
@@ -2784,16 +2832,32 @@ function AnalyticsView({ reservations }) {
       'Showing fallback metrics. ', analyticsError
     ),
 
-    React.createElement('div', { className: 'bg-white border rounded-3xl p-4 md:p-5 grid grid-cols-1 gap-4' },
+    React.createElement('div', { className: 'bg-white border rounded-3xl p-4 md:p-5 grid grid-cols-1 md:grid-cols-2 gap-4' },
       React.createElement('label', { className: 'text-sm text-slate-600' },
         React.createElement('span', { className: 'block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2' }, 'Year'),
         React.createElement('select', {
           className: 'w-full border rounded-xl px-3 py-2 bg-white',
-          value: selectedHeatmapYear,
-          onChange: (e) => handleHeatmapYearChange(e.target.value)
+          value: selectedSemesterYear,
+          onChange: (e) => handleSemesterYearChange(e.target.value)
         },
-          React.createElement('option', { value: 'all' }, 'All Years'),
-          heatmapYears.map((year) => React.createElement('option', { key: year, value: year }, year))
+          React.createElement('option', { value: '' }, 'All Years'),
+          semesterYears.map((year) => React.createElement('option', { key: year, value: year }, year))
+        )
+      ),
+      React.createElement('label', { className: 'text-sm text-slate-600' },
+        React.createElement('span', { className: 'block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2' }, 'Semester'),
+        React.createElement('select', {
+          className: 'w-full border rounded-xl px-3 py-2 bg-white',
+          value: selectedSemester,
+          disabled: !selectedSemesterYear,
+          onChange: (e) => handleSemesterChange(e.target.value)
+        },
+          React.createElement('option', { value: 'all' }, selectedSemesterYear ? 'Select semester' : 'Select year first'),
+          semestersForSelectedYear.map((sem) => React.createElement(
+            'option',
+            { key: sem, value: String(sem) },
+            formatSemesterLabel(sem)
+          ))
         )
       )
     ),
@@ -2897,27 +2961,26 @@ function AnalyticsView({ reservations }) {
           }
         })
       ),
-      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-        React.createElement('div', { className: 'flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4' },
-          React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Peak Usage Time Heatmap'),
-          React.createElement('label', { className: 'text-sm text-slate-600 md:min-w-[220px]' },
-            React.createElement('span', { className: 'sr-only' }, 'Heatmap Month'),
-            React.createElement('select', {
-              className: 'w-full border rounded-xl px-3 py-2 bg-white',
-              value: selectedHeatmapMonthNumber,
-              disabled: selectedHeatmapYear === 'all',
-              onChange: (e) => handleHeatmapMonthChange(e.target.value)
-            },
-              React.createElement('option', { value: 'all' }, selectedHeatmapYear === 'all' ? 'Select year first' : 'All Months'),
-              monthsForSelectedYear.map((monthNumber) => React.createElement(
-                'option',
-                { key: monthNumber, value: monthNumber },
-                formatMonthName(monthNumber)
-              ))
-            )
+      React.createElement('div', { className: 'bg-white border rounded-3xl p-6 relative' },
+        loadingAnalytics && React.createElement('div', {
+          className: 'absolute inset-0 bg-white/60 backdrop-blur-sm rounded-3xl flex items-center justify-center z-10 pointer-events-none'
+        },
+          React.createElement('div', { className: 'flex flex-col items-center gap-2' },
+            React.createElement('div', { className: 'w-8 h-8 border-3 border-sky-200 border-t-sky-500 rounded-full animate-spin' }),
+            React.createElement('p', { className: 'text-sm text-slate-600' }, 'Updating heatmap...')
           )
         ),
-        React.createElement(HeatmapChart, { data: charts.peak_usage_heatmap })
+        React.createElement('div', { className: 'flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4' },
+          React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Peak Usage Time Heatmap'),
+          React.createElement('p', { className: 'text-sm text-slate-500' },
+            selectedSemester !== 'all' && selectedSemesterYear
+              ? `Showing ${formatSemesterLabel(parseInt(selectedSemester))} ${selectedSemesterYear}`
+              : 'Showing all data'
+          )
+        ),
+        React.createElement('div', { className: 'pointer-events-auto' },
+          React.createElement(HeatmapChart, { data: charts.peak_usage_heatmap })
+        )
       )
     ),
 
@@ -3516,14 +3579,12 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
 
     const status = String(event?.status || '').toLowerCase();
     if (status === 'deleted' || status === 'denied' || status === 'cancelled') return 'cancelled';
+    
+    // Approved events (past, present, or future) show as ongoing (green)
+    if (status === 'approved') return 'ongoing';
+    
+    // Only concept-approved (phase 1 passed, needs phase 2) show as plotting (gray)
     if (status === 'concept-approved') return 'plotting';
-
-    const now = new Date();
-    const start = event?.start_time ? new Date(event.start_time) : null;
-    const end = event?.end_time ? new Date(event.end_time) : null;
-    if (status === 'approved' && start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && now >= start && now <= end) {
-      return 'ongoing';
-    }
 
     return 'plotting';
   };
