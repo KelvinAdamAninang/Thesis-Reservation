@@ -3876,6 +3876,16 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
   };
 
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
+    React.createElement('div', { className: 'bg-white rounded-2xl p-6 max-w-sm shadow-2xl' },
+      React.createElement('h3', { className: 'text-lg font-bold text-slate-800 mb-4' }, event?.activity_purpose || 'Event'),
+      React.createElement('button', { onClick: onClose, className: 'w-full bg-sky-500 text-white p-2 rounded' }, 'Close')
+    )
+  );
+}
+
+function NotificationsListModal
+
+  return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
     React.createElement('div', { className: 'bg-white rounded-3xl p-6 max-w-md shadow-2xl' },
       React.createElement('h3', { className: 'text-xl font-bold text-slate-800 mb-4' }, event?.activity_purpose || 'Event Details'),
       React.createElement('p', { className: 'text-slate-600 mb-6' }, `Status: ${statusLabel}`),
