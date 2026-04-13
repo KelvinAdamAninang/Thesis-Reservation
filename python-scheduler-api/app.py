@@ -2,12 +2,13 @@ import os
 import json
 import uuid
 from urllib.parse import urlparse
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, session
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, session, send_file
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_cors import CORS
 from datetime import datetime, date, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from io import BytesIO
 from sqlalchemy import inspect
 from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
@@ -359,7 +360,7 @@ def _build_monthly_report_payload(year, month):
     report_data = []
     for r in reservations:
         room = db.session.get(Room, r.room_id) if r.room_id else None
-        requester = r.requester.username if r.requester else 'Unknown'
+        requester = (r.person_in_charge or '').strip() or (r.requester.username if r.requester else 'Unknown')
         department = r.requester.department if r.requester else 'Unknown'
         report_data.append({
             'id': r.id,
@@ -369,6 +370,7 @@ def _build_monthly_report_payload(year, month):
             'activity': r.activity_purpose,
             'facility': room.name if room else 'Unknown',
             'requester': requester,
+            'contact_number': r.contact_number or '',
             'department': department,
             'status': r.status,
         })
@@ -425,6 +427,65 @@ def generate_monthly_report_now():
         return jsonify({'status': 'success', 'data': payload, 'message': 'Monthly report generated'})
     except Exception as e:
         app.logger.exception('Failed to generate monthly report manually')
+        return jsonify({'status': 'error', 'message': str(e)}), 400
+
+
+@app.route('/api/data-mining/reports/monthly/export', methods=['GET'])
+@login_required
+def export_monthly_report_excel():
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        from openpyxl import Workbook
+
+        year, month = _parse_report_month_year(request.args.get('year'), request.args.get('month'))
+        payload = _build_monthly_report_payload(year, month)
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = 'Monthly Report'
+
+        sheet.append(['Monthly Report', f"{month:02d}/{year}"])
+        sheet.append(['Generated At', payload.get('generated_at', '')])
+        sheet.append(['Total Approved Reservations', payload.get('total_approved_reservations', 0)])
+        sheet.append([])
+        sheet.append(['Date', 'Activity', 'Facility', 'Requester', 'Department', 'Status', 'Start Time', 'End Time'])
+
+        for item in payload.get('items', []):
+            sheet.append([
+                item.get('date', ''),
+                item.get('activity', ''),
+                item.get('facility', ''),
+                item.get('requester', ''),
+                item.get('department', ''),
+                item.get('status', ''),
+                item.get('start_time', ''),
+                item.get('end_time', ''),
+            ])
+
+        for column_cells in sheet.columns:
+            max_length = 0
+            column_letter = column_cells[0].column_letter
+            for cell in column_cells:
+                value = '' if cell.value is None else str(cell.value)
+                if len(value) > max_length:
+                    max_length = len(value)
+            sheet.column_dimensions[column_letter].width = min(max_length + 2, 48)
+
+        stream = BytesIO()
+        workbook.save(stream)
+        stream.seek(0)
+
+        filename = f"monthly_report_{year}_{month:02d}.xlsx"
+        return send_file(
+            stream,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        app.logger.exception('Failed to export monthly report as Excel')
         return jsonify({'status': 'error', 'message': str(e)}), 400
 
 

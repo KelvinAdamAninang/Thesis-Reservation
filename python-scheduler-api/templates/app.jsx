@@ -271,6 +271,33 @@ const apiService = {
     return payload;
   },
 
+  async downloadMonthlyReportExcel(year, month) {
+    const params = new URLSearchParams();
+    if (year) params.set('year', String(year));
+    if (month) params.set('month', String(month));
+    const response = await fetch(`${API_BASE}/data-mining/reports/monthly/export?${params.toString()}`, {
+      method: 'GET',
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      let message = 'Failed to download monthly report file';
+      try {
+        const payload = await response.json();
+        message = payload.message || payload.error || message;
+      } catch {
+        // Ignore JSON parsing for non-JSON responses.
+      }
+      throw new Error(message);
+    }
+
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const nameMatch = disposition.match(/filename="?([^";]+)"?/i);
+    const filename = nameMatch ? nameMatch[1] : `monthly_report_${year}_${String(month).padStart(2, '0')}.xlsx`;
+    return { blob, filename };
+  },
+
   async adminCreateFacility(payload) {
     const response = await fetch(`${API_BASE}/admin/facilities`, {
       method: 'POST',
@@ -428,6 +455,22 @@ function App() {
   const isPhase1Admin = currentUser?.role === 'admin_phase1';
   const isAdminOrPhase1 = isAdmin || isPhase1Admin;
 
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const withRetry = async (task, attempts = 3, baseDelay = 700) => {
+    let lastError = null;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await task();
+      } catch (err) {
+        lastError = err;
+        if (i < attempts - 1) {
+          await wait(baseDelay * (i + 1));
+        }
+      }
+    }
+    throw lastError || new Error('Request failed');
+  };
+
   const getAllowedViewsForRole = (role) => {
     const baseViews = ['dashboard', 'calendar', 'facilities', 'archive'];
     if (role === 'admin' || role === 'admin_phase1') {
@@ -511,7 +554,7 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/me`, { credentials: 'include' });
+        const res = await withRetry(() => fetch(`${API_BASE}/me`, { credentials: 'include' }), 3, 800);
         if (res.ok) {
           const data = await res.json();
           if (data.status === 'success') {
@@ -537,9 +580,9 @@ function App() {
 
       (async () => {
         const results = await Promise.allSettled([
-          apiService.getRooms(),
-          apiService.getReservations(),
-          apiService.getCalendarEvents(),
+          withRetry(() => apiService.getRooms(), 3, 800),
+          withRetry(() => apiService.getReservations(), 3, 800),
+          withRetry(() => apiService.getCalendarEvents(), 3, 800),
         ]);
 
         if (cancelled) return;
@@ -1660,7 +1703,32 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
       const entry = Object.entries(equipmentQty).find(([k]) => k.includes(needle));
       return entry ? entry[1] : '';
     };
-    const headerImageUrl = `${window.location.origin}/header2.png`;
+    const deriveBucketHeaderUrl = () => {
+      const imageCandidates = [
+        selectedRoom?.image_url,
+        ...(rooms || []).map((r) => r?.image_url)
+      ].filter(Boolean);
+
+      const bucketBase = imageCandidates.find((url) => String(url).includes('/storage/v1/object/public/'));
+      if (!bucketBase) {
+        return `${window.location.origin}/header2.png`;
+      }
+
+      const marker = '/storage/v1/object/public/';
+      const [originPart, bucketAndKey] = String(bucketBase).split(marker);
+      if (!originPart || !bucketAndKey) {
+        return `${window.location.origin}/header2.png`;
+      }
+
+      const bucketName = bucketAndKey.split('/')[0];
+      if (!bucketName) {
+        return `${window.location.origin}/header2.png`;
+      }
+
+      return `${originPart}${marker}${bucketName}/facilities/header2.png`;
+    };
+
+    const headerImageUrl = deriveBucketHeaderUrl();
 
     const htmlContent = `
       <html>
@@ -2748,6 +2816,16 @@ function AnalyticsView({ reservations }) {
     try {
       const payload = await apiService.generateMonthlyReport(reportYear, reportMonth);
       setMonthlyReport(payload.data);
+
+      const file = await apiService.downloadMonthlyReportExcel(reportYear, reportMonth);
+      const url = window.URL.createObjectURL(file.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = file.filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
     } catch (err) {
       setMonthlyReportError(err.message || 'Failed to generate monthly report');
     } finally {
@@ -3119,7 +3197,8 @@ function AnalyticsView({ reservations }) {
                         React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Date'),
                         React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Activity'),
                         React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Facility'),
-                        React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Requester')
+                        React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Requester'),
+                        React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Number')
                       )
                     ),
                     React.createElement('tbody', {},
@@ -3127,7 +3206,8 @@ function AnalyticsView({ reservations }) {
                         React.createElement('td', { className: 'p-2 text-slate-700' }, item.date),
                         React.createElement('td', { className: 'p-2 text-slate-700' }, item.activity || 'N/A'),
                         React.createElement('td', { className: 'p-2 text-slate-700' }, item.facility || 'N/A'),
-                        React.createElement('td', { className: 'p-2 text-slate-700' }, item.requester || 'N/A')
+                        React.createElement('td', { className: 'p-2 text-slate-700' }, item.requester || 'N/A'),
+                        React.createElement('td', { className: 'p-2 text-slate-700' }, item.contact_number || 'N/A')
                       ))
                     )
                   )
@@ -3755,6 +3835,30 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
+  const formatCalendarDateRange = (startIso, endIso) => {
+    if (!startIso) return 'No date';
+    const startDate = new Date(startIso);
+    const endDate = endIso ? new Date(endIso) : startDate;
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 'Invalid date';
+    const startText = startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const endText = endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return startText === endText ? startText : `${startText} - ${endText}`;
+  };
+
+  const eventOverlapsDay = (event, dayStart) => {
+    if (!event?.start_time) return false;
+    const eventStart = new Date(event.start_time);
+    const eventEnd = event.end_time ? new Date(event.end_time) : new Date(event.start_time);
+    if (Number.isNaN(eventStart.getTime()) || Number.isNaN(eventEnd.getTime())) return false;
+
+    const dayBegin = new Date(dayStart);
+    dayBegin.setHours(0, 0, 0, 0);
+    const dayFinish = new Date(dayStart);
+    dayFinish.setHours(23, 59, 59, 999);
+
+    return eventStart <= dayFinish && eventEnd >= dayBegin;
+  };
+
   const isHolidayEvent = (event) => event?.event_type === 'holiday' || event?.is_holiday;
 
   const getEventCategory = (event) => {
@@ -3802,10 +3906,13 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
 
   const monthlyEvents = (events || []).filter((e) => {
     if (!e.start_time) return false;
-    const eventDate = new Date(e.start_time);
-    if (Number.isNaN(eventDate.getTime())) return false;
+    const eventStart = new Date(e.start_time);
+    const eventEnd = e.end_time ? new Date(e.end_time) : new Date(e.start_time);
+    if (Number.isNaN(eventStart.getTime()) || Number.isNaN(eventEnd.getTime())) return false;
 
-    const matchesMonth = eventDate.getFullYear() === year && eventDate.getMonth() === month;
+    const monthStart = new Date(year, month, 1, 0, 0, 0, 0);
+    const monthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999);
+    const matchesMonth = eventStart <= monthEnd && eventEnd >= monthStart;
     const matchesRoom = isHolidayEvent(e) || filterRoom === 'all' || e.room_id == filterRoom;
     return matchesMonth && matchesRoom;
   }).sort((a, b) => {
@@ -3864,10 +3971,10 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
       // Day cells
       days.map((day, i) => {
         const dateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
+        const dayDate = day ? new Date(`${dateStr}T00:00:00`) : null;
         const dayEvents = dateStr ? events.filter(e => {
-          if (!e.start_time) return false;
-          const eventDate = e.start_time.split('T')[0];
-          const matchesDate = eventDate === dateStr;
+          if (!dayDate) return false;
+          const matchesDate = eventOverlapsDay(e, dayDate);
           const matchesRoom = isHolidayEvent(e) || filterRoom === 'all' || e.room_id == filterRoom;
           return matchesDate && matchesRoom;
         }).sort((a, b) => {
@@ -3942,7 +4049,7 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
                 },
                   React.createElement('div', {},
                     React.createElement('p', { className: 'font-bold text-slate-800 text-sm' }, e.activity_purpose),
-                    React.createElement('p', { className: 'text-xs text-slate-500' }, e.start_time?.split('T')[0], ' • ', category === 'holiday' ? 'Whole day' : `${formatTime(e.start_time)} - ${formatTime(e.end_time)}`)
+                    React.createElement('p', { className: 'text-xs text-slate-500' }, formatCalendarDateRange(e.start_time, e.end_time), ' • ', category === 'holiday' ? 'Whole day' : `${formatTime(e.start_time)} - ${formatTime(e.end_time)}`)
                   ),
                   React.createElement('span', { className: `px-2 py-1 rounded-full text-[10px] font-bold ${eventCategoryStyles[category].badge}` }, eventCategoryStyles[category].label)
                 );

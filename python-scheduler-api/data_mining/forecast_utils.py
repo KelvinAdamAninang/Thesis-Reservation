@@ -151,10 +151,6 @@ def _semester_months_for_year(period_key, year):
 
 
 def forecast_current_semester(now=None, artifact_path=SARIMAX_ARTIFACT_PATH):
-    bundle = load_model_bundle(artifact_path=artifact_path)
-    model_fit = bundle['model']
-    metadata = bundle['metadata']
-
     now = now or datetime.utcnow()
     now_month_start = pd.Timestamp(year=now.year, month=now.month, day=1)
     period_key = _current_semester_key(now_month_start)
@@ -166,15 +162,37 @@ def forecast_current_semester(now=None, artifact_path=SARIMAX_ARTIFACT_PATH):
     actual_mask = semester_months < now_month_start
     predicted_months = semester_months[~actual_mask]
 
-    if len(predicted_months) > 0:
-        predicted_series = _forecast_to_target_months(
-            model_fit,
-            metadata['last_observation_month'],
-            predicted_months,
-            metadata=metadata,
-        )
-    else:
-        predicted_series = pd.Series(dtype='float64')
+    fallback_reason = None
+    metadata = {}
+    predicted_series = pd.Series(dtype='float64')
+
+    try:
+        bundle = load_model_bundle(artifact_path=artifact_path)
+        model_fit = bundle['model']
+        metadata = bundle['metadata']
+        if len(predicted_months) > 0:
+            predicted_series = _forecast_to_target_months(
+                model_fit,
+                metadata['last_observation_month'],
+                predicted_months,
+                metadata=metadata,
+            )
+    except Exception as exc:
+        # Fallback when model artifact is incompatible (e.g. pandas dtype version mismatch)
+        fallback_reason = str(exc)
+        hist = build_monthly_reservation_series(include_statuses=['approved'])
+        hist_before_now = hist[hist.index < now_month_start].dropna()
+        baseline = float(hist_before_now.tail(3).mean()) if len(hist_before_now) > 0 else 0.0
+        if len(predicted_months) > 0:
+            predicted_series = pd.Series([baseline] * len(predicted_months), index=predicted_months, dtype='float64')
+
+        metadata = {
+            'model_type': 'Fallback (recent approved reservations average)',
+            'fallback': True,
+            'fallback_reason': fallback_reason,
+            'last_observation_month': (hist_before_now.index.max().strftime('%Y-%m') if len(hist_before_now) > 0 else None),
+            'fallback_baseline': round(float(baseline), 2),
+        }
 
     series = []
     for m in semester_months:
@@ -193,4 +211,5 @@ def forecast_current_semester(now=None, artifact_path=SARIMAX_ARTIFACT_PATH):
         'series': series,
         'actual_cutoff_month': now_month_start.strftime('%Y-%m'),
         'metadata': metadata,
+        'warning': fallback_reason,
     }
