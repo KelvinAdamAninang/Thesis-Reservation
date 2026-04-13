@@ -381,8 +381,6 @@ function confirmDeleteAction(targetLabel) {
 
 // ==================== MAIN APP ====================
 function App() {
-  const VIEW_STORAGE_KEY = 'vacansee.currentView';
-
   const [currentUser, setCurrentUser] = useState(null);
   const [currentView, setCurrentView] = useState('dashboard');
   const [reservations, setReservations] = useState([]);
@@ -546,37 +544,6 @@ function App() {
       };
     }
   }, [currentUser]);
-
-  // Restore last selected tab after session/user is known.
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const allowedViews = getAllowedViewsForRole(currentUser.role);
-    const raw = localStorage.getItem(VIEW_STORAGE_KEY);
-    if (!raw) {
-      setCurrentView('dashboard');
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(raw);
-      const savedView = parsed?.view;
-      const savedUserId = parsed?.userId;
-      if (savedUserId === currentUser.id && allowedViews.includes(savedView)) {
-        setCurrentView(savedView);
-      } else {
-        setCurrentView('dashboard');
-      }
-    } catch {
-      setCurrentView('dashboard');
-    }
-  }, [currentUser]);
-
-  // Persist selected tab for the current user.
-  useEffect(() => {
-    if (!currentUser) return;
-    localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ userId: currentUser.id, view: currentView }));
-  }, [currentUser, currentView]);
 
   const handleLogin = async (username, password) => {
     setLoading(true);
@@ -3373,11 +3340,7 @@ function FacilityEditorModal({ initialFacility, onClose, onSubmit }) {
     detailed_info: initialFacility?.detailed_info || '',
     image_url: initialFacility?.image_url || ''
   });
-  const [imageUrlInput, setImageUrlInput] = useState(
-    initialFacility?.image_url && /^https?:\/\//i.test(initialFacility.image_url)
-      ? initialFacility.image_url
-      : ''
-  );
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -3406,7 +3369,7 @@ function FacilityEditorModal({ initialFacility, onClose, onSubmit }) {
         description: form.description,
         usual_activity: form.usual_activity,
         detailed_info: form.detailed_info,
-        image_url: (imageUrlInput || '').trim() || form.image_url
+        image_url: form.image_url
       });
     } catch (err) {
       setError(err.message || 'Failed to save facility.');
@@ -3465,29 +3428,17 @@ function FacilityEditorModal({ initialFacility, onClose, onSubmit }) {
           placeholder: 'Detailed facility information (features, rules, accessibility, floor/location, etc.)',
           className: 'p-2 border rounded w-full min-h-[110px]'
         }),
-        React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-3 items-start' },
+        React.createElement('div', { className: 'space-y-2' },
           React.createElement('input', {
-            value: imageUrlInput,
+            type: 'file',
+            accept: 'image/*',
             onChange: (e) => {
-              const val = e.target.value;
-              setImageUrlInput(val);
-              setForm({ ...form, image_url: val });
+              const file = e.target.files && e.target.files[0];
+              if (file) uploadImage(file);
             },
-            placeholder: 'External Image URL (optional)',
-            className: 'p-2 border rounded w-full'
+            className: 'block w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:border file:rounded-lg file:bg-slate-50 file:text-slate-700'
           }),
-          React.createElement('div', { className: 'space-y-2' },
-            React.createElement('input', {
-              type: 'file',
-              accept: 'image/*',
-              onChange: (e) => {
-                const file = e.target.files && e.target.files[0];
-                if (file) uploadImage(file);
-              },
-              className: 'block w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:border file:rounded-lg file:bg-slate-50 file:text-slate-700'
-            }),
-            React.createElement('p', { className: 'text-xs text-slate-500' }, 'You can paste an external URL or upload a file. Uploaded file URLs are hidden from this box.')
-          )
+          React.createElement('p', { className: 'text-xs text-slate-500' }, 'Click to upload a facility image')
         ),
         form.image_url && React.createElement('div', { className: 'rounded-xl border overflow-hidden bg-slate-50' },
           React.createElement('img', { src: form.image_url, alt: 'Facility preview', className: 'w-full h-44 object-cover' })
@@ -3975,8 +3926,7 @@ function AIChatbotWidget({ user, rooms }) {
   return React.createElement('div', { className: 'fixed bottom-5 right-5 z-[70] w-[340px] max-w-[calc(100vw-1.5rem)] bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden' },
     React.createElement('div', { className: 'bg-sky-500 text-white px-4 py-3 flex justify-between items-center' },
       React.createElement('div', {},
-        React.createElement('p', { className: 'font-bold text-sm' }, 'VacanSee AI Assistant'),
-        React.createElement('p', { className: 'text-[10px] text-sky-100' }, 'Gemini-powered booking assistant')
+        React.createElement('p', { className: 'font-bold text-sm' }, 'VacanSee AI Assistant')
       ),
       React.createElement('button', {
         onClick: () => setIsOpen(false),

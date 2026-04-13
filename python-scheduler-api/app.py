@@ -12,6 +12,9 @@ from sqlalchemy import inspect
 from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
 from dotenv import load_dotenv
+import boto3
+from botocore.exceptions import ClientError
+
 from models import db, User, Room, Reservation, Holiday 
 from data_mining.analytics import build_analytics_snapshot
 from data_mining.forecast_utils import forecast_all_academic_periods, forecast_for_period, forecast_current_semester
@@ -36,13 +39,11 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DOTENV_PATH = os.path.join(APP_DIR, '.env')
 
 # Enable CORS
-CORS(app, supports_credentials=True, origins=[
-    'http://localhost:3000', 'http://localhost:5000',
-    'http://127.0.0.1:3000', 'http://127.0.0.1:5000'
-])
+allowed_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5000').split(',')
+CORS(app, supports_credentials=True, origins=allowed_origins)
 
 # CONFIG
-app.config['SECRET_KEY'] = 'thesis-secret-key-123'
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 
 # Load environment variables from your .env file
 load_dotenv(dotenv_path=DOTENV_PATH, override=True)
@@ -70,6 +71,29 @@ app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+# Initialize S3 client for Supabase Storage
+S3_ENDPOINT = os.getenv("S3_ENDPOINT", "").strip()
+S3_ACCESS_KEY = os.getenv("Access_Key_ID", "").strip()
+S3_SECRET_KEY = os.getenv("Secret_Access_Key", "").strip()
+S3_BUCKET = os.getenv("S3_BUCKET", "image_loc")
+s3_client = None
+
+if S3_ENDPOINT and S3_ACCESS_KEY and S3_SECRET_KEY:
+    try:
+        s3_client = boto3.client(
+            's3',
+            endpoint_url=S3_ENDPOINT,
+            aws_access_key_id=S3_ACCESS_KEY,
+            aws_secret_access_key=S3_SECRET_KEY,
+            region_name='us-east-1'
+        )
+        app.logger.info("S3 client initialized successfully for Supabase Storage")
+    except Exception as e:
+        app.logger.error(f"Failed to initialize S3 client: {e}")
+        s3_client = None
+else:
+    app.logger.warning("S3 credentials not fully configured - image storage will be disabled")
 
 # Define your strict rules (The System Prompt)
 SYSTEM_PROMPT = """
@@ -110,6 +134,24 @@ You MUST follow these rules:
 
 END OF SYSTEM INSTRUCTION.
 """
+
+# Simple cache to prevent duplicate Gemini requests (reduces quota exhaustion)
+_gemini_request_cache = {}  # {hash: (timestamp, response)}
+_CACHE_TTL_SECONDS = 300  # 5 minutes
+
+def _cache_gemini_request(prompt_hash, response):
+    """Cache a Gemini response"""
+    _gemini_request_cache[prompt_hash] = (datetime.now(), response)
+
+def _get_cached_gemini_response(prompt_hash):
+    """Get cached response if still valid"""
+    if prompt_hash not in _gemini_request_cache:
+        return None
+    cached_time, cached_response = _gemini_request_cache[prompt_hash]
+    if (datetime.now() - cached_time).total_seconds() > _CACHE_TTL_SECONDS:
+        del _gemini_request_cache[prompt_hash]
+        return None
+    return cached_response
 
 def _get_gemini_client():
     api_key = str(os.getenv("GEMINI_API_KEY", "")).strip()
@@ -502,96 +544,110 @@ def api_logout():
 @app.route('/api/ai/chat', methods=['POST'])
 @login_required
 def ai_chat():
-    client = _get_gemini_client()
-    if not client:
-        return jsonify({'error': 'Gemini API key is not configured on the server.'}), 500
-
-    payload = request.get_json(silent=True) or {}
-    messages = payload.get('messages', [])
-    facilities = payload.get('facilities', [])
-
-    if not isinstance(messages, list) or not messages:
-        return jsonify({'error': 'Messages are required.'}), 400
-
-    conversation_parts = []
-    facility_names = [str(f).strip() for f in facilities if str(f).strip()]
-    if facility_names:
-        conversation_parts.append("Available facilities from system records: " + ", ".join(facility_names))
-
-    for msg in messages:
-        role = str(msg.get('role', 'user')).lower()
-        text = str(msg.get('text', '')).strip()
-        if not text:
-            continue
-        speaker = 'User' if role == 'user' else 'Assistant'
-        conversation_parts.append(f"{speaker}: {text}")
-
-    if not conversation_parts:
-        return jsonify({'error': 'No valid message text provided.'}), 400
-
-    prompt_text = "\n".join(conversation_parts)
-    latest_user_text = ""
-    for msg in reversed(messages):
-        if str(msg.get('role', 'user')).lower() == 'user':
-            latest_user_text = str(msg.get('text', '')).strip().lower()
-            break
-
     try:
-        if client == "legacy-sdk":
-            legacy_model = google_legacy_genai.GenerativeModel(
-                model_name=GEMINI_MODEL,
-                system_instruction=SYSTEM_PROMPT
-            )
-            response = legacy_model.generate_content(prompt_text)
-            reply_text = str(getattr(response, 'text', '') or '').strip()
-        else:
-            response = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt_text,
-                config=google_genai_types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    temperature=0.2,
-                    top_p=0.9,
-                    max_output_tokens=1024,
-                ),
-            )
-            reply_text = str(getattr(response, 'text', '') or '').strip()
-        if not reply_text:
-            return jsonify({'error': 'Gemini returned an empty response.'}), 502
+        client = _get_gemini_client()
+        if not client:
+            return jsonify({'error': 'Gemini API key is not configured on the server.'}), 500
 
-        return jsonify({'reply': reply_text})
-    except Exception as exc:
-        error_text = str(exc)
-        app.logger.error('Gemini API call failed: %s', error_text)
+        payload = request.get_json(silent=True) or {}
+        messages = payload.get('messages', [])
+        facilities = payload.get('facilities', [])
 
-        # Graceful degradation for quota/rate-limit failures.
-        if 'RESOURCE_EXHAUSTED' in error_text or '429' in error_text or 'quota' in error_text.lower():
-            if 'concept paper' in latest_user_text or 'how do i get a concept paper' in latest_user_text:
-                fallback_reply = (
-                    'You must first speak with the facility coordinator responsible for the venue you want to reserve. '
-                    'The coordinator will explain the required details. After drafting the concept paper, you must '
-                    'have it officially signed by the Chancellor. Only a Concept Paper signed by the Chancellor can '
-                    'be uploaded to your Google Drive to initiate a VacanSee reservation.'
+        if not isinstance(messages, list) or not messages:
+            return jsonify({'error': 'Messages are required.'}), 400
+
+        conversation_parts = []
+        facility_names = [str(f).strip() for f in facilities if str(f).strip()]
+        if facility_names:
+            conversation_parts.append("Available facilities from system records: " + ", ".join(facility_names))
+
+        for msg in messages:
+            role = str(msg.get('role', 'user')).lower()
+            text = str(msg.get('text', '')).strip()
+            if not text:
+                continue
+            speaker = 'User' if role == 'user' else 'Assistant'
+            conversation_parts.append(f"{speaker}: {text}")
+
+        if not conversation_parts:
+            return jsonify({'error': 'No valid message text provided.'}), 400
+
+        prompt_text = "\n".join(conversation_parts)
+        latest_user_text = ""
+        for msg in reversed(messages):
+            if str(msg.get('role', 'user')).lower() == 'user':
+                latest_user_text = str(msg.get('text', '')).strip().lower()
+                break
+
+        # Check cache to reduce API calls (quota conservation)
+        import hashlib
+        prompt_hash = hashlib.sha256(prompt_text.encode()).hexdigest()
+        cached_response = _get_cached_gemini_response(prompt_hash)
+        if cached_response:
+            app.logger.info('Returning cached Gemini response (quota conservation)')
+            return jsonify({'reply': cached_response, 'cached': True})
+
+        try:
+            if client == "legacy-sdk":
+                legacy_model = google_legacy_genai.GenerativeModel(
+                    model_name=GEMINI_MODEL,
+                    system_instruction=SYSTEM_PROMPT
                 )
-            elif any(k in latest_user_text for k in ['process', 'workflow', 'how', 'reservation']):
-                fallback_reply = (
-                    'VacanSee is currently running in limited mode due to AI quota limits. Here is the official workflow: '
-                    'Stage 1: Submit event details plus a Google Drive link to your Chancellor-signed Concept Paper for '
-                    'Concept Review. Stage 2: Once Stage 1 is approved, you have exactly 5 days to submit your Final Form '
-                    'Google Drive link for Final Review. If approved, the reservation is confirmed.'
-                )
+                response = legacy_model.generate_content(prompt_text)
+                reply_text = str(getattr(response, 'text', '') or '').strip()
             else:
-                fallback_reply = (
-                    'VacanSee AI is temporarily limited due to Gemini quota limits. I can still assist with the essentials: '
-                    'facility/room, date and start/end time, activity purpose, number of attendees, person in charge, and '
-                    'a Google Drive Concept Paper link signed by the Chancellor.'
+                response = client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=prompt_text,
+                    config=google_genai_types.GenerateContentConfig(
+                        system_instruction=SYSTEM_PROMPT,
+                        temperature=0.2,
+                        top_p=0.9,
+                        max_output_tokens=1024,
+                    ),
                 )
+                reply_text = str(getattr(response, 'text', '') or '').strip()
+            if not reply_text:
+                return jsonify({'error': 'Gemini returned an empty response.'}), 502
 
-            return jsonify({'reply': fallback_reply, 'degraded_mode': True})
+            # Cache successful response to reduce future quota usage
+            _cache_gemini_request(prompt_hash, reply_text)
+            return jsonify({'reply': reply_text})
+        except Exception as exc:
+            error_text = str(exc)
+            app.logger.error('Gemini API call failed: %s', error_text)
 
-        return jsonify({'error': f'Gemini API error: {error_text}'}), 502
+            # Graceful degradation for quota/rate-limit failures.
+            if 'RESOURCE_EXHAUSTED' in error_text or '429' in error_text or 'quota' in error_text.lower():
+                if 'concept paper' in latest_user_text or 'how do i get a concept paper' in latest_user_text:
+                    fallback_reply = (
+                        'You must first speak with the facility coordinator responsible for the venue you want to reserve. '
+                        'The coordinator will explain the required details. After drafting the concept paper, you must '
+                        'have it officially signed by the Chancellor. Only a Concept Paper signed by the Chancellor can '
+                        'be uploaded to your Google Drive to initiate a VacanSee reservation.'
+                    )
+                elif any(k in latest_user_text for k in ['process', 'workflow', 'how', 'reservation']):
+                    fallback_reply = (
+                        'VacanSee is currently running in limited mode due to AI quota limits. Here is the official workflow: '
+                        'Stage 1: Submit event details plus a Google Drive link to your Chancellor-signed Concept Paper for '
+                        'Concept Review. Stage 2: Once Stage 1 is approved, you have exactly 5 days to submit your Final Form '
+                        'Google Drive link for Final Review. If approved, the reservation is confirmed.'
+                    )
+                else:
+                    fallback_reply = (
+                        'VacanSee AI is temporarily limited due to Gemini quota limits. I can still assist with the essentials: '
+                        'facility/room, date and start/end time, activity purpose, number of attendees, person in charge, and '
+                        'a Google Drive Concept Paper link signed by the Chancellor.'
+                    )
 
-# Get all rooms
+                return jsonify({'reply': fallback_reply, 'degraded_mode': True})
+
+            return jsonify({'error': f'Gemini API error: {error_text}'}), 502
+
+    except Exception as outer_exc:
+        outer_error_text = str(outer_exc)
+        app.logger.error('Unexpected error in ai_chat: %s', outer_error_text)
+        return jsonify({'error': f'An unexpected error occurred: {outer_error_text}'}), 500
 @app.route('/api/rooms', methods=['GET'])
 def get_rooms():
     rooms = Room.query.all()
@@ -1192,40 +1248,64 @@ def _require_admin_settings_access():
 
 
 def _uploaded_facility_image_path(image_url):
-    """Resolve a local facility upload URL to an absolute file path, if safe and valid."""
+    """Extract S3 object key or local file path from image_url."""
     if not image_url:
         return None
-
+    
     value = (image_url or '').strip()
     if not value:
         return None
-
-    parsed = urlparse(value)
-    url_path = (parsed.path or value).strip()
-    prefix = '/static/uploads/'
-
-    if not url_path.startswith(prefix):
-        return None
-
-    filename = os.path.basename(url_path)
-    if not filename:
-        return None
-
-    uploads_dir = os.path.join(app.static_folder, 'uploads')
-    return os.path.join(uploads_dir, filename)
+    
+    # Check if it's a local storage URL
+    if value.startswith('/static/uploads/'):
+        return value
+    
+    # Check if it's a Supabase public storage URL
+    # Format: https://{project}.storage.supabase.co/storage/v1/object/public/{bucket}/{key_with_folders}
+    # We need to extract everything after /public/image_loc/ which gives us facilities/{filename}
+    if 'storage.supabase.co/storage/v1/object/public/' in value:
+        try:
+            # Find the start of the bucket name
+            start_idx = value.index('storage.supabase.co/storage/v1/object/public/') + len('storage.supabase.co/storage/v1/object/public/')
+            # Get everything after /public/, which includes bucket/path
+            full_path = value[start_idx:]
+            # Skip the bucket name (image_loc/) and return the rest (facilities/filename)
+            if full_path.startswith('image_loc/'):
+                return full_path[len('image_loc/'):]  # Return facilities/filename
+            return full_path  # Fallback
+        except Exception:
+            return None
+    
+    return None
 
 
 def _delete_uploaded_facility_image(image_url):
-    """Best-effort deletion of a previously uploaded facility image from /static/uploads."""
-    filepath = _uploaded_facility_image_path(image_url)
-    if not filepath:
+    """Best-effort deletion of a facility image from local storage or S3."""
+    path = _uploaded_facility_image_path(image_url)
+    if not path:
         return
-
-    try:
-        if os.path.isfile(filepath):
-            os.remove(filepath)
-    except Exception as exc:
-        app.logger.warning("Could not delete old facility image '%s': %s", filepath, exc)
+    
+    # Check if it's a local file
+    if path.startswith('/static/uploads/'):
+        try:
+            filepath = os.path.join(os.path.dirname(__file__), path.lstrip('/'))
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                app.logger.info(f"Deleted local facility image: {path}")
+        except Exception as e:
+            app.logger.warning(f"Could not delete local facility image '{path}': {e}")
+    else:
+        # Try to delete from S3
+        if not s3_client:
+            app.logger.debug(f"S3 client not initialized, skipping S3 deletion for {path}")
+            return
+        
+        try:
+            # path is already the full S3 key: facilities/{filename}
+            s3_client.delete_object(Bucket=S3_BUCKET, Key=path)
+            app.logger.info(f"Deleted facility image from S3: {path}")
+        except ClientError as e:
+            app.logger.warning(f"Could not delete facility image '{path}' from S3: {e}")
 
 
 @app.route('/api/admin/facilities', methods=['GET'])
@@ -1347,17 +1427,59 @@ def admin_upload_facility_image():
     if ext not in allowed:
         return jsonify({'status': 'error', 'message': 'Unsupported image format'}), 400
 
-    uploads_dir = os.path.join(app.static_folder, 'uploads')
-    os.makedirs(uploads_dir, exist_ok=True)
-
-    filename = f"facility_{uuid.uuid4().hex}{ext}"
-    filepath = os.path.join(uploads_dir, filename)
-    image_file.save(filepath)
-
-    # When user uploads a replacement, remove the prior local uploaded file.
-    _delete_uploaded_facility_image(previous_image_url)
-
-    return jsonify({'status': 'success', 'image_url': f'/static/uploads/{filename}'})
+    try:
+        # Generate unique filename
+        filename = f"facility_{uuid.uuid4().hex}{ext}"
+        
+        # Try S3 upload if configured
+        if s3_client:
+            try:
+                object_key = f"facilities/{filename}"
+                file_content = image_file.read()
+                
+                # Upload to S3
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=object_key,
+                    Body=file_content,
+                    ContentType=f"image/{ext.lstrip('.')}"
+                )
+                
+                # Generate PUBLIC URL for Supabase Storage
+                # Format: https://{project}.storage.supabase.co/storage/v1/object/public/{bucket}/{key}
+                project_id = S3_ENDPOINT.split('.')[0].replace('https://', '')
+                image_url = f"https://{project_id}.storage.supabase.co/storage/v1/object/public/{S3_BUCKET}/{object_key}"
+                
+                # Delete previous image if provided
+                if previous_image_url:
+                    _delete_uploaded_facility_image(previous_image_url)
+                
+                app.logger.info(f"Successfully uploaded facility image to S3: {object_key} -> {image_url}")
+                return jsonify({'status': 'success', 'image_url': image_url, 'storage': 'S3'})
+            except Exception as s3_error:
+                app.logger.warning(f"S3 upload failed: {s3_error}. Falling back to local storage.")
+        
+        # Fallback to local file storage
+        upload_dir = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Save the file
+        filepath = os.path.join(upload_dir, filename)
+        image_file.save(filepath)
+        
+        # Generate URL
+        image_url = f"/static/uploads/{filename}"
+        
+        # Delete previous image if provided
+        if previous_image_url:
+            _delete_uploaded_facility_image(previous_image_url)
+        
+        app.logger.info(f"Successfully uploaded facility image to local storage: {filename}")
+        return jsonify({'status': 'success', 'image_url': image_url, 'storage': 'local'})
+    
+    except Exception as e:
+        app.logger.error(f"Failed to upload image: {e}", exc_info=True)
+        return jsonify({'status': 'error', 'message': f'Upload failed: {str(e)}'}), 500
 
 
 @app.route('/api/admin/facilities/<int:id>', methods=['DELETE'])
@@ -1507,4 +1629,5 @@ def admin_delete_user(id):
 if __name__ == '__main__':
     training_scheduler = start_training_scheduler(app)
     stage2_deadline_scheduler = start_stage2_deadline_scheduler(app)
-    app.run(debug=True)
+    debug_mode = os.getenv('DEBUG', 'False').lower() == 'true'
+    app.run(debug=debug_mode)
