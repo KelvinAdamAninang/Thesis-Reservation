@@ -3875,6 +3875,15 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
+  return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
+    React.createElement('div', { className: 'bg-white rounded-3xl p-6 max-w-md shadow-2xl' },
+      React.createElement('h3', { className: 'text-xl font-bold text-slate-800 mb-4' }, event?.activity_purpose || 'Event Details'),
+      React.createElement('p', { className: 'text-slate-600 mb-6' }, `Status: ${statusLabel}`),
+      React.createElement('button', { onClick: onClose, className: 'w-full bg-sky-500 text-white p-2 rounded' }, 'Close')
+    )
+  );
+}
+
   const formatDate = (isoString) => {
     if (!isoString) return 'N/A';
     const date = new Date(isoString);
