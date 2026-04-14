@@ -472,6 +472,7 @@ function App() {
   const [seenNotifications, setSeenNotifications] = useState(() => {
     try { return JSON.parse(localStorage.getItem('seenNotifications') || '[]'); } catch { return []; }
   });
+  const realtimeSyncInFlightRef = useRef(false);
 
   const isAdmin = currentUser?.role === 'admin';
   const isPhase1Admin = currentUser?.role === 'admin_phase1';
@@ -688,6 +689,62 @@ function App() {
     setCalendarEvents(updatedEvents);
     return { updatedReservations, updatedEvents };
   };
+
+  // Real-time sync for reservation list, requests, and notifications.
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let disposed = false;
+
+    const syncRealtime = async () => {
+      if (disposed || document.hidden || realtimeSyncInFlightRef.current) return;
+
+      realtimeSyncInFlightRef.current = true;
+      try {
+        const [reservationsResult, calendarResult] = await Promise.allSettled([
+          withRetry(() => apiService.getReservations(), 2, 600),
+          withRetry(() => apiService.getCalendarEvents(), 2, 600),
+        ]);
+
+        if (disposed) return;
+
+        if (reservationsResult.status === 'fulfilled') {
+          setReservations(reservationsResult.value);
+        }
+        if (calendarResult.status === 'fulfilled') {
+          setCalendarEvents(calendarResult.value);
+        }
+      } finally {
+        realtimeSyncInFlightRef.current = false;
+      }
+    };
+
+    // Poll every 15 seconds while app is active.
+    const intervalId = setInterval(syncRealtime, 15000);
+
+    // Refresh immediately when tab becomes visible or window regains focus.
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        syncRealtime();
+      }
+    };
+    const handleFocus = () => {
+      syncRealtime();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    // Prime once so users get fresh values quickly after login.
+    syncRealtime();
+
+    return () => {
+      disposed = true;
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [currentUser]);
 
   // Show loading while checking session
   if (checkingSession) {
