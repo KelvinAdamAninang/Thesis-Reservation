@@ -1993,7 +1993,7 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
             width: 33.33%;
           }
           @media print {
-            @page { size: legal; margin: 0.5in; }
+            @page { size: legal; margin: 0; }
             body { background: white; padding: 0; }
             .page { box-shadow: none; margin: 0; width: 8.5in; min-height: 14in; }
           }
