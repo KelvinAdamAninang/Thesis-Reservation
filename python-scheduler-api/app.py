@@ -1501,28 +1501,10 @@ def retrain_forecast_model():
 @app.route('/api/settings/profile', methods=['PUT'])
 @login_required
 def update_my_profile():
-    data = request.get_json() or {}
-    username = (data.get('username') or '').strip()
-
-    if not username:
-        return jsonify({'status': 'error', 'message': 'Username is required'}), 400
-
-    existing = User.query.filter(User.username == username, User.id != current_user.id).first()
-    if existing:
-        return jsonify({'status': 'error', 'message': 'Username already taken'}), 409
-
-    current_user.username = username
-    db.session.commit()
     return jsonify({
-        'status': 'success',
-        'message': 'Profile updated',
-        'user': {
-            'id': current_user.id,
-            'username': current_user.username,
-            'role': current_user.role,
-            'department': current_user.department
-        }
-    })
+        'status': 'error',
+        'message': 'Profile name change is temporarily disabled.'
+    }), 403
 
 
 @app.route('/api/settings/password', methods=['PUT'])

@@ -2556,45 +2556,11 @@ function HolidayModal({ onClose, onConfirm, loading }) {
 }
 
 function ProfileModal({ user, onClose, onLogout, onProfileUpdated }) {
-  const [nameInput, setNameInput] = useState(user.username || '');
-  const [saving, setSaving] = useState(false);
   const [localError, setLocalError] = useState('');
 
   useEffect(() => {
-    setNameInput(user.username || '');
     setLocalError('');
   }, [user]);
-
-  const handleSaveProfile = async () => {
-    const nextName = (nameInput || '').trim();
-    if (!nextName) {
-      setLocalError('Profile name is required.');
-      return;
-    }
-
-    if (nextName === user.username) {
-      onClose();
-      return;
-    }
-
-    setSaving(true);
-    setLocalError('');
-    try {
-      const result = await apiService.updateMyProfile(nextName);
-      const nextUser = {
-        ...user,
-        username: result?.user?.username || nextName,
-      };
-      if (onProfileUpdated) {
-        onProfileUpdated(nextUser);
-      }
-      onClose();
-    } catch (err) {
-      setLocalError(err.message || 'Failed to update profile name.');
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
     React.createElement('div', { className: 'bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl relative' },
@@ -2609,12 +2575,8 @@ function ProfileModal({ user, onClose, onLogout, onProfileUpdated }) {
       React.createElement('div', { className: 'space-y-6 border-t pt-6' },
         React.createElement('div', { className: 'flex flex-col' },
           React.createElement('span', { className: 'text-xs font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Profile Name'),
-          React.createElement('input', {
-            value: nameInput,
-            onChange: (e) => setNameInput(e.target.value),
-            className: 'w-full p-2 border rounded-lg text-sm font-semibold text-slate-700',
-            placeholder: 'Enter profile name'
-          })
+          React.createElement('span', { className: 'w-full p-2 border rounded-lg text-sm font-semibold text-slate-700 bg-slate-50' }, user.username),
+          React.createElement('p', { className: 'text-xs text-slate-500 mt-1' }, 'Profile name change is temporarily disabled.')
         ),
         React.createElement('div', { className: 'flex flex-col' },
           React.createElement('span', { className: 'text-xs font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Department'),
@@ -2625,14 +2587,8 @@ function ProfileModal({ user, onClose, onLogout, onProfileUpdated }) {
       localError && React.createElement('p', { className: 'text-xs text-red-500 mt-3 text-center' }, localError),
 
       React.createElement('button', {
-        onClick: handleSaveProfile,
-        disabled: saving,
-        className: 'w-full mt-6 p-3 rounded-2xl bg-sky-500 text-white hover:bg-sky-600 font-bold transition-all text-sm disabled:opacity-50'
-      }, saving ? 'Saving...' : 'Save Profile'),
-
-      React.createElement('button', {
         onClick: onLogout,
-        className: 'w-full mt-3 flex items-center justify-center gap-2 p-3 rounded-2xl bg-slate-50 text-red-500 hover:bg-red-50 font-bold transition-all text-sm border border-slate-100'
+        className: 'w-full mt-6 flex items-center justify-center gap-2 p-3 rounded-2xl bg-slate-50 text-red-500 hover:bg-red-50 font-bold transition-all text-sm border border-slate-100'
       }, '🚪 Sign Out')
     )
   );
