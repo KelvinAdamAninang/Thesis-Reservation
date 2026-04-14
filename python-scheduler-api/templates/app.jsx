@@ -2359,6 +2359,14 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
                             alert('Link must be from Google Drive or Google Docs');
                             return;
                           }
+
+                          const proceed = window.confirm(
+                            `Final check before submitting Phase 2:\n\nIs this the Google Drive link you want to save?\n\n${finalFormLink}\n\nPlease make sure this link is accessible to UPHSL (set sharing permissions appropriately), otherwise your Facility Form cannot be reviewed.`
+                          );
+                          if (!proceed) {
+                            return;
+                          }
+
                           onUploadFinalForm(res.id, finalFormLink); 
                         }, 
                         disabled: !finalFormLink || loading,
