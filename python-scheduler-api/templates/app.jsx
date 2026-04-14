@@ -1166,19 +1166,8 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, 
                 )
               ))
             )
-      ),
-      // Quick book (1 col)
-      React.createElement('div', { className: 'bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border' },
-        React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, 'Quick Book'),
-        rooms.slice(0, 3).map(r => React.createElement('button', { 
-          key: r.id, 
-          onClick: () => onBook(r.id), 
-          className: 'w-full p-3 bg-slate-50 rounded-xl mb-2 text-left hover:bg-sky-50 transition flex justify-between items-center' 
-        },
-          React.createElement('span', { className: 'font-medium text-slate-700' }, r.name),
-          React.createElement('span', { className: 'text-sky-500' }, '›')
-        ))
       )
+      // Quick Book feature removed
     )
   );
 }
@@ -1207,6 +1196,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     housekeeping_needed: false,
     housekeeping_count: '',
     security_guard_needed: false,
+    security_guard_count: '',
     engineering_aircon: false,
     engineering_elevator: false,
     engineering_electrical_setup: false,
@@ -1272,6 +1262,10 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
 
     if (form.housekeeping_needed && (!form.housekeeping_count || Number(form.housekeeping_count) < 1)) {
       setLocalError('Please enter how many housekeeping staff are needed.');
+      return;
+    }
+    if (form.security_guard_needed && (!form.security_guard_count || Number(form.security_guard_count) < 1)) {
+      setLocalError('Please enter how many security guards are needed.');
       return;
     }
 
@@ -1388,7 +1382,10 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
         needed: !!form.housekeeping_needed,
         count: form.housekeeping_needed ? Number(form.housekeeping_count || 0) : 0
       },
-      security_guard: !!form.security_guard_needed,
+      security_guard: {
+        needed: !!form.security_guard_needed,
+        count: form.security_guard_needed ? Number(form.security_guard_count || 0) : 0
+      },
       requester_type: form.requester_type,
       engineering: {
         aircon: !!form.engineering_aircon,
@@ -1617,15 +1614,23 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             })
           ),
 
-          React.createElement('div', { className: 'bg-slate-50 border rounded p-3' },
+          React.createElement('div', { className: 'bg-slate-50 border rounded p-3 space-y-2' },
             React.createElement('label', { className: 'flex items-center gap-2 text-sm font-medium text-slate-700' },
               React.createElement('input', {
                 type: 'checkbox',
                 checked: form.security_guard_needed,
-                onChange: (e) => setForm({ ...form, security_guard_needed: e.target.checked })
+                onChange: (e) => setForm({ ...form, security_guard_needed: e.target.checked, security_guard_count: e.target.checked ? form.security_guard_count : '' })
               }),
               'Security Guard Needed'
-            )
+            ),
+            form.security_guard_needed && React.createElement('input', {
+              type: 'number',
+              min: '1',
+              placeholder: 'How many security guards?',
+              value: form.security_guard_count,
+              onChange: (e) => setForm({ ...form, security_guard_count: e.target.value }),
+              className: 'w-full p-2 border rounded bg-white text-sm'
+            })
           ),
 
           React.createElement('div', { className: 'bg-slate-50 border rounded p-3 space-y-2' },
@@ -2207,8 +2212,8 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
               <td style="vertical-align:bottom; padding-bottom:6px; width:28%;">
                 <div class="chk">${checkbox(requestedServices.housekeeping?.needed)} HK Staff <span class="uline" style="width:50px;">${escapeHtml(requestedServices.housekeeping?.count || '')}</span></div>
                 <div style="height:68px;"></div>
-                <div class="sig-line">GARRY A. SANTOS</div>
-                <div class="sig-role">Executive Housekeeper</div>
+                <div class="sig-line">DR. ALMA O. VILORIA</div>
+                <div class="sig-role">VP for Quality Management System Admi. Quality<br> MGT System Administration</div>
               </td>
               <td style="vertical-align:bottom; padding-bottom:6px; width:28%;">
                 <div class="chk">${checkbox(requestedServices.security_guard)} Security Guard</div>
@@ -2401,7 +2406,11 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
               ),
               React.createElement('div', { className: 'flex justify-between bg-slate-50 px-3 py-2 rounded border border-slate-100' },
                 React.createElement('span', { className: 'text-slate-600 font-medium text-xs' }, 'Security Guard'),
-                React.createElement('span', { className: 'font-bold text-slate-700 text-xs' }, requestedServices.security_guard ? 'Yes' : 'No')
+                React.createElement('span', { className: 'font-bold text-slate-700 text-xs' },
+                  requestedServices.security_guard?.needed
+                    ? `Yes${requestedServices.security_guard.count ? ` (${requestedServices.security_guard.count})` : ''}`
+                    : 'No'
+                )
               ),
               React.createElement('div', { className: 'bg-slate-50 px-3 py-2 rounded border border-slate-100' },
                 React.createElement('p', { className: 'text-slate-600 font-medium text-xs mb-1' }, 'Engineering Services'),
@@ -4010,19 +4019,19 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
   const getEventCategory = (event) => {
     if (isHolidayEvent(event)) return 'holiday';
 
-    const serverCategory = String(event?.calendar_category || '').toLowerCase();
-    if (serverCategory && ['plotting', 'ongoing', 'cancelled', 'holiday'].includes(serverCategory)) {
-      return serverCategory;
-    }
-
     const status = String(event?.status || '').toLowerCase();
     if (status === 'deleted' || status === 'denied' || status === 'cancelled') return 'cancelled';
-    
-    // Approved events (past, present, or future) show as ongoing (green)
-    if (status === 'approved') return 'ongoing';
-    
+
     // Only concept-approved (phase 1 passed, needs phase 2) show as plotting (gray)
     if (status === 'concept-approved') return 'plotting';
+
+    // Approved events: check if in the past or future
+    if (status === 'approved') {
+      const now = new Date();
+      const end = event.end_time ? new Date(event.end_time) : (event.start_time ? new Date(event.start_time) : null);
+      if (end && end < now) return 'finished';
+      return 'scheduled';
+    }
 
     return 'plotting';
   };
@@ -4033,14 +4042,19 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
       badge: 'bg-slate-100 text-slate-700',
       label: 'Plotting'
     },
-    ongoing: {
+    scheduled: {
       card: 'bg-emerald-500 text-white border-l-2 border-emerald-700 hover:bg-emerald-600',
       badge: 'bg-emerald-100 text-emerald-700',
-      label: 'Ongoing'
+      label: 'Scheduled'
     },
-    cancelled: {
+    finished: {
       card: 'bg-yellow-400 text-slate-900 border-l-2 border-yellow-600 hover:bg-yellow-500',
       badge: 'bg-yellow-100 text-yellow-700',
+      label: 'Finished'
+    },
+    cancelled: {
+      card: 'bg-red-500 text-white border-l-2 border-red-700 hover:bg-red-600',
+      badge: 'bg-red-100 text-red-700',
       label: 'Cancelled'
     },
     holiday: {
@@ -4118,11 +4132,15 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
         ),
         React.createElement('span', { className: 'inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold' },
           React.createElement('span', { className: 'inline-block w-2 h-2 rounded-full bg-emerald-500' }),
-          'Green: Ongoing'
+          'Green: Scheduled'
         ),
         React.createElement('span', { className: 'inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-yellow-100 text-yellow-700 font-semibold' },
           React.createElement('span', { className: 'inline-block w-2 h-2 rounded-full bg-yellow-500' }),
-          'Yellow: Cancelled'
+          'Yellow: Finished'
+        ),
+        React.createElement('span', { className: 'inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-red-100 text-red-700 font-semibold' },
+          React.createElement('span', { className: 'inline-block w-2 h-2 rounded-full bg-red-500' }),
+          'Red: Cancelled'
         ),
         React.createElement('span', { className: 'inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-semibold' },
           React.createElement('span', { className: 'inline-block w-2 h-2 rounded-full bg-blue-500' }),
