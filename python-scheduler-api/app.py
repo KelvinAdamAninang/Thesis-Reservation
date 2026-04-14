@@ -958,8 +958,8 @@ def get_calendar_events():
             'is_holiday': False,
         })
 
-    # Include admin-managed holidays as class-suspension markers.
-    holiday_events = _build_manual_holiday_events(from_date=date.today())
+    # Include all admin-managed holidays so month navigation can show historical/future holidays.
+    holiday_events = _build_manual_holiday_events()
     events_list.extend(holiday_events)
 
     events_list.sort(key=lambda e: (e.get('start_time') or '', str(e.get('activity_purpose') or '').lower()))
