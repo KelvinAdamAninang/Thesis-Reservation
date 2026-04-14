@@ -4311,9 +4311,9 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
                 )
               ),
               React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-                React.createElement('span', { className: 'text-2xl' }, '📝'),
+                React.createElement('span', { className: 'text-2xl' }, '📅'),
                 React.createElement('div', {},
-                  React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Note'),
+                  React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Date'),
                   React.createElement('p', { className: 'font-semibold text-slate-800' }, formatDate(event.start_time))
                 )
               ),
