@@ -4069,6 +4069,29 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
       )
     ),
 
+    // Color legend
+    React.createElement('div', { className: 'mb-4 p-3 rounded-xl border border-slate-200 bg-slate-50/70' },
+      React.createElement('p', { className: 'text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2' }, 'Color Legend'),
+      React.createElement('div', { className: 'flex flex-wrap items-center gap-2 text-[11px]' },
+        React.createElement('span', { className: 'inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-100 text-slate-700 font-semibold' },
+          React.createElement('span', { className: 'inline-block w-2 h-2 rounded-full bg-slate-500' }),
+          'Gray: Plotting'
+        ),
+        React.createElement('span', { className: 'inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold' },
+          React.createElement('span', { className: 'inline-block w-2 h-2 rounded-full bg-emerald-500' }),
+          'Green: Ongoing'
+        ),
+        React.createElement('span', { className: 'inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-yellow-100 text-yellow-700 font-semibold' },
+          React.createElement('span', { className: 'inline-block w-2 h-2 rounded-full bg-yellow-500' }),
+          'Yellow: Cancelled'
+        ),
+        React.createElement('span', { className: 'inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-semibold' },
+          React.createElement('span', { className: 'inline-block w-2 h-2 rounded-full bg-blue-500' }),
+          'Blue: Holiday'
+        )
+      )
+    ),
+
     // Calendar grid
     React.createElement('div', { className: 'grid grid-cols-7 gap-px bg-slate-100 border border-slate-100 rounded-xl overflow-hidden relative' },
       // Day headers
