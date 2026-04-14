@@ -1149,23 +1149,25 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, 
     // Two-column layout
     React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6' },
       // Recent reservations (2 cols)
-      React.createElement('div', { className: 'lg:col-span-2 bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border' },
-        React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, 'My Reservations'),
-        loading
-          ? React.createElement(InlineSpinner, { label: 'Loading reservations...' })
-          : orderedUserRes.length === 0 
-          ? React.createElement('p', { className: 'text-slate-400 py-8 text-center' }, 'No reservations yet. Book a space to get started!')
-          : React.createElement('div', { className: 'max-h-72 overflow-y-auto space-y-2 pr-1' },
-              orderedUserRes.map(r => React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-slate-50 rounded-xl cursor-pointer hover:bg-sky-50 transition' },
-                React.createElement('div', { className: 'flex justify-between items-center' },
-                  React.createElement('div', {}, 
-                    React.createElement('p', { className: 'font-bold text-slate-800' }, r.activity_purpose), 
-                    React.createElement('p', { className: 'text-sm text-slate-500' }, formatReservationMeta(r))
-                  ),
-                  React.createElement(Badge, { status: r.status })
-                )
-              ))
-            )
+      React.createElement('div', { className: 'lg:col-span-2 flex justify-end' },
+        React.createElement('div', { className: 'bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border w-full max-w-2xl' },
+          React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, 'My Reservations'),
+          loading
+            ? React.createElement(InlineSpinner, { label: 'Loading reservations...' })
+            : orderedUserRes.length === 0 
+            ? React.createElement('p', { className: 'text-slate-400 py-8 text-center' }, 'No reservations yet. Book a space to get started!')
+            : React.createElement('div', { className: 'max-h-72 overflow-y-auto space-y-2 pr-1' },
+                orderedUserRes.map(r => React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-slate-50 rounded-xl cursor-pointer hover:bg-sky-50 transition' },
+                  React.createElement('div', { className: 'flex justify-between items-center' },
+                    React.createElement('div', {}, 
+                      React.createElement('p', { className: 'font-bold text-slate-800' }, r.activity_purpose), 
+                      React.createElement('p', { className: 'text-sm text-slate-500' }, formatReservationMeta(r))
+                    ),
+                    React.createElement(Badge, { status: r.status })
+                  )
+                ))
+              )
+        )
       )
       // Quick Book feature removed
     )
