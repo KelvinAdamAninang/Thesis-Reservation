@@ -776,6 +776,7 @@ def ai_chat():
         payload = request.get_json(silent=True) or {}
         messages = payload.get('messages', [])
         facilities = payload.get('facilities', [])
+        calendar_events = payload.get('calendar_events', [])
 
         if not isinstance(messages, list) or not messages:
             return jsonify({'error': 'Messages are required.'}), 400
@@ -784,6 +785,33 @@ def ai_chat():
         facility_names = [str(f).strip() for f in facilities if str(f).strip()]
         if facility_names:
             conversation_parts.append("Available facilities from system records: " + ", ".join(facility_names))
+
+        if isinstance(calendar_events, list) and calendar_events:
+            # Keep only fields needed for reservation guidance and availability checks.
+            normalized_calendar = []
+            for event in calendar_events[:300]:
+                if not isinstance(event, dict):
+                    continue
+                normalized_calendar.append({
+                    'id': event.get('id'),
+                    'event_type': event.get('event_type', 'reservation'),
+                    'is_holiday': bool(event.get('is_holiday')),
+                    'holiday_name': event.get('holiday_name'),
+                    'activity_purpose': event.get('activity_purpose'),
+                    'room_id': event.get('room_id'),
+                    'room_name': event.get('room_name'),
+                    'start_time': event.get('start_time'),
+                    'end_time': event.get('end_time'),
+                    'status': event.get('status'),
+                    'calendar_category': event.get('calendar_category'),
+                    'notes': event.get('notes'),
+                })
+
+            if normalized_calendar:
+                conversation_parts.append(
+                    'Calendar events from system records (JSON):\n' +
+                    json.dumps(normalized_calendar, ensure_ascii=False)
+                )
 
         for msg in messages:
             role = str(msg.get('role', 'user')).lower()
@@ -1056,6 +1084,26 @@ def create_reservation():
     try:
         start_time = datetime.fromisoformat(data['start_time'])
         end_time = datetime.fromisoformat(data['end_time'])
+
+        now = datetime.now()
+        if start_time < now:
+            return jsonify({
+                'status': 'error',
+                'message': 'Start date/time cannot be in the past. Please pick a future schedule.'
+            }), 400
+
+        if end_time <= start_time:
+            return jsonify({
+                'status': 'error',
+                'message': 'End date/time must be after the start date/time.'
+            }), 400
+
+        max_reservation_span_days = 7
+        if (end_time - start_time) > timedelta(days=max_reservation_span_days):
+            return jsonify({
+                'status': 'error',
+                'message': f'End date/time is too far from the start date/time. Maximum allowed span is {max_reservation_span_days} days.'
+            }), 400
 
         holiday = _get_manual_holiday_in_range(start_time.date(), end_time.date())
         if holiday:

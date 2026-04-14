@@ -423,12 +423,12 @@ const apiService = {
     return data;
   },
 
-  async askFacilitiesAssistant(messages, facilities = []) {
+  async askFacilitiesAssistant(messages, facilities = [], calendarEvents = []) {
     const response = await fetch(`${API_BASE}/ai/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ messages, facilities })
+      body: JSON.stringify({ messages, facilities, calendar_events: calendarEvents })
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || data.message || 'Failed to contact AI assistant');
@@ -903,7 +903,7 @@ function App() {
       },
       loading
     }),
-    React.createElement(AIChatbotWidget, { user: currentUser, rooms })
+    React.createElement(AIChatbotWidget, { user: currentUser, rooms, calendarEvents })
   );
 }
 
@@ -1259,6 +1259,18 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
 
     if (newEndDate <= newStartDate) {
       setLocalError('End date/time must be after start date/time.');
+      return;
+    }
+
+    const now = new Date();
+    if (newStartDate < now) {
+      setLocalError('Start date/time cannot be in the past. Please pick a future schedule.');
+      return;
+    }
+
+    const maxReservationSpanMs = 7 * 24 * 60 * 60 * 1000;
+    if ((newEndDate.getTime() - newStartDate.getTime()) > maxReservationSpanMs) {
+      setLocalError('End date/time is too far from the start date/time. Maximum allowed span is 7 days.');
       return;
     }
 
@@ -4405,7 +4417,7 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
   );
 }
 
-function AIChatbotWidget({ user, rooms }) {
+function AIChatbotWidget({ user, rooms, calendarEvents }) {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -4440,7 +4452,8 @@ function AIChatbotWidget({ user, rooms }) {
 
     try {
       const facilities = (rooms || []).map(r => r.name).filter(Boolean);
-      const result = await apiService.askFacilitiesAssistant(nextMessages, facilities);
+      const aiCalendarContext = (calendarEvents || []).slice(0, 300);
+      const result = await apiService.askFacilitiesAssistant(nextMessages, facilities, aiCalendarContext);
       setMessages(prev => [...prev, { role: 'assistant', text: result.reply || 'No response from assistant.' }]);
     } catch (err) {
       setMessages(prev => [...prev, {
