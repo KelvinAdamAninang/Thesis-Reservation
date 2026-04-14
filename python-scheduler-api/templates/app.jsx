@@ -211,6 +211,16 @@ const apiService = {
     return data;
   },
 
+  async deleteHoliday(holidayId) {
+    const response = await fetch(`${API_BASE}/holidays/${holidayId}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || data.error || 'Failed to delete holiday');
+    return data;
+  },
+
   async getDataMiningAnalytics(filters = {}) {
     const params = new URLSearchParams();
     if (filters.department) params.set('department', filters.department);
@@ -847,6 +857,18 @@ function App() {
       loading,
       onClose: () => setActiveModal(null),
       onDeleteClick: (actionType) => {
+        if (selectedRes && (selectedRes.event_type === 'holiday' || selectedRes.is_holiday)) {
+          setLoading(true);
+          apiService.deleteHoliday(selectedRes.holiday_id)
+            .then(async () => {
+              await refreshCalendarOnly();
+              setNotification('Holiday deleted successfully.');
+              setActiveModal('notification');
+            })
+            .catch((err) => setError(err.message || 'Failed to delete holiday'))
+            .finally(() => setLoading(false));
+          return;
+        }
         setEventActionType(actionType || 'delete');
         setActiveModal('deleteEvent');
       }
@@ -4279,60 +4301,86 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
       ),
 
       React.createElement('div', { className: 'space-y-4' },
-        React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-          React.createElement('span', { className: 'text-2xl' }, '📅'),
-          React.createElement('div', {},
-            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Date'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, formatDate(event.start_time))
-          )
-        ),
-        hasEndDate && React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-          React.createElement('span', { className: 'text-2xl' }, '🗓️'),
-          React.createElement('div', {},
-            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'End Date'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, formatDate(event.end_time))
-          )
-        ),
-        React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-          React.createElement('span', { className: 'text-2xl' }, '🕐'),
-          React.createElement('div', {},
-            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Time'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? 'Whole day reservation suspension' : `${formatTime(event.start_time)} - ${formatTime(event.end_time)}`)
-          )
-        ),
-        React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-          React.createElement('span', { className: 'text-2xl' }, '📍'),
-          React.createElement('div', {},
-            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Facility'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? 'University-wide' : roomName)
-          )
-        ),
-        React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-          React.createElement('span', { className: 'text-2xl' }, '👤'),
-          React.createElement('div', {},
-            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, isHoliday ? 'Holiday' : 'Person in Charge'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, isHoliday ? (event.holiday_name || 'Holiday') : (event.person_in_charge || 'N/A'))
-          )
-        ),
-        event.department && React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-          React.createElement('span', { className: 'text-2xl' }, '🏛️'),
-          React.createElement('div', {},
-            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Department'),
-            React.createElement('p', { className: 'font-semibold text-slate-800' }, event.department)
-          )
-        )
+        isHoliday
+          ? React.createElement(React.Fragment, {},
+              React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+                React.createElement('span', { className: 'text-2xl' }, '🏷️'),
+                React.createElement('div', {},
+                  React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Name'),
+                  React.createElement('p', { className: 'font-semibold text-slate-800' }, event.holiday_name || event.activity_purpose || 'Holiday')
+                )
+              ),
+              React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+                React.createElement('span', { className: 'text-2xl' }, '📝'),
+                React.createElement('div', {},
+                  React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Note'),
+                  React.createElement('p', { className: 'font-semibold text-slate-800' }, formatDate(event.start_time))
+                )
+              ),
+              React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+                React.createElement('span', { className: 'text-2xl' }, '📌'),
+                React.createElement('div', {},
+                  React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Notes'),
+                  React.createElement('p', { className: 'font-semibold text-slate-800 whitespace-pre-line' }, event.notes || 'No notes provided.')
+                )
+              )
+            )
+          : React.createElement(React.Fragment, {},
+              React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+                React.createElement('span', { className: 'text-2xl' }, '📅'),
+                React.createElement('div', {},
+                  React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Date'),
+                  React.createElement('p', { className: 'font-semibold text-slate-800' }, formatDate(event.start_time))
+                )
+              ),
+              hasEndDate && React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+                React.createElement('span', { className: 'text-2xl' }, '🗓️'),
+                React.createElement('div', {},
+                  React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'End Date'),
+                  React.createElement('p', { className: 'font-semibold text-slate-800' }, formatDate(event.end_time))
+                )
+              ),
+              React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+                React.createElement('span', { className: 'text-2xl' }, '🕐'),
+                React.createElement('div', {},
+                  React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Time'),
+                  React.createElement('p', { className: 'font-semibold text-slate-800' }, `${formatTime(event.start_time)} - ${formatTime(event.end_time)}`)
+                )
+              ),
+              React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+                React.createElement('span', { className: 'text-2xl' }, '📍'),
+                React.createElement('div', {},
+                  React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Facility'),
+                  React.createElement('p', { className: 'font-semibold text-slate-800' }, roomName)
+                )
+              ),
+              React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+                React.createElement('span', { className: 'text-2xl' }, '👤'),
+                React.createElement('div', {},
+                  React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Person in Charge'),
+                  React.createElement('p', { className: 'font-semibold text-slate-800' }, event.person_in_charge || 'N/A')
+                )
+              ),
+              event.department && React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+                React.createElement('span', { className: 'text-2xl' }, '🏛️'),
+                React.createElement('div', {},
+                  React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Department'),
+                  React.createElement('p', { className: 'font-semibold text-slate-800' }, event.department)
+                )
+              )
+            )
       ),
 
       React.createElement('div', { className: 'mt-6 flex gap-3' },
         React.createElement('button', {
           onClick: onClose,
-          className: `${isAdmin && !isHoliday ? 'flex-1' : 'w-full'} bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-xl font-bold transition-colors`
+          className: `${isAdmin ? 'flex-1' : 'w-full'} bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-xl font-bold transition-colors`
         }, 'Close'),
-        isAdmin && !isHoliday && React.createElement('button', {
+        isAdmin && React.createElement('button', {
           onClick: () => onDeleteClick(eventActionType),
           disabled: loading,
           className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2'
-        }, `${eventActionIcon} ${eventActionLabel}`)
+        }, isHoliday ? '🗑️ Delete Holiday' : `${eventActionIcon} ${eventActionLabel}`)
       )
     )
   );

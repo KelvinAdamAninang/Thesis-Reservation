@@ -1314,6 +1314,22 @@ def create_holiday():
 
     return jsonify({'status': 'success', 'id': holiday.id, 'message': 'Holiday added to calendar'})
 
+
+@app.route('/api/holidays/<int:holiday_id>', methods=['DELETE'])
+@login_required
+def delete_holiday(holiday_id):
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    holiday = db.session.get(Holiday, holiday_id)
+    if not holiday:
+        return jsonify({'status': 'error', 'message': 'Holiday not found'}), 404
+
+    db.session.delete(holiday)
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'message': 'Holiday removed from calendar'})
+
 # Get analytics - Admin only
 @app.route('/api/analytics', methods=['GET'])
 @login_required
