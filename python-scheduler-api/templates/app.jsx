@@ -56,6 +56,18 @@ const EQUIPMENT_DATA = {
   ]
 };
 
+// Default equipment fallback for all unmapped/new facilities.
+const DEFAULT_EQUIPMENT = [
+  'Tables',
+  'Chairs',
+  'LCD Projector',
+  'White Screen',
+  'Sound System',
+  'Microphone',
+  'Speaker',
+  'Podium'
+];
+
 // ==================== API SERVICE ====================
 // Use same origin as the page to ensure cookies work
 const API_BASE = window.location.origin + '/api';
@@ -1149,7 +1161,9 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
 
   // Get available equipment based on selected room
   const selectedRoomObj = rooms.find(r => r.id == form.room_id);
-  const availableEquip = selectedRoomObj ? EQUIPMENT_DATA[selectedRoomObj.name] : [];
+  const availableEquip = selectedRoomObj
+    ? (EQUIPMENT_DATA[selectedRoomObj.name] || DEFAULT_EQUIPMENT)
+    : [];
 
   const handleEquipChange = (item, qty) => {
     const nextValue = qty === '' ? '' : (parseInt(qty, 10) || 0);
