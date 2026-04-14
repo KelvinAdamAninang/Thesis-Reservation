@@ -82,7 +82,7 @@ if db_url:
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
 # Initialize S3 client for Supabase Storage
 S3_ENDPOINT = os.getenv("S3_ENDPOINT", "").strip()
