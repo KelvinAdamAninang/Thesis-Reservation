@@ -1823,12 +1823,7 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
         return `${window.location.origin}/header2.png`;
       }
 
-      const bucketName = bucketAndKey.split('/')[0];
-      if (!bucketName) {
-        return `${window.location.origin}/header2.png`;
-      }
-
-      return `${originPart}${marker}${bucketName}/facilities/header2.png`;
+      return `${originPart}${marker}image_loc/facilities/header2.png`;
     };
 
     const headerImageUrl = deriveBucketHeaderUrl();
