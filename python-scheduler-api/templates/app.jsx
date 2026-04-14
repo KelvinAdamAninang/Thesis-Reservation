@@ -764,7 +764,7 @@ function App() {
             setActiveModal('notification');
           }
         }),
-        currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at && r.user_id !== currentUser.id), loading, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
+        currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at), loading, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
         currentView === 'analytics' && isAdminOrPhase1 && React.createElement(AnalyticsView, { reservations }),
         currentView === 'archive' && React.createElement(ArchiveView, {
           archive,
