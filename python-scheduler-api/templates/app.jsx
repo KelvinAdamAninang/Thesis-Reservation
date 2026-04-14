@@ -1631,7 +1631,8 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             onChange: (e) => setForm({ ...form, concept_paper_url: e.target.value }), 
             className: 'w-full p-2 border rounded bg-white', 
             required: true,
-            pattern: '.*drive\\.google\\.com|.*docs\\.google\\.com'
+            pattern: 'https?://(drive|docs)\\.google\\.com/.*',
+            title: 'Please enter a valid Google Drive or Google Docs link.'
           })
         ),
         
