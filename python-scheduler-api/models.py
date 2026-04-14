@@ -72,7 +72,10 @@ class Reservation(db.Model):
 
     def get_equipment(self):
         if self.equipment_data:
-            return json.loads(self.equipment_data)
+            try:
+                return json.loads(self.equipment_data)
+            except (TypeError, json.JSONDecodeError):
+                return {}
         return {}
     
     def set_equipment(self, equipment_dict):
