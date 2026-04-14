@@ -4106,19 +4106,32 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
   if (!event) return null;
   const isHoliday = event.event_type === 'holiday' || event.is_holiday;
   const status = String(event.status || '').toLowerCase();
-  const isCancelled = status === 'deleted' || status === 'denied' || status === 'cancelled';
-  const isConceptApproved = status === 'concept-approved';
-  const now = new Date();
-  const start = event.start_time ? new Date(event.start_time) : null;
-  const end = event.end_time ? new Date(event.end_time) : null;
-  const isOngoing = !isHoliday && !isCancelled && !isConceptApproved && status === 'approved' && start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && now >= start && now <= end;
+  const serverCategory = String(event.calendar_category || '').toLowerCase();
+  const normalizedCategory = isHoliday
+    ? 'holiday'
+    : (['plotting', 'ongoing', 'cancelled', 'holiday'].includes(serverCategory)
+      ? serverCategory
+      : ((status === 'deleted' || status === 'denied' || status === 'cancelled')
+        ? 'cancelled'
+        : (status === 'approved' ? 'ongoing' : 'plotting')));
+
+  const isCancelled = normalizedCategory === 'cancelled';
+  const isOngoing = normalizedCategory === 'ongoing';
   const eventActionType = isCancelled ? 'delete' : (isOngoing ? 'cancel' : 'delete');
   const eventActionLabel = eventActionType === 'cancel' ? 'Cancel Event' : 'Delete Event';
   const eventActionIcon = eventActionType === 'cancel' ? '⛔' : '🗑️';
-  const statusLabel = isHoliday ? 'Holiday' : (isCancelled ? 'Cancelled' : (isOngoing ? 'Ongoing' : 'Plotting'));
-  const statusColor = isHoliday
+  const statusLabel = normalizedCategory === 'holiday'
+    ? 'Holiday'
+    : (normalizedCategory === 'cancelled'
+      ? 'Cancelled'
+      : (normalizedCategory === 'ongoing' ? 'Ongoing' : 'Plotting'));
+  const statusColor = normalizedCategory === 'holiday'
     ? 'bg-blue-100 text-blue-700'
-    : (isCancelled ? 'bg-yellow-100 text-yellow-700' : (isOngoing ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'));
+    : (normalizedCategory === 'cancelled'
+      ? 'bg-yellow-100 text-yellow-700'
+      : (normalizedCategory === 'ongoing' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'));
+
+  const hasEndDate = Boolean(event.end_time);
 
   const formatDateTime = (isoString) => {
     if (!isoString) return 'N/A';
@@ -4164,6 +4177,13 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           React.createElement('div', {},
             React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Date'),
             React.createElement('p', { className: 'font-semibold text-slate-800' }, formatDate(event.start_time))
+          )
+        ),
+        hasEndDate && React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
+          React.createElement('span', { className: 'text-2xl' }, '🗓️'),
+          React.createElement('div', {},
+            React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'End Date'),
+            React.createElement('p', { className: 'font-semibold text-slate-800' }, formatDate(event.end_time))
           )
         ),
         React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
