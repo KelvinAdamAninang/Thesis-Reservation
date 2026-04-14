@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, session, send_file
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_cors import CORS
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, time, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from io import BytesIO
@@ -891,6 +891,23 @@ def get_rooms():
 @app.route('/api/calendar-events', methods=['GET'])
 @login_required
 def get_calendar_events():
+    # Defensive clamp for corrupted historical rows where end_time was accidentally
+    # written far in the future, causing events to span many months in the UI.
+    max_calendar_span_days = 7
+
+    def normalize_calendar_window(start_time, end_time):
+        if not start_time:
+            return None, None
+
+        normalized_end = end_time or start_time
+        if normalized_end < start_time:
+            normalized_end = start_time
+
+        if (normalized_end - start_time) > timedelta(days=max_calendar_span_days):
+            normalized_end = datetime.combine(start_time.date(), time.max.replace(microsecond=0))
+
+        return start_time, normalized_end
+
     def resolve_calendar_category(reservation, normalized_status):
         if normalized_status in ('deleted', 'denied', 'cancelled'):
             return 'cancelled'
@@ -925,14 +942,15 @@ def get_calendar_events():
     events_list = []
     for r in reservations:
         normalized_status = 'cancelled' if r.status == 'deleted' else r.status
+        normalized_start, normalized_end = normalize_calendar_window(r.start_time, r.end_time)
         events_list.append({
             'id': r.id,
             'room_id': r.room_id,
             'room_name': rooms_by_id.get(r.room_id, 'Unknown'),
             'activity_purpose': r.activity_purpose,
             'person_in_charge': r.person_in_charge or 'N/A',
-            'start_time': r.start_time.isoformat() if r.start_time else None,
-            'end_time': r.end_time.isoformat() if r.end_time else None,
+            'start_time': normalized_start.isoformat() if normalized_start else None,
+            'end_time': normalized_end.isoformat() if normalized_end else None,
             'department': r.requester.department if r.requester else 'Unknown',
             'status': normalized_status,
             'calendar_category': resolve_calendar_category(r, normalized_status),
