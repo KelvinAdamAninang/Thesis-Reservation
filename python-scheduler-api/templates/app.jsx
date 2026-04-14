@@ -672,7 +672,7 @@ function App() {
     return React.createElement('div', { className: 'h-screen flex items-center justify-center bg-slate-200' },
       React.createElement('div', { className: 'text-center' },
         React.createElement('div', { className: 'text-4xl font-bold text-sky-500 mb-4' }, 'VacanSee'),
-        React.createElement('p', { className: 'text-slate-500' }, 'Loading...')
+        React.createElement(InlineSpinner, { label: 'Loading session...' })
       )
     );
   }
@@ -718,7 +718,10 @@ function App() {
       ),
       // Main content
       React.createElement('main', { className: 'flex-1 overflow-y-auto p-4 md:p-8' },
-        currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
+        loading && React.createElement('div', { className: 'mb-4 bg-white border rounded-xl shadow-sm' },
+          React.createElement(InlineSpinner, { label: 'Fetching latest data...' })
+        ),
+        currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, loading, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
         currentView === 'calendar' && React.createElement(CalendarView, {
           events: calendarEvents,
           rooms,
@@ -751,12 +754,13 @@ function App() {
             setActiveModal('notification');
           }
         }),
-        currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at && r.user_id !== currentUser.id), onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
+        currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at && r.user_id !== currentUser.id), loading, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
         currentView === 'analytics' && isAdminOrPhase1 && React.createElement(AnalyticsView, { reservations }),
         currentView === 'archive' && React.createElement(ArchiveView, {
           archive,
           user: currentUser,
           isAdmin: isAdminOrPhase1,
+          loading,
           onDelete: async (id) => {
             if (!confirmDeleteAction('this reservation record')) return;
             await apiService.deleteReservation(id);
@@ -988,13 +992,59 @@ function StatCard({ label, val }) {
   );
 }
 
+function InlineSpinner({ label = 'Loading...' }) {
+  return React.createElement('div', { className: 'flex items-center justify-center gap-3 py-6 text-slate-500' },
+    React.createElement('span', {
+      className: 'inline-block h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-sky-500'
+    }),
+    React.createElement('span', { className: 'text-sm font-medium' }, label)
+  );
+}
+
 function Badge({ status }) {
   const colors = { pending: 'bg-yellow-100 text-yellow-700', 'concept-approved': 'bg-blue-100 text-blue-700', approved: 'bg-green-100 text-green-700', denied: 'bg-red-100 text-red-700', archived: 'bg-amber-100 text-amber-700', cancelled: 'bg-yellow-100 text-yellow-700', deleted: 'bg-yellow-100 text-yellow-700' };
   return React.createElement('span', { className: `px-3 py-1 rounded-full text-xs font-bold ${colors[status] || 'bg-slate-100 text-slate-700'}` }, status);
 }
 
-function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook }) {
+function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, loading }) {
+  const toTimestamp = (isoString) => {
+    if (!isoString) return Number.MAX_SAFE_INTEGER;
+    const dt = new Date(isoString);
+    return Number.isNaN(dt.getTime()) ? Number.MAX_SAFE_INTEGER : dt.getTime();
+  };
+
+  const formatReservationMeta = (reservation) => {
+    const start = reservation.start_time ? new Date(reservation.start_time) : null;
+    const end = reservation.end_time ? new Date(reservation.end_time) : null;
+    const hasValidStart = start && !Number.isNaN(start.getTime());
+    const hasValidEnd = end && !Number.isNaN(end.getTime());
+
+    const dateText = hasValidStart
+      ? start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : 'Date unavailable';
+    const timeText = hasValidStart && hasValidEnd
+      ? `${start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`
+      : '';
+    const facilityText = reservation.room_name || 'Unknown facility';
+
+    return [dateText, timeText, facilityText].filter(Boolean).join(' • ');
+  };
+
+  const byUpcomingThenRecent = (a, b) => {
+    const now = Date.now();
+    const aTs = toTimestamp(a.start_time);
+    const bTs = toTimestamp(b.start_time);
+    const aUpcoming = aTs >= now;
+    const bUpcoming = bTs >= now;
+
+    if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
+    if (aUpcoming && bUpcoming) return aTs - bTs;
+    if (!aUpcoming && !bUpcoming) return bTs - aTs;
+    return (b.id || 0) - (a.id || 0);
+  };
+
   const userRes = reservations.filter(r => r.user_id === user.id && !r.archived_at);
+  const orderedUserRes = [...userRes].sort(byUpcomingThenRecent);
   const approved = reservations.filter(r => r.status === 'approved' && !r.archived_at);
   
   return React.createElement('div', { className: 'space-y-6 md:space-y-8' },
@@ -1010,14 +1060,16 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook }
       // Recent reservations (2 cols)
       React.createElement('div', { className: 'lg:col-span-2 bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border' },
         React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, 'My Reservations'),
-        userRes.length === 0 
+        loading
+          ? React.createElement(InlineSpinner, { label: 'Loading reservations...' })
+          : orderedUserRes.length === 0 
           ? React.createElement('p', { className: 'text-slate-400 py-8 text-center' }, 'No reservations yet. Book a space to get started!')
           : React.createElement('div', { className: 'max-h-72 overflow-y-auto space-y-2 pr-1' },
-              userRes.map(r => React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-slate-50 rounded-xl cursor-pointer hover:bg-sky-50 transition' },
+              orderedUserRes.map(r => React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-slate-50 rounded-xl cursor-pointer hover:bg-sky-50 transition' },
                 React.createElement('div', { className: 'flex justify-between items-center' },
                   React.createElement('div', {}, 
                     React.createElement('p', { className: 'font-bold text-slate-800' }, r.activity_purpose), 
-                    React.createElement('p', { className: 'text-sm text-slate-500' }, r.start_time)
+                    React.createElement('p', { className: 'text-sm text-slate-500' }, formatReservationMeta(r))
                   ),
                   React.createElement(Badge, { status: r.status })
                 )
@@ -1567,13 +1619,42 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
   );
 }
 
-function AdminRequests({ reservations, onViewDetails }) {
+function AdminRequests({ reservations, onViewDetails, loading }) {
   // Show all non-archived requests for admin and admin_phase1 (from all users)
+  const toTimestamp = (isoString) => {
+    if (!isoString) return 0;
+    const dt = new Date(isoString);
+    return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
+  };
+
+  const statusPriority = {
+    pending: 1,
+    'concept-approved': 2,
+    approved: 3,
+    denied: 4,
+    cancelled: 5,
+    deleted: 5,
+  };
+
+  const orderedRequests = [...reservations].sort((a, b) => {
+    const pA = statusPriority[a.status] || 99;
+    const pB = statusPriority[b.status] || 99;
+    if (pA !== pB) return pA - pB;
+
+    const aFiled = toTimestamp(a.date_filed || a.start_time);
+    const bFiled = toTimestamp(b.date_filed || b.start_time);
+    if (aFiled !== bFiled) return bFiled - aFiled;
+
+    return (b.id || 0) - (a.id || 0);
+  });
+
   return React.createElement('div',
     React.createElement('h2', { className: 'text-2xl font-bold mb-4' }, 'Requests'),
-    reservations.length === 0
+    loading
+      ? React.createElement(InlineSpinner, { label: 'Loading requests...' })
+      : orderedRequests.length === 0
       ? React.createElement('p', { className: 'text-slate-500' }, 'None')
-      : reservations.map(r =>
+      : orderedRequests.map(r =>
           React.createElement('div', { key:r.id, onClick: () => onViewDetails(r), className: `p-4 rounded-lg border mb-2 cursor-pointer ${r.status === 'pending' ? 'bg-white' : r.status === 'concept-approved' ? 'bg-blue-50' : r.status === 'approved' ? 'bg-green-50' : r.status === 'denied' ? 'bg-red-50' : 'bg-slate-50'}` },
             React.createElement('div', { className: 'flex justify-between' },
               React.createElement('div', {}, React.createElement('p', { className: 'font-bold' }, r.activity_purpose), React.createElement('p', { className: 'text-sm' }, r.user)),
@@ -4060,8 +4141,24 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
   );
 }
 
-function ArchiveView({ archive, user, isAdmin, onDelete }) {
-  const items = isAdmin ? archive : archive.filter(a => a.user_id === user.id);
+function ArchiveView({ archive, user, isAdmin, onDelete, loading }) {
+  const toTimestamp = (isoString) => {
+    if (!isoString) return 0;
+    const dt = new Date(isoString);
+    return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
+  };
+
+  const items = (isAdmin ? archive : archive.filter(a => a.user_id === user.id)).sort((a, b) => {
+    const aArchiveTs = toTimestamp(a.archived_at);
+    const bArchiveTs = toTimestamp(b.archived_at);
+    if (aArchiveTs !== bArchiveTs) return bArchiveTs - aArchiveTs;
+
+    const aStartTs = toTimestamp(a.start_time);
+    const bStartTs = toTimestamp(b.start_time);
+    if (aStartTs !== bStartTs) return bStartTs - aStartTs;
+
+    return (b.id || 0) - (a.id || 0);
+  });
   
   const getArchiveLabel = (item) => {
     if (item.status === 'denied') return { text: 'Denied', color: 'bg-red-100 text-red-700' };
@@ -4072,7 +4169,9 @@ function ArchiveView({ archive, user, isAdmin, onDelete }) {
 
   return React.createElement('div', { className: 'space-y-4' },
     React.createElement('h2', { className: 'text-2xl font-bold text-slate-800' }, '📦 Archive'),
-    items.length === 0 
+    loading
+      ? React.createElement(InlineSpinner, { label: 'Loading archive...' })
+      : items.length === 0 
       ? React.createElement('div', { className: 'bg-white p-8 rounded-3xl shadow-sm border text-center' },
         React.createElement('p', { className: 'text-slate-400' }, 'No archived items.')
       )
@@ -4084,7 +4183,7 @@ function ArchiveView({ archive, user, isAdmin, onDelete }) {
               React.createElement('p', { className: 'font-bold text-slate-800' }, a.activity_purpose),
               React.createElement('span', { className: `px-2 py-0.5 rounded-full text-[10px] font-bold ${label.color}` }, label.text)
             ),
-            React.createElement('p', { className: 'text-sm text-slate-500' }, a.start_time),
+            React.createElement('p', { className: 'text-sm text-slate-500' }, a.start_time ? new Date(a.start_time).toLocaleString() : 'Date unavailable'),
             a.denial_reason && React.createElement('p', { className: 'text-sm text-red-500 mt-1' }, 'Reason: ', a.denial_reason)
           ),
           React.createElement('button', { onClick: () => onDelete(a.id), className: 'px-4 py-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 font-medium transition' }, 'Delete')
