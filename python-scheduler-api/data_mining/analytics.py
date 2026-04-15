@@ -113,16 +113,20 @@ def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
         department_filter = 'All'
         reservations = all_reservations
 
+
+    # Always use current year and month as default if available
     available_heatmap_month_keys = sorted({
         reservation.start_time.strftime('%Y-%m')
         for reservation in reservations
         if reservation.start_time
     }, reverse=True)
 
+    current_month_key = datetime.now().strftime('%Y-%m')
     if heatmap_month and heatmap_month in available_heatmap_month_keys:
         selected_heatmap_month = heatmap_month
+    elif current_month_key in available_heatmap_month_keys:
+        selected_heatmap_month = current_month_key
     elif available_heatmap_month_keys:
-        # Default to the most recent month to avoid inflated all-time slot counts.
         selected_heatmap_month = available_heatmap_month_keys[0]
     else:
         selected_heatmap_month = 'all'
