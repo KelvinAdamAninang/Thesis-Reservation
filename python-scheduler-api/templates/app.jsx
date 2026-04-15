@@ -4550,13 +4550,6 @@ function AIChatbotWidget({ user, rooms, calendarEvents }) {
       isTyping && React.createElement('div', { className: 'max-w-[85%] px-3 py-2 rounded-xl text-xs bg-white border border-slate-200 text-slate-500' }, 'Typing...')
     ),
     React.createElement('div', { className: 'px-3 pt-2 pb-1 border-t bg-white' },
-      React.createElement('div', { className: 'flex flex-wrap gap-1 mb-2' },
-        quickPrompts.map(prompt => React.createElement('button', {
-          key: prompt,
-          onClick: () => sendMessage(prompt),
-          className: 'text-[10px] px-2 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100'
-        }, prompt))
-      ),
       React.createElement('div', { className: 'flex gap-2 pb-2' },
         React.createElement('input', {
           value: input,
