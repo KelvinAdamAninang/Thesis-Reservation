@@ -1150,7 +1150,7 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, 
     React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6' },
       // Recent reservations (2 cols)
       React.createElement('div', { className: 'lg:col-span-2 flex justify-end' },
-        React.createElement('div', { className: 'bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border w-full max-w-2xl' },
+        React.createElement('div', { className: 'bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border w-full flex-1' },
           React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, 'My Reservations'),
           loading
             ? React.createElement(InlineSpinner, { label: 'Loading reservations...' })
@@ -1161,7 +1161,24 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, 
                   React.createElement('div', { className: 'flex justify-between items-center' },
                     React.createElement('div', {}, 
                       React.createElement('p', { className: 'font-bold text-slate-800' }, r.activity_purpose), 
-                      React.createElement('p', { className: 'text-sm text-slate-500' }, formatReservationMeta(r))
+                      React.createElement('p', { className: 'text-sm text-slate-500' }, formatReservationMeta(r)),
+                      // 5-day timer for concept-approved
+                      (r.status === 'concept-approved' && !r.final_form_uploaded && !r.final_form_url && (function() {
+                        // Compute deadline: concept_approved_at or date_filed + 5 days
+                        const anchor = r.concept_approved_at || r.date_filed;
+                        if (!anchor) return null;
+                        const deadline = new Date(new Date(anchor).getTime() + 5 * 24 * 60 * 60 * 1000);
+                        const now = new Date();
+                        const msLeft = deadline - now;
+                        if (msLeft <= 0) {
+                          return React.createElement('span', { className: 'text-xs text-red-500 font-bold ml-1' }, '⏰ Time expired!');
+                        }
+                        // Calculate days, hours, minutes left
+                        const days = Math.floor(msLeft / (24 * 60 * 60 * 1000));
+                        const hours = Math.floor((msLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+                        const minutes = Math.floor((msLeft % (60 * 60 * 1000)) / (60 * 1000));
+                        return React.createElement('span', { className: 'text-xs text-orange-500 font-semibold ml-1' }, `⏰ ${days}d ${hours}h ${minutes}m left to upload final form`);
+                      })())
                     ),
                     React.createElement(Badge, { status: r.status })
                   )
@@ -4476,11 +4493,7 @@ function AIChatbotWidget({ user, rooms, calendarEvents }) {
   ]);
   const listRef = useRef(null);
 
-  const quickPrompts = [
-    'I want to file a reservation request',
-    'What details do you need from me?',
-    'What is the Stage 1 and 5-day rule?'
-  ];
+  // Removed quickPrompts array as per user request
 
   useEffect(() => {
     if (listRef.current) {
