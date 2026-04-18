@@ -1237,8 +1237,16 @@ def delete_event(id):
     start_time = reservation.start_time
     end_time = reservation.end_time
     is_ongoing = bool(start_time and end_time and start_time <= now <= end_time and not is_cancelled)
+    is_scheduled = bool(start_time and now < start_time and not is_cancelled)
 
-    expected_action = 'delete' if is_cancelled or not is_ongoing else 'cancel'
+    # Allow cancel for both ongoing and scheduled events
+    if is_cancelled:
+        expected_action = 'delete'
+    elif is_ongoing or is_scheduled:
+        expected_action = 'cancel'
+    else:
+        expected_action = 'delete'
+
     if action and action != expected_action:
         return jsonify({'error': f'Invalid action for this event. Expected "{expected_action}".'}), 400
 
@@ -1247,6 +1255,7 @@ def delete_event(id):
         db.session.commit()
         return jsonify({'status': 'success', 'message': 'Event deleted permanently'})
 
+    # Cancel the event (for both ongoing and scheduled)
     reservation.status = 'cancelled'
     reservation.denial_reason = reason
     reservation.archived_at = now
