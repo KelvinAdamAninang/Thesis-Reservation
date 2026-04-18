@@ -949,9 +949,17 @@ function App() {
       onConfirm: async (reason) => {
         setLoading(true);
         try {
-          await apiService.deleteEventWithReason(selectedRes.id, reason, eventActionType);
+          // Determine correct action for backend
+          const now = new Date();
+          const start = selectedRes.start_time ? new Date(selectedRes.start_time) : null;
+          const end = selectedRes.end_time ? new Date(selectedRes.end_time) : null;
+          const status = (selectedRes.status || '').toLowerCase();
+          const isCancelled = ['cancelled', 'deleted', 'denied'].includes(status);
+          const isOngoing = !!(start && end && start <= now && now <= end && !isCancelled);
+          const action = (isCancelled || !isOngoing) ? 'delete' : 'cancel';
+          await apiService.deleteEventWithReason(selectedRes.id, reason, action);
           await refreshReservationsAndCalendar();
-          setNotification(eventActionType === 'cancel' ? 'Event cancelled and user notified' : 'Event deleted permanently');
+          setNotification(action === 'cancel' ? 'Event cancelled and user notified' : 'Event deleted permanently');
           setActiveModal('notification');
         } catch (err) { setError(err.message); }
         finally { setLoading(false); }

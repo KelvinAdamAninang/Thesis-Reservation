@@ -640,14 +640,19 @@ def login():
         flash('Invalid username or password')
         return redirect(url_for('index'))
 
+
+# Always allow /logout to succeed, even if not logged in
 @app.route('/logout')
-@login_required
 def logout():
     try:
-        app.logger.info("/logout - user_id=%s username=%s remote=%s", current_user.id, current_user.username, request.remote_addr)
+        if current_user.is_authenticated:
+            app.logger.info("/logout - user_id=%s username=%s remote=%s", current_user.id, current_user.username, request.remote_addr)
+            logout_user()
+        else:
+            app.logger.info("/logout - user logout (not authenticated)")
     except Exception:
-        app.logger.info("/logout - user logout")
-    logout_user()
+        app.logger.info("/logout - user logout (exception)")
+    # Always redirect to index with 200 OK
     return redirect(url_for('index'))
 
 @app.route('/setup')
