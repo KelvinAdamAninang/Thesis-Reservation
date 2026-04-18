@@ -1154,48 +1154,45 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, 
       React.createElement(StatCard, { label: 'Pending', val: userRes.filter(r => r.status === 'pending').length }),
       React.createElement(StatCard, { label: 'Archived', val: archive.length })
     ),
-    // Two-column layout
-    React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6' },
-      // Recent reservations (2 cols)
-      React.createElement('div', { className: 'lg:col-span-2 flex justify-end' },
-        React.createElement('div', { className: 'bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border w-full flex-1' },
-          React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, 'My Reservations'),
-          loading
-            ? React.createElement(InlineSpinner, { label: 'Loading reservations...' })
-            : orderedUserRes.length === 0 
-            ? React.createElement('p', { className: 'text-slate-400 py-8 text-center' }, 'No reservations yet. Book a space to get started!')
-            : React.createElement('div', { className: 'max-h-72 overflow-y-auto space-y-2 pr-1' },
-                orderedUserRes.map(r => React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-slate-50 rounded-xl cursor-pointer hover:bg-sky-50 transition' },
-                  React.createElement('div', { className: 'flex justify-between items-center' },
-                    React.createElement('div', {}, 
-                      React.createElement('p', { className: 'font-bold text-slate-800' }, r.activity_purpose), 
-                      React.createElement('p', { className: 'text-sm text-slate-500' }, formatReservationMeta(r)),
-                      // 5-day timer for concept-approved
-                      (r.status === 'concept-approved' && !r.final_form_uploaded && !r.final_form_url && (function() {
-                        // Compute deadline: concept_approved_at or date_filed + 5 days
-                        const anchor = r.concept_approved_at || r.date_filed;
-                        if (!anchor) return null;
-                        const deadline = new Date(new Date(anchor).getTime() + 5 * 24 * 60 * 60 * 1000);
-                        const now = new Date();
-                        const msLeft = deadline - now;
-                        if (msLeft <= 0) {
-                          return React.createElement('span', { className: 'text-xs text-red-500 font-bold ml-1' }, '⏰ Time expired!');
-                        }
-                        // Calculate days, hours, minutes left
-                        const days = Math.floor(msLeft / (24 * 60 * 60 * 1000));
-                        const hours = Math.floor((msLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
-                        const minutes = Math.floor((msLeft % (60 * 60 * 1000)) / (60 * 1000));
-                        return React.createElement('span', { className: 'text-xs text-orange-500 font-semibold ml-1' }, `⏰ ${days}d ${hours}h ${minutes}m left to upload final form`);
-                      })())
-                    ),
-                    React.createElement(Badge, { status: r.status })
-                  )
-                ))
-              )
-        )
+    // Single-column full-width layout for My Reservations
+    React.createElement('div', { className: 'w-full' },
+      React.createElement('div', { className: 'bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border w-full' },
+        React.createElement('h3', { className: 'font-bold text-lg mb-4 text-slate-800' }, 'My Reservations'),
+        loading
+          ? React.createElement(InlineSpinner, { label: 'Loading reservations...' })
+          : orderedUserRes.length === 0 
+          ? React.createElement('p', { className: 'text-slate-400 py-8 text-center' }, 'No reservations yet. Book a space to get started!')
+          : React.createElement('div', { className: 'max-h-72 overflow-y-auto space-y-2 pr-1' },
+              orderedUserRes.map(r => React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-slate-50 rounded-xl cursor-pointer hover:bg-sky-50 transition' },
+                React.createElement('div', { className: 'flex justify-between items-center' },
+                  React.createElement('div', {}, 
+                    React.createElement('p', { className: 'font-bold text-slate-800' }, r.activity_purpose), 
+                    React.createElement('p', { className: 'text-sm text-slate-500' }, formatReservationMeta(r)),
+                    // 5-day timer for concept-approved
+                    (r.status === 'concept-approved' && !r.final_form_uploaded && !r.final_form_url && (function() {
+                      // Compute deadline: concept_approved_at or date_filed + 5 days
+                      const anchor = r.concept_approved_at || r.date_filed;
+                      if (!anchor) return null;
+                      const deadline = new Date(new Date(anchor).getTime() + 5 * 24 * 60 * 60 * 1000);
+                      const now = new Date();
+                      const msLeft = deadline - now;
+                      if (msLeft <= 0) {
+                        return React.createElement('span', { className: 'text-xs text-red-500 font-bold ml-1' }, '⏰ Time expired!');
+                      }
+                      // Calculate days, hours, minutes left
+                      const days = Math.floor(msLeft / (24 * 60 * 60 * 1000));
+                      const hours = Math.floor((msLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+                      const minutes = Math.floor((msLeft % (60 * 60 * 1000)) / (60 * 1000));
+                      return React.createElement('span', { className: 'text-xs text-orange-500 font-semibold ml-1' }, `⏰ ${days}d ${hours}h ${minutes}m left to upload final form`);
+                    })())
+                  ),
+                  React.createElement(Badge, { status: r.status })
+                )
+              ))
+            )
       )
-      // Quick Book feature removed
     )
+    // Quick Book feature removed
   );
 }
 
@@ -2535,7 +2532,33 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
           onClick: () => onArchive(res.id), 
           disabled: loading, 
           className: 'flex-1 bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors disabled:opacity-50' 
-        }, loading ? 'Processing...' : '📦 Move to Archive')
+        }, loading ? 'Processing...' : '📦 Move to Archive'),
+        // Cancel/Delete logic
+        (() => {
+          const status = (res.status || '').toLowerCase();
+          const isCancelled = ['cancelled', 'deleted', 'denied'].includes(status);
+          if (isCancelled) {
+            // Show Delete button for cancelled/denied/deleted
+            return React.createElement('button', {
+              onClick: () => {
+                setEventActionType('delete');
+                setActiveModal('deleteEvent');
+              },
+              disabled: loading,
+              className: 'flex-1 bg-red-700 hover:bg-red-800 text-white py-3 rounded-lg font-bold shadow-md transition-colors disabled:opacity-50'
+            }, loading ? 'Deleting...' : 'Delete Permanently');
+          } else {
+            // Show Cancel button for all other statuses
+            return React.createElement('button', {
+              onClick: () => {
+                setEventActionType('cancel');
+                setActiveModal('deleteEvent');
+              },
+              disabled: loading,
+              className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors disabled:opacity-50'
+            }, loading ? 'Cancelling...' : 'Cancel Event');
+          }
+        })()
       )
     )
   );
