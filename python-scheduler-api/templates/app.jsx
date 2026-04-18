@@ -4387,7 +4387,8 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
 
   const isCancelled = normalizedCategory === 'cancelled';
   const isOngoing = normalizedCategory === 'ongoing';
-  // Only allow cancel for ongoing events, delete for cancelled events
+  const isScheduled = status === 'approved';
+  // Allow cancel for both ongoing and scheduled (approved) events, delete for cancelled events
   let eventActionType = null;
   let eventActionLabel = '';
   let eventActionIcon = '';
@@ -4395,7 +4396,7 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
     eventActionType = 'delete';
     eventActionLabel = 'Delete Event';
     eventActionIcon = '🗑️';
-  } else if (isOngoing) {
+  } else if (isOngoing || isScheduled) {
     eventActionType = 'cancel';
     eventActionLabel = 'Cancel Event';
     eventActionIcon = '⛔';
