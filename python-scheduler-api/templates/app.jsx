@@ -949,17 +949,10 @@ function App() {
       onConfirm: async (reason) => {
         setLoading(true);
         try {
-          // Determine correct action for backend
-          const now = new Date();
-          const start = selectedRes.start_time ? new Date(selectedRes.start_time) : null;
-          const end = selectedRes.end_time ? new Date(selectedRes.end_time) : null;
-          const status = (selectedRes.status || '').toLowerCase();
-          const isCancelled = ['cancelled', 'deleted', 'denied'].includes(status);
-          const isOngoing = !!(start && end && start <= now && now <= end && !isCancelled);
-          const action = (isCancelled || !isOngoing) ? 'delete' : 'cancel';
-          await apiService.deleteEventWithReason(selectedRes.id, reason, action);
+          // Use the actionType directly (either 'cancel' or 'delete')
+          await apiService.deleteEventWithReason(selectedRes.id, reason, eventActionType);
           await refreshReservationsAndCalendar();
-          setNotification(action === 'cancel' ? 'Event cancelled and user notified' : 'Event deleted permanently');
+          setNotification(eventActionType === 'cancel' ? 'Event cancelled and user notified' : 'Event deleted permanently');
           setActiveModal('notification');
         } catch (err) { setError(err.message); }
         finally { setLoading(false); }
@@ -2537,8 +2530,15 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
         (() => {
           const status = (res.status || '').toLowerCase();
           const isCancelled = ['cancelled', 'deleted', 'denied'].includes(status);
-          if (isCancelled) {
-            // Show Delete button for cancelled/denied/deleted
+          const now = new Date();
+          const start = res.start_time ? new Date(res.start_time) : null;
+          const end = res.end_time ? new Date(res.end_time) : null;
+          const isOngoing = !!(start && end && start <= now && now <= end && !isCancelled);
+          const isUpcoming = !!(start && now < start && !isCancelled);
+          const isFinished = !!(end && now > end && !isCancelled);
+
+          if (isCancelled || isFinished) {
+            // Show Delete button for cancelled/denied/deleted or finished events
             return React.createElement('button', {
               onClick: () => {
                 setEventActionType('delete');
@@ -2547,8 +2547,8 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
               disabled: loading,
               className: 'flex-1 bg-red-700 hover:bg-red-800 text-white py-3 rounded-lg font-bold shadow-md transition-colors disabled:opacity-50'
             }, loading ? 'Deleting...' : 'Delete Permanently');
-          } else {
-            // Show Cancel button for all other statuses
+          } else if (isOngoing || isUpcoming) {
+            // Show Cancel button for ongoing or upcoming events
             return React.createElement('button', {
               onClick: () => {
                 setEventActionType('cancel');
@@ -2558,6 +2558,8 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
               className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors disabled:opacity-50'
             }, loading ? 'Cancelling...' : 'Cancel Event');
           }
+          // No button for other cases
+          return null;
         })()
       )
     )
