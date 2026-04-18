@@ -1783,10 +1783,23 @@ function AdminRequests({ reservations, onViewDetails, loading }) {
       : orderedRequests.length === 0
       ? React.createElement('p', { className: 'text-slate-500' }, 'None')
       : orderedRequests.map(r =>
-          React.createElement('div', { key:r.id, onClick: () => onViewDetails(r), className: `p-4 rounded-lg border mb-2 cursor-pointer ${r.status === 'pending' ? 'bg-white' : r.status === 'concept-approved' ? 'bg-blue-50' : r.status === 'approved' ? 'bg-green-50' : r.status === 'denied' ? 'bg-red-50' : 'bg-slate-50'}` },
+          React.createElement('div', { key:r.id, className: `p-4 rounded-lg border mb-2 ${r.status === 'pending' ? 'bg-white' : r.status === 'concept-approved' ? 'bg-blue-50' : r.status === 'approved' ? 'bg-green-50' : r.status === 'denied' ? 'bg-red-50' : 'bg-slate-50'}` },
             React.createElement('div', { className: 'flex justify-between' },
               React.createElement('div', {}, React.createElement('p', { className: 'font-bold' }, r.activity_purpose), React.createElement('p', { className: 'text-sm' }, r.user)),
               React.createElement(Badge, { status: r.status })
+            ),
+            // Only allow clicking to view details, not to cancel/delete, for pending requests
+            r.status !== 'pending' && React.createElement('div', { className: 'mt-2 flex gap-2' },
+              React.createElement('button', {
+                className: 'px-3 py-1 rounded bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold',
+                onClick: () => onViewDetails(r)
+              }, 'View Details')
+            ),
+            r.status === 'pending' && React.createElement('div', { className: 'mt-2 flex gap-2' },
+              React.createElement('button', {
+                className: 'px-3 py-1 rounded bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold',
+                onClick: () => onViewDetails(r)
+              }, 'View Details')
             )
           )
         )
@@ -4374,9 +4387,23 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
 
   const isCancelled = normalizedCategory === 'cancelled';
   const isOngoing = normalizedCategory === 'ongoing';
-  const eventActionType = isCancelled ? 'delete' : (isOngoing ? 'cancel' : 'delete');
-  const eventActionLabel = eventActionType === 'cancel' ? 'Cancel Event' : 'Delete Event';
-  const eventActionIcon = eventActionType === 'cancel' ? '⛔' : '🗑️';
+  // Only allow cancel for ongoing events, delete for cancelled events
+  let eventActionType = null;
+  let eventActionLabel = '';
+  let eventActionIcon = '';
+  if (isCancelled) {
+    eventActionType = 'delete';
+    eventActionLabel = 'Delete Event';
+    eventActionIcon = '🗑️';
+  } else if (isOngoing) {
+    eventActionType = 'cancel';
+    eventActionLabel = 'Cancel Event';
+    eventActionIcon = '⛔';
+  } else {
+    eventActionType = null;
+    eventActionLabel = '';
+    eventActionIcon = '';
+  }
   const statusLabel = normalizedCategory === 'holiday'
     ? 'Holiday'
     : (normalizedCategory === 'cancelled'
@@ -4504,7 +4531,7 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           onClick: onClose,
           className: `${isAdmin ? 'flex-1' : 'w-full'} bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-xl font-bold transition-colors`
         }, 'Close'),
-        isAdmin && React.createElement('button', {
+        isAdmin && eventActionType && React.createElement('button', {
           onClick: () => onDeleteClick(eventActionType),
           disabled: loading,
           className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2'
