@@ -18,6 +18,7 @@ from botocore.exceptions import ClientError
 
 from models import db, User, Room, Reservation, Holiday 
 from data_mining.analytics import build_analytics_snapshot
+from data_mining.analytics import generate_monthly_report
 from data_mining.forecast_utils import forecast_all_academic_periods, forecast_for_period, forecast_current_semester
 from data_mining.train_sarimax_model import retrain_all_historical_data
 from scheduler import start_training_scheduler, get_next_retrain_at_iso
@@ -305,12 +306,6 @@ def _auto_cancel_overdue_stage2_reservations():
         app.logger.info('Auto-deleted %s concept-approved reservations due to Stage 2 timeout.', auto_cancelled)
 
 
-from data_mining.analytics import generate_monthly_report
-
-# ...existing code...
-
-# Usage example (replace old _generate_monthly_report calls):
-# report_text, report_data = generate_monthly_report(logger=app.logger)
 
 
 
