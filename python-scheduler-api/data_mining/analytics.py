@@ -24,19 +24,15 @@ def _build_monthly_report_payload(year, month):
         requester = (r.person_in_charge or '').strip() or (r.requester.username if r.requester else 'Unknown')
         department = r.requester.department if r.requester else 'Unknown'
         report_data.append({
-            'id': r.id,
-            'date': r.start_time.date().isoformat(),
-            'start_time': r.start_time.isoformat() if r.start_time else None,
-            'end_time': r.end_time.isoformat() if r.end_time else None,
-            'activity': r.activity_purpose,
-            'facility': room.name if room else 'Unknown',
+            'start_date': r.start_time.date().isoformat() if r.start_time else '',
             'requester': requester,
-            'contact_number': r.contact_number or '',
             'department': department,
-            'status': r.status,
+            'facility': room.name if room else 'Unknown',
+            'activity': r.activity_purpose,
+            'contact_number': r.contact_number or ''
         })
 
-    report_data.sort(key=lambda item: item['date'])
+    report_data.sort(key=lambda item: item['start_date'])
 
     return {
         'year': year,
@@ -65,9 +61,12 @@ def generate_monthly_report(year=None, month=None, logger=None):
         report_text += f"Total Approved Reservations: {len(report_data)}\n\n"
 
         if report_data:
-            report_text += "Summary:\n"
+            report_text += "Summary (Start Date | Requester | Department | Facility | Activity | Contact):\n"
             for item in report_data:
-                report_text += f"- {item['date']}: {item['activity']} at {item['facility']} ({item['requester']})\n"
+                report_text += (
+                    f"- {item['start_date']} | {item['requester']} | {item['department']} | "
+                    f"{item['facility']} | {item['activity']} | {item['contact_number']}\n"
+                )
 
         if logger:
             logger.info(f"Monthly report generated: {len(report_data)} reservations for {payload['month']}/{payload['year']}")

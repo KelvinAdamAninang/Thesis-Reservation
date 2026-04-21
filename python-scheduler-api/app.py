@@ -381,7 +381,9 @@ def export_monthly_report_excel():
     try:
         year, month = _parse_report_month_year(request.args.get('year'), request.args.get('month'))
         report_text, report_data = generate_monthly_report(year=year, month=month, logger=app.logger)
-        df = pd.DataFrame(report_data)
+        # Only include the requested columns in the specified order
+        columns = ['start_date', 'requester', 'department', 'facility', 'activity', 'contact_number']
+        df = pd.DataFrame(report_data, columns=columns)
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df.to_excel(writer, index=False, sheet_name='Monthly Report')
