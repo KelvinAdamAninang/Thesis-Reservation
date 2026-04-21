@@ -1,3 +1,50 @@
+from datetime import datetime
+from models import Reservation, Room, db
+
+def _build_monthly_report_payload(year, month):
+    """Build monthly approved-reservations report payload for API and reporting use."""
+    month = int(month)
+    year = int(year)
+    start_date = datetime(year, month, 1)
+    if month == 12:
+        end_date = datetime(year + 1, 1, 1)
+    else:
+        end_date = datetime(year, month + 1, 1)
+
+    reservations = Reservation.query.filter(
+        Reservation.status == 'approved',
+        Reservation.start_time.isnot(None),
+        Reservation.start_time >= start_date,
+        Reservation.start_time < end_date
+    ).all()
+
+    report_data = []
+    for r in reservations:
+        room = db.session.get(Room, r.room_id) if r.room_id else None
+        requester = (r.person_in_charge or '').strip() or (r.requester.username if r.requester else 'Unknown')
+        department = r.requester.department if r.requester else 'Unknown'
+        report_data.append({
+            'id': r.id,
+            'date': r.start_time.date().isoformat(),
+            'start_time': r.start_time.isoformat() if r.start_time else None,
+            'end_time': r.end_time.isoformat() if r.end_time else None,
+            'activity': r.activity_purpose,
+            'facility': room.name if room else 'Unknown',
+            'requester': requester,
+            'contact_number': r.contact_number or '',
+            'department': department,
+            'status': r.status,
+        })
+
+    report_data.sort(key=lambda item: item['date'])
+
+    return {
+        'year': year,
+        'month': month,
+        'total_approved_reservations': len(report_data),
+        'generated_at': datetime.now().isoformat(),
+        'items': report_data,
+    }
 
 def generate_monthly_report(year=None, month=None, logger=None):
     """Generate and (optionally) log/notify admins of monthly report from booking data."""
