@@ -1,3 +1,37 @@
+
+def generate_monthly_report(year=None, month=None, logger=None):
+    """Generate and (optionally) log/notify admins of monthly report from booking data."""
+    try:
+        now = datetime.now()
+        if year is None:
+            year = now.year
+        if month is None:
+            month = now.month
+        payload = _build_monthly_report_payload(year, month)
+        report_data = payload['items']
+
+        # Get all admin users and send them notifications (logging only here)
+        from models import User
+        admins = User.query.filter(User.role.in_(['admin', 'admin_phase1'])).all()
+
+        report_text = f"Monthly Report - {payload['month']}/{payload['year']}\n\n"
+        report_text += f"Total Approved Reservations: {len(report_data)}\n\n"
+
+        if report_data:
+            report_text += "Summary:\n"
+            for item in report_data:
+                report_text += f"- {item['date']}: {item['activity']} at {item['facility']} ({item['requester']})\n"
+
+        if logger:
+            logger.info(f"Monthly report generated: {len(report_data)} reservations for {payload['month']}/{payload['year']}")
+            for admin in admins:
+                logger.info(f"Monthly report notification sent to admin: {admin.username}")
+
+        return report_text, report_data
+    except Exception as e:
+        if logger:
+            logger.error(f"Failed to generate monthly report: {e}")
+        return None, []
 from collections import Counter
 from datetime import datetime, timedelta
 
