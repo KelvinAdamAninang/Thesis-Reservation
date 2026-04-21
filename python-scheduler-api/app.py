@@ -291,16 +291,18 @@ def _auto_cancel_overdue_stage2_reservations():
         if not approval_anchor or approval_anchor > cutoff:
             continue
 
-        reservation.status = 'cancelled'
-        reservation.denial_reason = (
-            'Auto-cancelled: Stage 2 final form was not submitted within 5 days after concept approval.'
-        )
-        reservation.archived_at = now
+        # Notify the user before deleting
+        user = db.session.get(User, reservation.user_id)
+        if user:
+            # You can replace this with an actual email or push notification system
+            app.logger.info(f"Notified user {user.username} (ID: {user.id}) that their reservation '{reservation.activity_purpose}' was deleted due to Stage 2 timeout.")
+
+        db.session.delete(reservation)
         auto_cancelled += 1
 
     if auto_cancelled > 0:
         db.session.commit()
-        app.logger.info('Auto-cancelled %s concept-approved reservations due to Stage 2 timeout.', auto_cancelled)
+        app.logger.info('Auto-deleted %s concept-approved reservations due to Stage 2 timeout.', auto_cancelled)
 
 
 def _generate_monthly_report():
