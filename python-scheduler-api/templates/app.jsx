@@ -2246,7 +2246,7 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
                 <div class="sig-role">VP for Quality Management System Admi. Quality<br> MGT System Administration</div>
               </td>
               <td style="vertical-align:bottom; padding-bottom:6px; width:28%;">
-                <div class="chk">${checkbox(requestedServices.security_guard)} Security Guard</div>
+                <div class="chk">${checkbox(requestedServices.security_guard?.needed)} Security Guard<span class="uline" style="width:50px;">${escapeHtml(requestedServices.security_guard.count || '')}</span></div>
                 <div style="height:68px;"></div>
                 <div class="sig-line">MR. CRISANTO NERO</div>
                 <div class="sig-role">VCS-SSEM-P</div>
