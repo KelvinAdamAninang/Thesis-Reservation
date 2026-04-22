@@ -42,6 +42,8 @@ app = Flask(__name__)
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DOTENV_PATH = os.path.join(APP_DIR, '.env')
 
+
+
 # Enable CORS
 allowed_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5000').split(',')
 CORS(app, supports_credentials=True, origins=allowed_origins)
@@ -965,7 +967,7 @@ def get_reservations():
         'user': _display_username(r.requester),
         'department': r.requester.department if r.requester else 'Unknown',
         'room_id': r.room_id,
-        'room_name': rooms_by_id.get(r.room_id, 'Unknown'),
+        'room_name': r.room_name or 'Unknown',
         'activity_purpose': r.activity_purpose,
         'division': r.division,
         'attendees': r.attendees,
@@ -993,19 +995,15 @@ def get_reservation(id):
     reservation = Reservation.query.options(joinedload(Reservation.requester)).filter_by(id=id).first()
     if not reservation:
         return jsonify({'error': 'Reservation not found'}), 404
-    
     if current_user.role != 'admin' and reservation.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized'}), 403
-
-    room = db.session.get(Room, reservation.room_id) if reservation.room_id else None
-    
     return jsonify({
         'id': reservation.id,
         'user_id': reservation.user_id,
         'user': _display_username(reservation.requester),
         'department': reservation.requester.department if reservation.requester else 'Unknown',
         'room_id': reservation.room_id,
-        'room_name': room.name if room else 'Unknown',
+        'room_name': reservation.room_name or 'Unknown',
         'activity_purpose': reservation.activity_purpose,
         'division': reservation.division,
         'attendees': reservation.attendees,
@@ -1062,9 +1060,12 @@ def create_reservation():
                 'message': f"Reservations are suspended on holidays. Conflict: {holiday.title} ({holiday.holiday_date.isoformat()})."
             }), 400
 
+        # Set room_name snapshot
+        room = db.session.get(Room, data['room_id'])
         reservation = Reservation(
             user_id=current_user.id,
             room_id=data['room_id'],
+            room_name=room.name if room else None,
             activity_purpose=data['activity_purpose'],
             division=data.get('division', ''),
             attendees=data.get('attendees', 0),
@@ -1077,13 +1078,10 @@ def create_reservation():
             status='pending',
             date_filed=datetime.now()
         )
-        
         if 'equipment_data' in data:
             reservation.set_equipment(data['equipment_data'])
-        
         db.session.add(reservation)
         db.session.commit()
-        
         return jsonify({'status': 'success', 'id': reservation.id, 'message': 'Reservation created'})
     except Exception as e:
         db.session.rollback()
@@ -1274,6 +1272,7 @@ def get_archive():
         'user': _display_username(r.requester),
         'department': r.requester.department if r.requester else 'Unknown',
         'room_id': r.room_id,
+        'room_name': r.room_name or 'Unknown',
         'activity_purpose': r.activity_purpose,
         'start_time': r.start_time.isoformat() if r.start_time else None,
         'end_time': r.end_time.isoformat() if r.end_time else None,

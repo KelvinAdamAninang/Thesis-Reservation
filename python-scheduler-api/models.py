@@ -70,6 +70,9 @@ class Reservation(db.Model):
     # Status: 'pending', 'concept-approved', 'approved', 'denied'
     status = db.Column(db.String(20), default='pending')
 
+    # Store facility name at booking for historical integrity
+    room_name = db.Column(db.String(100), nullable=True)
+
     def get_equipment(self):
         if self.equipment_data:
             try:
