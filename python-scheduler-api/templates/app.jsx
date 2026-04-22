@@ -900,7 +900,7 @@ function App() {
       onDenyClick: () => setActiveModal('deny'), 
       loading 
     }),
-    activeModal === 'deny' && React.createElement(DenyModal, { res: selectedRes, onClose: () => setActiveModal('details'), onConfirm: async (reason) => { setLoading(true); try { await apiService.denyReservation(selectedRes.id, reason); await refreshReservationsOnly(); setNotification('Denied'); setActiveModal('notification'); } catch (err) { setError(err.message); } finally { setLoading(false); } }, loading }),
+    activeModal === 'deny' && React.createElement(DenyModal, { res: selectedRes, onClose: () => setActiveModal('details'), onConfirm: async (reason) => { setLoading(true); try { await apiService.denyReservation(selectedRes.id, reason); if ((selectedRes.status || '').toLowerCase() === 'concept-approved') { await refreshReservationsAndCalendar(); } else { await refreshReservationsOnly(); } setNotification('Denied'); setActiveModal('notification'); } catch (err) { setError(err.message); } finally { setLoading(false); } }, loading }),
 
     activeModal === 'profile' && React.createElement(ProfileModal, {
       user: currentUser,
@@ -2407,6 +2407,10 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
               React.createElement('div', {},
                 React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'End Time'),
                 React.createElement('p', { className: 'font-medium text-slate-700' }, formatDateTime(res.end_time))
+              ),
+              React.createElement('div', { className: 'col-span-2' },
+                React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'Facility'),
+                React.createElement('p', { className: 'font-medium text-slate-700' }, res.room_name || 'N/A')
               )
             )
           ),
@@ -2541,37 +2545,7 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
         }, loading ? 'Processing...' : '📦 Move to Archive'),
         // Cancel/Delete logic
         (() => {
-          const status = (res.status || '').toLowerCase();
-          const isCancelled = ['cancelled', 'deleted', 'denied'].includes(status);
-          const now = new Date();
-          const start = res.start_time ? new Date(res.start_time) : null;
-          const end = res.end_time ? new Date(res.end_time) : null;
-          const isOngoing = !!(start && end && start <= now && now <= end && !isCancelled);
-          const isUpcoming = !!(start && now < start && !isCancelled);
-          const isFinished = !!(end && now > end && !isCancelled);
-
-          if (isCancelled || isFinished) {
-            // Show Delete button for cancelled/denied/deleted or finished events
-            return React.createElement('button', {
-              onClick: () => {
-                setEventActionType('delete');
-                setActiveModal('deleteEvent');
-              },
-              disabled: loading,
-              className: 'flex-1 bg-red-700 hover:bg-red-800 text-white py-3 rounded-lg font-bold shadow-md transition-colors disabled:opacity-50'
-            }, loading ? 'Deleting...' : 'Delete Permanently');
-          } else if (isOngoing || isUpcoming) {
-            // Show Cancel button for ongoing or upcoming events
-            return React.createElement('button', {
-              onClick: () => {
-                setEventActionType('cancel');
-                setActiveModal('deleteEvent');
-              },
-              disabled: loading,
-              className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors disabled:opacity-50'
-            }, loading ? 'Cancelling...' : 'Cancel Event');
-          }
-          // No button for other cases
+          // Remove Cancel Event button for admin/phase1 admin
           return null;
         })()
       )
