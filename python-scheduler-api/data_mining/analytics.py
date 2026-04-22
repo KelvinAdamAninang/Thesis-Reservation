@@ -1,5 +1,12 @@
 from datetime import datetime
 from models import Reservation, Room, db
+from collections import Counter
+from datetime import datetime, timedelta
+
+from sqlalchemy.orm import joinedload
+
+from models import Reservation, Room
+
 
 def _build_monthly_report_payload(year, month):
     """Build monthly approved-reservations report payload for API and reporting use."""
@@ -78,12 +85,6 @@ def generate_monthly_report(year=None, month=None, logger=None):
         if logger:
             logger.error(f"Failed to generate monthly report: {e}")
         return None, []
-from collections import Counter
-from datetime import datetime, timedelta
-
-from sqlalchemy.orm import joinedload
-
-from models import Reservation, Room
 
 
 # Fixed axes used by multiple chart datasets.

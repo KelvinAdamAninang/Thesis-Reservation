@@ -3418,15 +3418,17 @@ function AnalyticsView({ reservations }) {
                         React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Activity'),
                         React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Facility'),
                         React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Requester'),
+                        React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Department'),
                         React.createElement('th', { className: 'text-left p-2 font-semibold text-slate-700' }, 'Number')
                       )
                     ),
                     React.createElement('tbody', {},
-                      monthlyReport.items.map((item) => React.createElement('tr', { key: `${item.id}-${item.date}`, className: 'border-b last:border-b-0' },
-                        React.createElement('td', { className: 'p-2 text-slate-700' }, item.date),
+                      monthlyReport.items.map((item) => React.createElement('tr', { key: `${item.start_date}-${item.requester}`, className: 'border-b last:border-b-0' },
+                        React.createElement('td', { className: 'p-2 text-slate-700' }, item.start_date || 'N/A'),
                         React.createElement('td', { className: 'p-2 text-slate-700' }, item.activity || 'N/A'),
                         React.createElement('td', { className: 'p-2 text-slate-700' }, item.facility || 'N/A'),
                         React.createElement('td', { className: 'p-2 text-slate-700' }, item.requester || 'N/A'),
+                        React.createElement('td', { className: 'p-2 text-slate-700' }, item.department || 'N/A'),
                         React.createElement('td', { className: 'p-2 text-slate-700' }, item.contact_number || 'N/A')
                       ))
                     )
