@@ -1738,15 +1738,16 @@ def admin_delete_facility(id):
     if not room:
         return jsonify({'status': 'error', 'message': 'Facility not found'}), 404
 
-    has_reservations = Reservation.query.filter_by(room_id=id).first()
-    if has_reservations:
-        return jsonify({'status': 'error', 'message': 'Cannot delete facility with existing reservations'}), 409
+    # Nullify room_id on all reservations before deleting
+    # room_name snapshot already preserves the facility name
+    Reservation.query.filter_by(room_id=id).update({'room_id': None})
+    db.session.flush()
 
     _delete_uploaded_facility_image((room.image_url or '').strip())
 
     db.session.delete(room)
     db.session.commit()
-    return jsonify({'status': 'success', 'message': 'Facility deleted'})
+    return jsonify({'status': 'success', 'message': 'Facility deleted successfully'})
 
 
 @app.route('/api/admin/users', methods=['GET'])
