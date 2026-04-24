@@ -279,12 +279,17 @@ with app.app_context():
 
 
 def _auto_cancel_overdue_stage2_reservations():
-    """Cancel concept-approved reservations if final form is not submitted within 5 days."""
+    """Deny concept-approved reservations if final form is not submitted within 5 days.
+
+    Instead of deleting, we set the status to 'denied' with a system-generated
+    denial reason so the reservation history is preserved and the calendar event
+    is automatically removed (denied events are excluded from calendar plotting).
+    """
     now = datetime.now()
     cutoff = now - timedelta(days=5)
 
     candidates = Reservation.query.filter(Reservation.status == 'concept-approved').all()
-    auto_cancelled = 0
+    auto_denied = 0
 
     for reservation in candidates:
         has_final_form_link = bool(str(reservation.final_form_url or '').strip())
@@ -296,18 +301,31 @@ def _auto_cancel_overdue_stage2_reservations():
         if not approval_anchor or approval_anchor > cutoff:
             continue
 
-        # Notify the user before deleting
+        # Set to denied with a system reason instead of deleting.
+        # This preserves the reservation record and automatically removes
+        # the event from the calendar (denied status is excluded from calendar query).
+        reservation.status = 'denied'
+        reservation.denial_reason = (
+            'Final form submission deadline expired. '
+            'The reservation was automatically denied because the final form '
+            'was not submitted within 5 days of concept approval.'
+        )
+
         user = db.session.get(User, reservation.user_id)
         if user:
-            # You can replace this with an actual email or push notification system
-            app.logger.info(f"Notified user {user.username} (ID: {user.id}) that their reservation '{reservation.activity_purpose}' was deleted due to Stage 2 timeout.")
+            app.logger.info(
+                f"Auto-denied reservation '{reservation.activity_purpose}' "
+                f"for user {user.username} (ID: {user.id}) due to Stage 2 submission timeout."
+            )
 
-        db.session.delete(reservation)
-        auto_cancelled += 1
+        auto_denied += 1
 
-    if auto_cancelled > 0:
+    if auto_denied > 0:
         db.session.commit()
-        app.logger.info('Auto-deleted %s concept-approved reservations due to Stage 2 timeout.', auto_cancelled)
+        app.logger.info(
+            'Auto-denied %s concept-approved reservations due to Stage 2 submission timeout.',
+            auto_denied
+        )
 
 
 
@@ -459,8 +477,7 @@ def start_stage2_deadline_scheduler(app):
     def monthly_report_job():
         with app.app_context():
             try:
-                report_text, report_data = generate_monthly_report(logger=app.logger)
-                count = len(report_data) if report_data else 0
+                count = _generate_monthly_report()
                 app.logger.info(f'Monthly report generated successfully: {count} reservations')
             except Exception as exc:
                 app.logger.error('Monthly report generation failed: %s', exc)
@@ -1168,6 +1185,21 @@ def deny_reservation(id):
         app.logger.info(f"Notified user {user.username} (ID: {user.id}) that their reservation '{reservation.activity_purpose}' was denied. Reason: {reservation.denial_reason}")
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'Reservation denied and user notified'})
+# Archive denied reservation (user-initiated)
+@app.route('/api/reservations/<int:id>/archive', methods=['POST'])
+@login_required
+def user_archive_reservation(id):
+    reservation = db.session.get(Reservation, id)
+    if not reservation:
+        return jsonify({'error': 'Reservation not found'}), 404
+    # Only the owner can archive their own denied reservation
+    if reservation.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+    if reservation.status != 'denied':
+        return jsonify({'error': 'Only denied reservations can be archived by user'}), 400
+    reservation.archived_at = datetime.now()
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Denied reservation archived'})
 
 # Cancel event from calendar (Admin only) - with notification to user
 @app.route('/api/reservations/<int:id>/delete-event', methods=['POST'])
@@ -1221,24 +1253,18 @@ def delete_event(id):
 @app.route('/api/reservations/<int:id>/archive', methods=['POST'])
 @login_required
 def archive_reservation(id):
+    if current_user.role not in ['admin', 'admin_phase1']:
+        return jsonify({'error': 'Admin access required'}), 403
+    
     reservation = db.session.get(Reservation, id)
     if not reservation:
         return jsonify({'error': 'Reservation not found'}), 404
-
-    is_admin = current_user.role in ['admin', 'admin_phase1']
-
-    if is_admin:
-        reservation.archived_at = datetime.now()
-        db.session.commit()
-        return jsonify({'status': 'success', 'message': 'Reservation archived'})
-    else:
-        if reservation.user_id != current_user.id:
-            return jsonify({'error': 'Unauthorized'}), 403
-        if reservation.status != 'denied':
-            return jsonify({'error': 'Only denied reservations can be archived'}), 400
-        reservation.archived_at = datetime.now()
-        db.session.commit()
-        return jsonify({'status': 'success', 'message': 'Denied reservation archived'})
+    
+    # Only set archived_at, keep status as 'approved' so it stays on calendar
+    reservation.archived_at = datetime.now()
+    
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Reservation archived'})
 
 # Delete reservation
 @app.route('/api/reservations/<int:id>', methods=['DELETE'])
