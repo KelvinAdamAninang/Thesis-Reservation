@@ -1814,8 +1814,6 @@ function AdminRequests({ reservations, onViewDetails, loading }) {
               }, 'View Details')
             )
           )
-        )
-      )
     )
   );
 }
