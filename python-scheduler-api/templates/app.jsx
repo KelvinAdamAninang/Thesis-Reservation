@@ -3416,8 +3416,7 @@ function AnalyticsView({ reservations }) {
                   )
             )
           )
-        )
-      ),
+        ),
       React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
         React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
           React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Most Booked Venues'),
@@ -3521,7 +3520,6 @@ function AnalyticsView({ reservations }) {
           }
         })
       )
-    )
   );
 }
 
