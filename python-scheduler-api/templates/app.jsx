@@ -165,6 +165,18 @@ const apiService = {
     return response.json();
   },
 
+  async expireReservation(id) {
+    // Called by the frontend when the 5-day Stage 2 deadline has elapsed.
+    // The backend should mark the reservation as denied/expired.
+    const response = await fetch(`${API_BASE}/reservations/${id}/expire`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    // Non-critical: ignore errors silently (backend may already have processed it)
+    if (!response.ok) return null;
+    return response.json();
+  },
+
   async uploadFinalForm(id, finalFormUrl) {
     const response = await fetch(`${API_BASE}/reservations/${id}/upload-final-form`, {
       method: 'POST',
@@ -806,14 +818,14 @@ function App() {
       // Error banner
       error && React.createElement('div', { className: 'bg-red-100 text-red-700 px-4 py-2 mx-4 md:mx-8 mt-4 rounded flex justify-between items-center text-sm' },
         React.createElement('span', {}, error),
-        React.createElement('button', { onClick: () => setError(''), className: 'text-red-700 hover:text-red-900 font-bold' }, '✕')
+        React.createElement('button', { onClick: () => setError(''), className: 'text-red-700 hover:text-red-900 font-bold' }, React.createElement(SmoothieIcon, { name: 'close', cls: 'w-5 h-5' }))
       ),
       // Main content
       React.createElement('main', { className: 'flex-1 overflow-y-auto p-4 md:p-8' },
         loading && React.createElement('div', { className: 'mb-4 bg-white border rounded-xl shadow-sm' },
           React.createElement(InlineSpinner, { label: 'Fetching latest data...' })
         ),
-        currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, loading, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); }, onArchive: handleArchive }),
+        currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, loading, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); }, onArchive: handleArchive, onRefresh: refreshReservationsOnly }),
         currentView === 'calendar' && React.createElement(CalendarView, {
           events: calendarEvents,
           rooms,
@@ -1027,6 +1039,26 @@ function SmoothieIcon({ name, cls }) {
     archive: 'M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z',
     logout: 'M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H2.25',
     close: 'M6 18 18 6M6 6l12 12',
+    bell: 'M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0',
+    user: 'M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z',
+    clock: 'M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
+    warning: 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z',
+    check: 'M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
+    'check-simple': 'M4.5 12.75l6 6 9-13.5',
+    tag: 'M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z M6 6h.008v.008H6V6Z',
+    'map-pin': 'M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z',
+    printer: 'M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z',
+    flag: 'M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5',
+    wrench: 'M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008Z',
+    building: 'M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21',
+    trash: 'M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0',
+    ban: 'M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636',
+    'mail-open': 'M21.75 9v.906a2.25 2.25 0 0 1-1.183 1.981l-6.478 3.488M2.25 9v.906a2.25 2.25 0 0 0 1.183 1.981l6.478 3.488m8.839 2.51-4.66-2.51m0 0-1.023-.55a2.25 2.25 0 0 0-2.134 0l-1.022.55m0 0-4.661 2.51m16.5 1.615a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V8.844a2.25 2.25 0 0 1 1.183-1.981l7.5-4.039a2.25 2.25 0 0 1 2.134 0l7.5 4.039a2.25 2.25 0 0 1 1.183 1.98V19.5Z',
+    menu: 'M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5',
+    pencil: 'M16.862 4.487l1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125',
+    'info': 'M11.25 11.25l.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z',
+    'document': 'M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z',
+    'calendar-days': 'M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5',
   };
   if (name === 'settings') {
     return React.createElement('svg', s,
@@ -1102,7 +1134,7 @@ function Header({ title, onOpenProfile, onOpenNotifications, hasUnread, user, on
         onClick: onMenuClick, 
         className: 'p-2 text-slate-500 hover:text-sky-500 md:hidden',
         title: 'Menu'
-      }, '☰'),
+      }, React.createElement(SmoothieIcon, { name: 'menu', cls: 'w-5 h-5' })),
       React.createElement('h2', { className: 'text-lg md:text-xl font-bold text-slate-800 capitalize' }, title)
     ),
     React.createElement('div', { className: 'flex gap-2 items-center' },
@@ -1112,7 +1144,8 @@ function Header({ title, onOpenProfile, onOpenNotifications, hasUnread, user, on
         className: 'p-2 text-slate-400 hover:text-sky-500 transition relative',
         title: 'Notifications'
       }, 
-        '🔔',
+        React.createElement(SmoothieIcon, { name: 'bell', cls: 'w-5 h-5' }),
+
         hasUnread && React.createElement('span', { className: 'absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse' })
       ),
       // Profile button
@@ -1120,7 +1153,7 @@ function Header({ title, onOpenProfile, onOpenNotifications, hasUnread, user, on
         onClick: onOpenProfile, 
         className: 'ml-2 w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center hover:bg-sky-50 hover:border-sky-300 transition-all overflow-hidden',
         title: 'Profile'
-      }, '👤')
+      }, React.createElement(SmoothieIcon, { name: 'user', cls: 'w-5 h-5' }))
     )
   );
 }
@@ -1146,7 +1179,77 @@ function Badge({ status }) {
   return React.createElement('span', { className: `px-3 py-1 rounded-full text-xs font-bold ${colors[status] || 'bg-slate-100 text-slate-700'}` }, status);
 }
 
-function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, onArchive, loading }) {
+// Hook: live countdown for concept-approved reservations awaiting Stage 2.
+// Returns { msLeft, hasExpired } and notifies the backend when the deadline passes.
+function useStage2Countdown(reservation, onExpired) {
+  const [msLeft, setMsLeft] = useState(null);
+  const notifiedRef = useRef(false);
+
+  useEffect(() => {
+    const isEligible =
+      reservation.status === 'concept-approved' &&
+      !reservation.final_form_uploaded &&
+      !reservation.final_form_url;
+
+    if (!isEligible) {
+      setMsLeft(null);
+      return;
+    }
+
+    const anchor = reservation.concept_approved_at || reservation.date_filed;
+    if (!anchor) {
+      setMsLeft(null);
+      return;
+    }
+
+    const deadline = new Date(new Date(anchor).getTime() + 5 * 24 * 60 * 60 * 1000);
+
+    const tick = () => {
+      const remaining = deadline - new Date();
+      setMsLeft(remaining);
+
+      // When the deadline passes for the first time in this session, tell the backend.
+      if (remaining <= 0 && !notifiedRef.current) {
+        notifiedRef.current = true;
+        apiService.expireReservation(reservation.id)
+          .then(() => { if (onExpired) onExpired(reservation.id); })
+          .catch(() => {}); // non-critical — backend scheduler will catch it too
+      }
+    };
+
+    tick(); // run immediately
+    const id = setInterval(tick, 30000); // refresh every 30 s (status changes via polling)
+    return () => clearInterval(id);
+  }, [reservation.id, reservation.status, reservation.concept_approved_at, reservation.date_filed,
+      reservation.final_form_uploaded, reservation.final_form_url]);
+
+  return msLeft;
+}
+
+// Countdown display component used inside the reservation list.
+function Stage2CountdownBadge({ reservation, onExpired }) {
+  const msLeft = useStage2Countdown(reservation, onExpired);
+
+  if (msLeft === null) return null;
+
+  if (msLeft <= 0) {
+    return React.createElement('span', { className: 'flex items-center gap-1 text-xs text-red-500 font-bold ml-1' },
+      React.createElement(SmoothieIcon, { name: 'clock', cls: 'w-3.5 h-3.5 shrink-0' }),
+      'Deadline passed — awaiting system update'
+    );
+  }
+
+  const days    = Math.floor(msLeft / (24 * 60 * 60 * 1000));
+  const hours   = Math.floor((msLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+  const minutes = Math.floor((msLeft % (60 * 60 * 1000)) / (60 * 1000));
+
+  return React.createElement('span', { className: 'flex items-center gap-1 text-xs text-orange-500 font-semibold ml-1' },
+    React.createElement(SmoothieIcon, { name: 'clock', cls: 'w-3.5 h-3.5 shrink-0' }),
+    `${days}d ${hours}h ${minutes}m left to upload final form`
+  );
+}
+
+function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, onArchive, onRefresh, loading }) {
   const toTimestamp = (isoString) => {
     if (!isoString) return Number.MAX_SAFE_INTEGER;
     const dt = new Date(isoString);
@@ -1210,23 +1313,11 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, 
                     React.createElement('p', { className: 'font-bold text-slate-800 truncate' }, r.activity_purpose), 
                     React.createElement('p', { className: 'text-sm text-slate-500' }, formatReservationMeta(r)),
                     r.status === 'denied' && r.denial_reason && React.createElement('p', { className: 'text-xs text-red-500 mt-1 italic' }, `Reason: ${r.denial_reason}`),
-                    // 5-day timer for concept-approved
-                    (r.status === 'concept-approved' && !r.final_form_uploaded && !r.final_form_url && (function() {
-                      // Compute deadline: concept_approved_at or date_filed + 5 days
-                      const anchor = r.concept_approved_at || r.date_filed;
-                      if (!anchor) return null;
-                      const deadline = new Date(new Date(anchor).getTime() + 5 * 24 * 60 * 60 * 1000);
-                      const now = new Date();
-                      const msLeft = deadline - now;
-                      if (msLeft <= 0) {
-                        return React.createElement('span', { className: 'text-xs text-red-500 font-bold ml-1' }, '⏰ Time expired!');
-                      }
-                      // Calculate days, hours, minutes left
-                      const days = Math.floor(msLeft / (24 * 60 * 60 * 1000));
-                      const hours = Math.floor((msLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
-                      const minutes = Math.floor((msLeft % (60 * 60 * 1000)) / (60 * 1000));
-                      return React.createElement('span', { className: 'text-xs text-orange-500 font-semibold ml-1' }, `⏰ ${days}d ${hours}h ${minutes}m left to upload final form`);
-                    })())
+                    // Live 5-day countdown for concept-approved — calls backend when deadline passes
+                    React.createElement(Stage2CountdownBadge, {
+                      reservation: r,
+                      onExpired: onRefresh
+                    })
                   ),
                   React.createElement('div', { className: 'flex flex-col items-end gap-1 shrink-0' },
                     React.createElement(Badge, { status: r.status }),
@@ -1234,7 +1325,7 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, 
                       className: 'text-xs text-slate-400 hover:text-red-500 hover:bg-red-50 px-2 py-0.5 rounded transition mt-1 border border-slate-200',
                       title: 'Archive this denied reservation',
                       onClick: (e) => { e.stopPropagation(); if (onArchive) onArchive(r.id); }
-                    }, '📦 Archive')
+                    }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'archive', cls: 'w-3 h-3 mr-1' }), 'Archive'))
                   )
                 )
               ))
@@ -1491,7 +1582,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
           React.createElement('h3', { className: 'font-bold text-lg text-slate-800' }, 'New Reservation'),
           React.createElement('p', { className: 'text-xs text-slate-500' }, 'Fill in details by section for faster review')
         ),
-        React.createElement('button', { onClick: onClose, className: 'text-2xl' }, '✕')
+        React.createElement('button', { onClick: onClose, className: 'text-2xl' }, React.createElement(SmoothieIcon, { name: 'close', cls: 'w-5 h-5' }))
       ),
       // Error banner
       localError && React.createElement('div', { className: 'mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs font-bold flex items-start gap-2' },
@@ -2420,7 +2511,7 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
           React.createElement('h3', { className: 'text-2xl font-bold text-slate-800' }, res.activity_purpose),
           React.createElement(Badge, { status: res.status })
         ),
-        React.createElement('button', { onClick: onClose, className: 'p-1 hover:bg-slate-100 rounded-full text-slate-600 text-xl' }, '✕')
+        React.createElement('button', { onClick: onClose, className: 'p-1 hover:bg-slate-100 rounded-full text-slate-600 text-xl' }, React.createElement(SmoothieIcon, { name: 'close', cls: 'w-5 h-5' }))
       ),
 
       // Details grid
@@ -2428,7 +2519,7 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
         // Left column - basic info
         React.createElement('div', { className: 'space-y-4' },
           React.createElement('div', { className: 'space-y-3' },
-            React.createElement('h4', { className: 'font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider' }, '👤 Identification'),
+            React.createElement('h4', { className: 'font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider' }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'user', cls: 'w-3.5 h-3.5 mr-1.5 inline' }), 'Identification')),
             React.createElement('div', { className: 'grid grid-cols-2 gap-3' },
               React.createElement('div', {},
                 React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'Requester'),
@@ -2449,7 +2540,7 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
             )
           ),
           React.createElement('div', { className: 'space-y-3' },
-            React.createElement('h4', { className: 'font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider' }, '📅 Event Info'),
+            React.createElement('h4', { className: 'font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider' }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'calendar', cls: 'w-3.5 h-3.5 mr-1.5 inline' }), 'Event Info')),
             React.createElement('div', { className: 'grid grid-cols-2 gap-3' },
               React.createElement('div', {},
                 React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'Start Time'),
@@ -2468,7 +2559,7 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
           
           // Equipment and Services Requested Section
           React.createElement('div', { className: 'space-y-3' },
-            React.createElement('h4', { className: 'font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider' }, '🛠️ Equipment / Services Requested'),
+            React.createElement('h4', { className: 'font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider' }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'wrench', cls: 'w-3.5 h-3.5 mr-1.5 inline' }), 'Equipment / Services Requested')),
             requestedEquip.length > 0 
               ? React.createElement('div', { className: 'grid gap-2' },
                   requestedEquip.map(([item, qty]) => 
@@ -2514,7 +2605,7 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
 
         // Right column - document stages
         React.createElement('div', { className: 'space-y-4' },
-          React.createElement('h4', { className: 'font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider' }, '📋 Process Documents'),
+          React.createElement('h4', { className: 'font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider' }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'document', cls: 'w-3.5 h-3.5 mr-1.5 inline' }), 'Process Documents')),
           
           // Stage 1: Concept Paper
           React.createElement('div', { className: 'bg-slate-50 p-4 rounded-xl border border-slate-200' },
@@ -2529,13 +2620,13 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
             React.createElement('p', { className: 'text-xs font-bold uppercase text-slate-400 mb-2 tracking-wider' }, 'Stage 2: Facility Form'),
             res.final_form_url
               ? React.createElement('div', {},
-                  React.createElement('p', { className: 'text-green-600 font-bold flex items-center gap-2 text-sm' }, '✓ Link Submitted'),
+                  React.createElement('p', { className: 'text-green-600 font-bold flex items-center gap-2 text-sm' }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'check', cls: 'w-4 h-4 mr-1 text-green-600 inline' }), 'Link Submitted')),
                   React.createElement('a', { href: res.final_form_url, target: '_blank', rel: 'noopener noreferrer', className: 'text-sky-600 underline text-xs break-all block mt-1' }, res.final_form_url)
                 )
               : res.status === 'concept-approved'
                 ? React.createElement('div', { className: 'space-y-3' },
                     React.createElement('p', { className: 'text-xs text-slate-700 leading-relaxed font-bold' }, 'Concept approved! Please submit your signed Facility Form.'),
-                    React.createElement('button', { onClick: handlePrint, className: 'flex items-center gap-2 text-indigo-600 font-bold text-xs hover:text-indigo-700' }, '🖨️ Print Form Template'),
+                    React.createElement('button', { onClick: handlePrint, className: 'flex items-center gap-2 text-indigo-600 font-bold text-xs hover:text-indigo-700' }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'printer', cls: 'w-4 h-4 mr-1.5 inline' }), 'Print Form Template')),
                     isOwner && React.createElement('div', { className: 'space-y-2 mt-2' },
                       React.createElement('input', { 
                         type: 'url', 
@@ -2593,7 +2684,7 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
           onClick: () => onArchive(res.id), 
           disabled: loading, 
           className: 'flex-1 bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors disabled:opacity-50' 
-        }, loading ? 'Processing...' : '📦 Move to Archive'),
+        }, loading ? 'Processing...' : React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'archive', cls: 'w-4 h-4 mr-1.5 inline' }), 'Move to Archive')),
         // Cancel/Delete logic
         (() => {
           // Remove Cancel Event button for admin/phase1 admin
@@ -2621,7 +2712,7 @@ function DenyModal({ res, onClose, onConfirm, loading }) {
 function DeleteEventModal({ event, actionType, onClose, onConfirm, loading }) {
   const [reason, setReason] = useState('');
   const isCancelAction = actionType === 'cancel';
-  const title = isCancelAction ? '⛔ Cancel Event' : '🗑️ Delete Event Permanently';
+  const title = isCancelAction ? React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'ban', cls: 'w-5 h-5 mr-1.5 inline text-red-500' }), 'Cancel Event') : React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'trash', cls: 'w-5 h-5 mr-1.5 inline text-red-500' }), 'Delete Event Permanently');
   const description = isCancelAction
     ? 'Are you sure you want to cancel "'
     : 'Are you sure you want to permanently delete "';
@@ -2734,7 +2825,7 @@ function ProfileModal({ user, onClose, onLogout, onProfileUpdated }) {
 
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
     React.createElement('div', { className: 'bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl relative' },
-      React.createElement('button', { onClick: onClose, className: 'absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 transition-colors' }, '✕'),
+      React.createElement('button', { onClick: onClose, className: 'absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 transition-colors' }, React.createElement(SmoothieIcon, { name: 'close', cls: 'w-5 h-5' })),
 
       React.createElement('div', { className: 'flex flex-col items-center text-center mb-8' },
         React.createElement('div', { className: 'w-24 h-24 bg-sky-100 text-sky-600 flex items-center justify-center rounded-full font-bold text-4xl mb-4 border-4 border-white shadow-sm' }, user.username[0].toUpperCase()),
@@ -2759,7 +2850,7 @@ function ProfileModal({ user, onClose, onLogout, onProfileUpdated }) {
       React.createElement('button', {
         onClick: onLogout,
         className: 'w-full mt-6 flex items-center justify-center gap-2 p-3 rounded-2xl bg-slate-50 text-red-500 hover:bg-red-50 font-bold transition-all text-sm border border-slate-100'
-      }, '🚪 Sign Out')
+      }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'logout', cls: 'w-4 h-4 mr-2 inline' }), 'Sign Out'))
     )
   );
 }
@@ -3853,7 +3944,7 @@ function SettingsView({ currentUser, rooms, onRoomsUpdated, onNotify }) {
       React.createElement('div', { className: 'bg-white rounded-2xl w-full max-w-md p-5' },
         React.createElement('div', { className: 'flex justify-between items-center mb-4' },
           React.createElement('h4', { className: 'font-bold text-slate-800' }, editingUser ? 'Edit User' : 'Create User'),
-          React.createElement('button', { onClick: () => setShowUserForm(false), className: 'text-xl text-slate-500' }, '✕')
+          React.createElement('button', { onClick: () => setShowUserForm(false), className: 'text-xl text-slate-500' }, React.createElement(SmoothieIcon, { name: 'close', cls: 'w-5 h-5' }))
         ),
         React.createElement('form', { onSubmit: submitUser, className: 'space-y-3' },
           React.createElement('input', {
@@ -3956,7 +4047,7 @@ function FacilityEditorModal({ initialFacility, onClose, onSubmit }) {
     React.createElement('div', { className: 'bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6' },
       React.createElement('div', { className: 'flex justify-between items-center mb-4' },
         React.createElement('h3', { className: 'text-xl font-bold text-slate-800' }, initialFacility ? 'Edit Facility' : 'Add Facility'),
-        React.createElement('button', { onClick: onClose, className: 'text-2xl text-slate-500' }, '✕')
+        React.createElement('button', { onClick: onClose, className: 'text-2xl text-slate-500' }, React.createElement(SmoothieIcon, { name: 'close', cls: 'w-5 h-5' }))
       ),
       error && React.createElement('div', { className: 'mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm border border-red-200' }, error),
       React.createElement('form', { onSubmit: submit, className: 'space-y-4' },
@@ -4293,15 +4384,15 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
         React.createElement('h4', { className: 'font-bold text-slate-800 text-sm leading-tight border-b pb-2' }, hoveredEvent.activity_purpose),
         React.createElement('div', { className: 'space-y-2 pt-1' },
           React.createElement('div', { className: 'flex items-center gap-2 text-xs text-slate-600' },
-            React.createElement('span', {}, '🕐'),
+            React.createElement(SmoothieIcon, { name: 'clock', cls: 'w-4 h-4 text-slate-400 shrink-0' }),
             React.createElement('span', {}, isHolidayEvent(hoveredEvent) ? 'Whole day class suspension' : `${formatTime(hoveredEvent.start_time)} - ${formatTime(hoveredEvent.end_time)}`)
           ),
           React.createElement('div', { className: 'flex items-center gap-2 text-xs text-slate-600' },
-            React.createElement('span', {}, '📍'),
+            React.createElement(SmoothieIcon, { name: 'map-pin', cls: 'w-4 h-4 text-slate-400 shrink-0' }),
             React.createElement('span', { className: 'font-semibold' }, isHolidayEvent(hoveredEvent) ? 'University-wide' : (hoveredEvent.room_name || (rooms?.find(r => r.id == hoveredEvent.room_id)?.name) || 'Unknown'))
           ),
           React.createElement('div', { className: 'flex items-center gap-2 text-xs text-slate-600' },
-            React.createElement('span', {}, '👤'),
+            React.createElement(SmoothieIcon, { name: 'user', cls: 'w-4 h-4 text-slate-400 shrink-0' }),
             React.createElement('span', {}, isHolidayEvent(hoveredEvent) ? (hoveredEvent.holiday_name || 'Holiday') : (hoveredEvent.person_in_charge || 'N/A'))
           )
         ),
@@ -4311,7 +4402,7 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
 
     // Events list below calendar
     React.createElement('div', { className: 'mt-6 pt-6 border-t' },
-      React.createElement('h4', { className: 'font-bold text-slate-800 mb-4' }, '📋 Upcoming Events and Holidays'),
+      React.createElement('h4', { className: 'font-bold text-slate-800 mb-4' }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'reservations', cls: 'w-4 h-4 mr-1.5 inline' }), 'Upcoming Events and Holidays')),
       monthlyEvents.length === 0 
         ? React.createElement('p', { className: 'text-slate-400 py-4 text-center text-sm' }, `No events or admin-set holidays for ${monthName}.`)
         : React.createElement('div', { className: 'space-y-2 max-h-[200px] overflow-y-auto' },
@@ -4363,7 +4454,7 @@ function ArchiveView({ archive, user, isAdmin, onDelete, loading }) {
   };
 
   return React.createElement('div', { className: 'space-y-4' },
-    React.createElement('h2', { className: 'text-2xl font-bold text-slate-800' }, '📦 Archive'),
+    React.createElement('h2', { className: 'text-2xl font-bold text-slate-800' }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'archive', cls: 'w-6 h-6 mr-2 inline' }), 'Archive')),
     loading
       ? React.createElement(InlineSpinner, { label: 'Loading archive...' })
       : items.length === 0 
@@ -4390,7 +4481,7 @@ function ArchiveView({ archive, user, isAdmin, onDelete, loading }) {
 function NotificationModal({ message, onClose }) {
   return React.createElement('div', { className: 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4' },
     React.createElement('div', { className: 'bg-white rounded-2xl p-6 max-w-sm text-center' },
-      React.createElement('p', { className: 'text-lg font-bold text-green-600 mb-4' }, '✓ ' + message),
+      React.createElement('p', { className: 'text-lg font-bold text-green-600 mb-4' }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'check', cls: 'w-5 h-5 mr-1.5 inline' }), message)),
       React.createElement('button', { onClick: onClose, className: 'w-full bg-sky-500 text-white p-2 rounded' }, 'Close')
     )
   );
@@ -4419,11 +4510,11 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
   if (isCancelled) {
     eventActionType = 'delete';
     eventActionLabel = 'Delete Event';
-    eventActionIcon = '🗑️';
+    eventActionIcon = 'trash';
   } else if (isOngoing || isScheduled) {
     eventActionType = 'cancel';
     eventActionLabel = 'Cancel Event';
-    eventActionIcon = '⛔';
+    eventActionIcon = 'ban';
   } else {
     eventActionType = null;
     eventActionLabel = '';
@@ -4477,28 +4568,28 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           React.createElement('h3', { className: 'text-2xl font-bold text-slate-800 mb-2' }, event.activity_purpose),
           React.createElement('span', { className: `px-3 py-1 rounded-full text-xs font-bold ${statusColor}` }, statusLabel)
         ),
-        React.createElement('button', { onClick: onClose, className: 'p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600' }, '✕')
+        React.createElement('button', { onClick: onClose, className: 'p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600' }, React.createElement(SmoothieIcon, { name: 'close', cls: 'w-5 h-5' }))
       ),
 
       React.createElement('div', { className: 'space-y-4' },
         isHoliday
           ? React.createElement(React.Fragment, {},
               React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-                React.createElement('span', { className: 'text-2xl' }, '🏷️'),
+                React.createElement(SmoothieIcon, { name: 'tag', cls: 'w-6 h-6 text-slate-400 shrink-0' }),
                 React.createElement('div', {},
                   React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Name'),
                   React.createElement('p', { className: 'font-semibold text-slate-800' }, event.holiday_name || event.activity_purpose || 'Holiday')
                 )
               ),
               React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-                React.createElement('span', { className: 'text-2xl' }, '📅'),
+                React.createElement(SmoothieIcon, { name: 'calendar', cls: 'w-6 h-6 text-slate-400 shrink-0' }),
                 React.createElement('div', {},
                   React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Date'),
                   React.createElement('p', { className: 'font-semibold text-slate-800' }, formatDate(event.start_time))
                 )
               ),
               React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-                React.createElement('span', { className: 'text-2xl' }, '📌'),
+                React.createElement(SmoothieIcon, { name: 'flag', cls: 'w-6 h-6 text-slate-400 shrink-0' }),
                 React.createElement('div', {},
                   React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Notes'),
                   React.createElement('p', { className: 'font-semibold text-slate-800 whitespace-pre-line' }, event.notes || 'No notes provided.')
@@ -4507,42 +4598,42 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
             )
           : React.createElement(React.Fragment, {},
               React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-                React.createElement('span', { className: 'text-2xl' }, '📅'),
+                React.createElement(SmoothieIcon, { name: 'calendar', cls: 'w-6 h-6 text-slate-400 shrink-0' }),
                 React.createElement('div', {},
                   React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Date'),
                   React.createElement('p', { className: 'font-semibold text-slate-800' }, formatDate(event.start_time))
                 )
               ),
               hasEndDate && React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-                React.createElement('span', { className: 'text-2xl' }, '🗓️'),
+                React.createElement(SmoothieIcon, { name: 'calendar-days', cls: 'w-6 h-6 text-slate-400 shrink-0' }),
                 React.createElement('div', {},
                   React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'End Date'),
                   React.createElement('p', { className: 'font-semibold text-slate-800' }, formatDate(event.end_time))
                 )
               ),
               React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-                React.createElement('span', { className: 'text-2xl' }, '🕐'),
+                React.createElement(SmoothieIcon, { name: 'clock', cls: 'w-6 h-6 text-slate-400 shrink-0' }),
                 React.createElement('div', {},
                   React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Time'),
                   React.createElement('p', { className: 'font-semibold text-slate-800' }, `${formatTime(event.start_time)} - ${formatTime(event.end_time)}`)
                 )
               ),
               React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-                React.createElement('span', { className: 'text-2xl' }, '📍'),
+                React.createElement(SmoothieIcon, { name: 'map-pin', cls: 'w-6 h-6 text-slate-400 shrink-0' }),
                 React.createElement('div', {},
                   React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Facility'),
                   React.createElement('p', { className: 'font-semibold text-slate-800' }, roomName)
                 )
               ),
               React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-                React.createElement('span', { className: 'text-2xl' }, '👤'),
+                React.createElement(SmoothieIcon, { name: 'user', cls: 'w-6 h-6 text-slate-400 shrink-0' }),
                 React.createElement('div', {},
                   React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Person in Charge'),
                   React.createElement('p', { className: 'font-semibold text-slate-800' }, event.person_in_charge || 'N/A')
                 )
               ),
               event.department && React.createElement('div', { className: 'flex items-start gap-3 p-4 bg-slate-50 rounded-2xl' },
-                React.createElement('span', { className: 'text-2xl' }, '🏛️'),
+                React.createElement(SmoothieIcon, { name: 'building', cls: 'w-6 h-6 text-slate-400 shrink-0' }),
                 React.createElement('div', {},
                   React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Department'),
                   React.createElement('p', { className: 'font-semibold text-slate-800' }, event.department)
@@ -4560,7 +4651,7 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           onClick: () => onDeleteClick(eventActionType),
           disabled: loading,
           className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2'
-        }, isHoliday ? '🗑️ Delete Holiday' : `${eventActionIcon} ${eventActionLabel}`)
+        }, isHoliday ? React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'trash', cls: 'w-4 h-4 mr-1.5 inline' }), 'Delete Holiday') : React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: eventActionIcon, cls: 'w-4 h-4 mr-1.5 inline' }), eventActionLabel))
       )
     )
   );
@@ -4625,7 +4716,7 @@ function AIChatbotWidget({ user, rooms, calendarEvents }) {
       React.createElement('button', {
         onClick: () => setIsOpen(false),
         className: 'text-white/90 hover:text-white text-lg leading-none'
-      }, '✕')
+      }, React.createElement(SmoothieIcon, { name: 'close', cls: 'w-5 h-5' }))
     ),
     React.createElement('div', { ref: listRef, className: 'h-64 overflow-y-auto p-3 bg-slate-50 space-y-2' },
       messages.map((m, idx) => React.createElement('div', {
@@ -4688,14 +4779,14 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
       // Header
       React.createElement('div', { className: 'flex justify-between items-center mb-6 pb-4 border-b' },
         React.createElement('h3', { className: 'text-xl font-bold flex items-center gap-2 text-slate-800' }, 
-          '🔔 ', isAdmin ? 'Admin Alerts' : 'Notifications'
+          React.createElement(SmoothieIcon, { name: 'bell', cls: 'w-5 h-5' }), ' ', isAdmin ? 'Admin Alerts' : 'Notifications'
         ),
         React.createElement('div', { className: 'flex gap-2' },
           notifications.length > 0 && React.createElement('button', { 
             onClick: onMarkAllSeen, 
             className: 'text-xs text-sky-500 hover:text-sky-700 font-medium' 
           }, 'Mark all read'),
-          React.createElement('button', { onClick: onClose, className: 'p-1 text-slate-400 hover:text-slate-600' }, '✕')
+          React.createElement('button', { onClick: onClose, className: 'p-1 text-slate-400 hover:text-slate-600' }, React.createElement(SmoothieIcon, { name: 'close', cls: 'w-5 h-5' }))
         )
       ),
       
@@ -4703,7 +4794,7 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
       React.createElement('div', { className: 'flex-1 overflow-y-auto space-y-4 pr-2' },
         notifications.length === 0 
           ? React.createElement('div', { className: 'py-12 text-center text-slate-400 flex flex-col items-center' },
-              React.createElement('span', { className: 'text-4xl mb-2 opacity-20' }, '📭'),
+              React.createElement(SmoothieIcon, { name: 'mail-open', cls: 'w-10 h-10 mb-2 text-slate-300' }),
               React.createElement('p', { className: 'text-sm' }, 'No new notifications')
             )
           : notifications.map(n => {
@@ -4720,7 +4811,7 @@ function NotificationsListModal({ notifications, user, isAdmin, onClose, onMarkS
                     onClick: (e) => { e.stopPropagation(); onMarkSeen(n); },
                     className: 'text-slate-300 hover:text-green-500 transition-colors',
                     title: 'Mark as read'
-                  }, '✓')
+                  }, React.createElement(SmoothieIcon, { name: 'check-simple', cls: 'w-4 h-4' }))
                 ),
                 React.createElement('p', { className: 'text-sm font-bold text-slate-800 mb-1' }, n.activity_purpose),
                 React.createElement('div', { className: 'text-xs text-slate-600 leading-relaxed' },
