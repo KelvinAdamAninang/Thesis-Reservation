@@ -4647,11 +4647,39 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           onClick: onClose,
           className: `${isAdmin ? 'flex-1' : 'w-full'} bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-xl font-bold transition-colors`
         }, 'Close'),
-        isAdmin && eventActionType && React.createElement('button', {
-          onClick: () => onDeleteClick(eventActionType),
+        (isAdmin && (eventActionType || isHoliday)) && React.createElement('button', {
+          onClick: async () => {
+            // HIJACK THE CLICK IF IT IS A HOLIDAY
+            if (isHoliday) {
+              if (window.confirm("Are you sure you want to delete this holiday?")) {
+                try {
+                  // Assuming apiService is available in this scope. 
+                  // If not, use the standard fetch() approach we discussed!
+                  const response = await fetch(`/api/holidays/${event.id}`, { method: 'DELETE' });
+                  const data = await response.json();
+                  
+                  if (response.ok && data.status === 'success') {
+                    alert('Holiday deleted successfully!');
+                    window.location.reload(); // Refresh the page to update the calendar
+                  } else {
+                    alert(data.message || 'Failed to delete holiday');
+                  }
+                } catch (error) {
+                  alert('Error deleting holiday: ' + error.message);
+                }
+              }
+            } else {
+              // IF IT IS A NORMAL RESERVATION, DO THE ORIGINAL BEHAVIOR
+              onDeleteClick(eventActionType);
+            }
+          },
           disabled: loading,
           className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2'
-        }, isHoliday ? React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'trash', cls: 'w-4 h-4 mr-1.5 inline' }), 'Delete Holiday') : React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: eventActionIcon, cls: 'w-4 h-4 mr-1.5 inline' }), eventActionLabel))
+        }, 
+        isHoliday 
+          ? React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'trash', cls: 'w-4 h-4 mr-1.5 inline' }), 'Delete Holiday') 
+          : React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: eventActionIcon, cls: 'w-4 h-4 mr-1.5 inline' }), eventActionLabel)
+        )
       )
     )
   );
