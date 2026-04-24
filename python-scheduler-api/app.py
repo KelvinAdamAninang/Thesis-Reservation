@@ -266,6 +266,8 @@ def _ensure_reservation_columns():
     with db.engine.begin() as conn:
         if 'concept_approved_at' not in columns:
             conn.exec_driver_sql("ALTER TABLE reservations ADD COLUMN concept_approved_at TIMESTAMP")
+        if 'department_temp' not in columns:
+            conn.exec_driver_sql("ALTER TABLE reservations ADD COLUMN department_temp VARCHAR(200)")
 
 
 with app.app_context():
@@ -946,7 +948,7 @@ def get_reservations():
         'room_name': r.room_name or 'Unknown',
         'activity_purpose': r.activity_purpose,
         'division': r.division,
-        'department_temp': r.department_temp or '',
+        'department_temp': getattr(r, 'department_temp', '') or '',
         'attendees': r.attendees,
         'classification': r.classification,
         'person_in_charge': r.person_in_charge,
@@ -955,6 +957,7 @@ def get_reservations():
         'end_time': r.end_time.isoformat() if r.end_time else None,
         'status': r.status,
         'date_filed': r.date_filed.isoformat() if r.date_filed else None,
+        'concept_approved_at': r.concept_approved_at.isoformat() if r.concept_approved_at else None,
         'concept_paper_url': r.concept_paper_url,
         'final_form_url': r.final_form_url,
         'final_form_uploaded': r.final_form_uploaded,
@@ -983,7 +986,7 @@ def get_reservation(id):
         'room_name': reservation.room_name or 'Unknown',
         'activity_purpose': reservation.activity_purpose,
         'division': reservation.division,
-        'department_temp': reservation.department_temp or '',
+        'department_temp': getattr(reservation, 'department_temp', '') or '',
         'attendees': reservation.attendees,
         'classification': reservation.classification,
         'person_in_charge': reservation.person_in_charge,
@@ -1084,6 +1087,42 @@ def upload_final_form(id):
     
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'Final form uploaded'})
+
+# Expire reservation (called by frontend when Stage 2 deadline passes)
+@app.route('/api/reservations/<int:id>/expire', methods=['POST'])
+@login_required
+def expire_reservation(id):
+    """Mark concept-approved reservation as denied when Stage 2 deadline passes.
+    
+    Called by the frontend countdown timer. This is a best-effort operation —
+    the nightly scheduler will also catch expired reservations, so failures here
+    are non-critical."""
+    reservation = db.session.get(Reservation, id)
+    if not reservation:
+        return jsonify({'status': 'success', 'message': 'Reservation not found (already processed)'}), 200
+    
+    # Only the owner or admin can expire
+    if current_user.role not in ['admin', 'admin_phase1'] and reservation.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    # Only expire concept-approved reservations without final forms
+    if reservation.status != 'concept-approved':
+        return jsonify({'status': 'success', 'message': 'Reservation status already changed'}), 200
+    
+    has_final_form = bool(reservation.final_form_uploaded or (reservation.final_form_url or '').strip())
+    if has_final_form:
+        return jsonify({'status': 'success', 'message': 'Final form already submitted'}), 200
+    
+    # Mark as denied (scheduler-initiated expiry logic is the source of truth for deadline calculation)
+    reservation.status = 'denied'
+    reservation.denial_reason = (
+        'Stage 2 submission deadline expired. The final form was not uploaded '
+        'within 5 days of concept approval. This reservation was automatically '
+        'denied by the system.'
+    )
+    db.session.commit()
+    
+    return jsonify({'status': 'success', 'message': 'Reservation expired and marked as denied'})
 
 # Approve concept (Stage 1) - Admin only
 @app.route('/api/reservations/<int:id>/approve-concept', methods=['POST'])

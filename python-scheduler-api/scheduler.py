@@ -100,7 +100,9 @@ def start_training_scheduler(app):
 def auto_cancel_expired_reservations(app):
     """
     Lazy evaluator: Checks for and cancels 'concept-approved' 
-    reservations older than 5 days on-demand.
+    reservations where Stage 2 deadline (5 days from concept approval) has passed.
+    
+    Matches the logic in app.py _auto_cancel_overdue_stage2_reservations.
     """
     # IMPORT INSIDE THE FUNCTION
     from models import db, Reservation
@@ -109,20 +111,49 @@ def auto_cancel_expired_reservations(app):
         try:
             tz = ZoneInfo(SCHEDULER_TIMEZONE)
             now = datetime.now(tz)
-            cutoff_date = now - timedelta(days=5)
+            cutoff = now - timedelta(days=5)
             
-            expired_reservations = Reservation.query.filter(
+            # Get all concept-approved reservations without final forms
+            candidates = Reservation.query.filter(
                 Reservation.status == 'concept-approved',
-                Reservation.date_filed <= cutoff_date.date()
+                Reservation.archived_at == None
             ).all()
-
-            if expired_reservations:
-                for res in expired_reservations:
-                    res.status = 'denied'
-                    res.denial_reason = 'System Auto-Cancellation: Failed to submit final Stage 2 requirements within the 5-day deadline.'
+            
+            auto_denied = 0
+            for reservation in candidates:
+                # Check if final form already submitted
+                has_final_form_link = bool(str(reservation.final_form_url or '').strip())
+                has_final_form = bool(reservation.final_form_uploaded or has_final_form_link)
+                if has_final_form:
+                    continue
                 
+                # Use concept_approved_at OR date_filed as anchor (same as backend)
+                approval_anchor = reservation.concept_approved_at or reservation.date_filed
+                if not approval_anchor:
+                    continue
+                    
+                # Make timezone-aware if needed for comparison
+                if approval_anchor.tzinfo is None:
+                    approval_anchor = approval_anchor.replace(tzinfo=tz)
+                
+                # Check if deadline passed
+                if approval_anchor > cutoff:
+                    continue
+                
+                # Deny the reservation
+                reservation.status = 'denied'
+                reservation.denial_reason = (
+                    'Submission deadline expired. The final form was not submitted '
+                    'within 5 days of concept approval. This reservation was '
+                    'automatically denied by the system.'
+                )
+                auto_denied += 1
+            
+            if auto_denied > 0:
                 db.session.commit()
-                app.logger.info(f"Lazy evaluation auto-cancelled {len(expired_reservations)} expired stage-2 reservations.")
+                app.logger.info(
+                    f'Lazy evaluation auto-cancelled {auto_denied} expired Stage 2 reservations.'
+                )
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'Failed during lazy expiration check: {str(e)}')

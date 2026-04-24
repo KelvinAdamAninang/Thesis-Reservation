@@ -45,6 +45,7 @@ class Reservation(db.Model):
     division = db.Column(db.String(100), nullable=True)
     attendees = db.Column(db.Integer, nullable=True)
     classification = db.Column(db.String(50), nullable=True)
+    department_temp = db.Column(db.String(200), nullable=True)  # Optional department override
 
     # NEW FIELDS FROM FRONTEND UPDATE
     person_in_charge = db.Column(db.String(100), nullable=True)

@@ -2853,7 +2853,7 @@ function ProfileModal({ user, onClose, onLogout, onProfileUpdated }) {
         React.createElement('div', { className: 'flex flex-col' },
           React.createElement('span', { className: 'text-xs font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Profile Name'),
           React.createElement('span', { className: 'w-full p-2 border rounded-lg text-sm font-semibold text-slate-700 bg-slate-50' }, user.username),
-          React.createElement('p', { className: 'text-xs text-slate-500 mt-1' }, 'Profile name change is temporarily disabled.')
+          React.createElement('p', { className: 'text-xs text-slate-500 mt-1' }, 'PYour profile name')
         ),
         React.createElement('div', { className: 'flex flex-col' },
           React.createElement('span', { className: 'text-xs font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Department'),
