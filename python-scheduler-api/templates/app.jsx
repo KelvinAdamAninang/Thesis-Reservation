@@ -4299,15 +4299,16 @@ function ArchiveView({ archive, user, isAdmin, onDelete, loading }) {
   };
 
   const items = (isAdmin ? archive : archive.filter(a => a.user_id === user.id)).sort((a, b) => {
+    // Ascending order: oldest archived/filed first
     const aArchiveTs = toTimestamp(a.archived_at);
     const bArchiveTs = toTimestamp(b.archived_at);
-    if (aArchiveTs !== bArchiveTs) return bArchiveTs - aArchiveTs;
+    if (aArchiveTs !== bArchiveTs) return aArchiveTs - bArchiveTs;
 
     const aStartTs = toTimestamp(a.start_time);
     const bStartTs = toTimestamp(b.start_time);
-    if (aStartTs !== bStartTs) return bStartTs - aStartTs;
+    if (aStartTs !== bStartTs) return aStartTs - bStartTs;
 
-    return (b.id || 0) - (a.id || 0);
+    return (a.id || 0) - (b.id || 0);
   });
   
   const getArchiveLabel = (item) => {

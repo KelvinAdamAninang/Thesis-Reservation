@@ -978,6 +978,9 @@ def get_calendar_events():
 @app.route('/api/reservations', methods=['GET'])
 @login_required
 def get_reservations():
+    # Eagerly deny expired concept-approved reservations so My Reservations
+    # list reflects the correct status without waiting for the nightly scheduler.
+    _auto_cancel_overdue_stage2_reservations()
     query = Reservation.query.options(joinedload(Reservation.requester))
     if current_user.role in ['admin', 'admin_phase1']:
         reservations = query.all()
