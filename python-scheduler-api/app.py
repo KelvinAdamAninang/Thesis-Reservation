@@ -23,7 +23,7 @@ from data_mining.analytics import build_analytics_snapshot
 from data_mining.analytics import generate_monthly_report
 from data_mining.forecast_utils import forecast_all_academic_periods, forecast_for_period, forecast_current_semester
 from data_mining.train_sarimax_model import retrain_all_historical_data
-from scheduler import start_training_scheduler, get_next_retrain_at_iso, start_stage2_deadline_scheduler
+from scheduler import start_training_scheduler, get_next_retrain_at_iso, auto_cancel_expired_reservations
 
 try:
     from google import genai as google_genai_client
@@ -278,65 +278,6 @@ with app.app_context():
         app.logger.warning("Schema checks will be attempted again on first database access")
 
 
-def _auto_cancel_overdue_stage2_reservations():
-    """Deny concept-approved reservations if final form not submitted within 5 days.
-
-    Sets status to 'denied' with a system denial reason.
-    Does NOT set archived_at so the reservation stays visible
-    in the user's My Reservations list (not pushed to archive).
-    The calendar query excludes 'denied' so the plotted event
-    disappears from the calendar immediately on next load.
-    """
-    # Use utcnow() to match Supabase UTC-stored timestamps.
-    # Using datetime.now() (local Manila time) causes the comparison
-    # to fail because Supabase timestamps are UTC (8hrs behind Manila).
-    now = datetime.utcnow()
-    cutoff = now - timedelta(days=5)
-
-    candidates = Reservation.query.filter(
-        Reservation.status == 'concept-approved',
-        Reservation.archived_at == None
-    ).all()
-    auto_denied = 0
-
-    for reservation in candidates:
-        has_final_form_link = bool(str(reservation.final_form_url or '').strip())
-        has_final_form = bool(reservation.final_form_uploaded or has_final_form_link)
-        if has_final_form:
-            continue
-
-        approval_anchor = reservation.concept_approved_at or reservation.date_filed
-        if not approval_anchor or approval_anchor > cutoff:
-            continue
-
-        # Deny with a system-generated reason.
-        # archived_at is intentionally left NULL so this stays
-        # in My Reservations and does not go to the archive view.
-        reservation.status = 'denied'
-        reservation.denial_reason = (
-            'Submission deadline expired. The final form was not submitted '
-            'within 5 days of concept approval. This reservation was '
-            'automatically denied by the system.'
-        )
-
-        user = db.session.get(User, reservation.user_id)
-        if user:
-            app.logger.info(
-                f"Auto-denied reservation '{reservation.activity_purpose}' "
-                f"for user {user.username} (ID: {user.id}) -- Stage 2 deadline expired."
-            )
-        auto_denied += 1
-
-    if auto_denied > 0:
-        db.session.commit()
-        app.logger.info(
-            'Auto-denied %s concept-approved reservations due to Stage 2 deadline expiry.',
-            auto_denied
-        )
-
-
-
-
 
 
 def _parse_report_month_year(req_year, req_month):
@@ -477,7 +418,7 @@ def start_stage2_deadline_scheduler(app):
     def auto_cancel_job():
         with app.app_context():
             try:
-                _auto_cancel_overdue_stage2_reservations()
+                auto_cancel_expired_reservations(app)
             except Exception as exc:
                 app.logger.error('Stage 2 auto-cancel scheduler failed: %s', exc)
 
@@ -511,7 +452,7 @@ def start_stage2_deadline_scheduler(app):
 
     # Also perform one check immediately on startup.
     with app.app_context():
-        _auto_cancel_overdue_stage2_reservations()
+        auto_cancel_expired_reservations(app)
 
     scheduler.start()
     app.logger.info('Stage 2 deadline scheduler started (daily 01:00 Asia/Manila).')
@@ -928,7 +869,7 @@ def get_calendar_events():
     # Eagerly deny any expired concept-approved reservations before
     # returning calendar events. This removes them from the calendar
     # immediately on page load without waiting for the nightly scheduler.
-    _auto_cancel_overdue_stage2_reservations()
+    auto_cancel_expired_reservations(app)
 
     # Return calendar-relevant reservations:
     # - concept-approved events (pending final review, shown as plotting)
@@ -983,7 +924,7 @@ def get_calendar_events():
 def get_reservations():
     # Eagerly deny expired concept-approved reservations so My Reservations
     # reflects correct status without waiting for the nightly scheduler.
-    _auto_cancel_overdue_stage2_reservations()
+    auto_cancel_expired_reservations(app)
     query = Reservation.query.options(joinedload(Reservation.requester))
     if current_user.role in ['admin', 'admin_phase1']:
         reservations = query.all()
