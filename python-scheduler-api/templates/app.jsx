@@ -4649,18 +4649,20 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
         }, 'Close'),
         (isAdmin && (eventActionType || isHoliday)) && React.createElement('button', {
           onClick: async () => {
-            // HIJACK THE CLICK IF IT IS A HOLIDAY
             if (isHoliday) {
               if (window.confirm("Are you sure you want to delete this holiday?")) {
                 try {
-                  // Assuming apiService is available in this scope. 
-                  // If not, use the standard fetch() approach we discussed!
-                  const response = await fetch(`/api/holidays/${event.id}`, { method: 'DELETE' });
+                  // WE ADDED THE CREDENTIALS LINE RIGHT HERE 👇
+                  const response = await fetch(`/api/holidays/${event.id}`, { 
+                      method: 'DELETE',
+                      credentials: 'include' 
+                  });
+                  
                   const data = await response.json();
                   
                   if (response.ok && data.status === 'success') {
                     alert('Holiday deleted successfully!');
-                    window.location.reload(); // Refresh the page to update the calendar
+                    window.location.reload(); 
                   } else {
                     alert(data.message || 'Failed to delete holiday');
                   }
@@ -4669,7 +4671,6 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
                 }
               }
             } else {
-              // IF IT IS A NORMAL RESERVATION, DO THE ORIGINAL BEHAVIOR
               onDeleteClick(eventActionType);
             }
           },
