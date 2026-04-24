@@ -1159,10 +1159,29 @@ def deny_reservation(id):
     data = request.get_json()
     reservation.status = 'denied'
     reservation.denial_reason = data.get('reason', 'No reason provided')
-    reservation.archived_at = datetime.now()
-    
+    # Do NOT archive immediately; stays in reservation list for user
+    reservation.archived_at = None
+    # Notification logic (placeholder: log, replace with real notification system if needed)
+    user = db.session.get(User, reservation.user_id)
+    if user:
+        app.logger.info(f"Notified user {user.username} (ID: {user.id}) that their reservation '{reservation.activity_purpose}' was denied. Reason: {reservation.denial_reason}")
     db.session.commit()
-    return jsonify({'status': 'success', 'message': 'Reservation denied'})
+    return jsonify({'status': 'success', 'message': 'Reservation denied and user notified'})
+# Archive denied reservation (user-initiated)
+@app.route('/api/reservations/<int:id>/archive', methods=['POST'])
+@login_required
+def user_archive_reservation(id):
+    reservation = db.session.get(Reservation, id)
+    if not reservation:
+        return jsonify({'error': 'Reservation not found'}), 404
+    # Only the owner can archive their own denied reservation
+    if reservation.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+    if reservation.status != 'denied':
+        return jsonify({'error': 'Only denied reservations can be archived by user'}), 400
+    reservation.archived_at = datetime.now()
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Denied reservation archived'})
 
 # Cancel event from calendar (Admin only) - with notification to user
 @app.route('/api/reservations/<int:id>/delete-event', methods=['POST'])
