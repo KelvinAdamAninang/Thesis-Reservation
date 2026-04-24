@@ -943,8 +943,16 @@ function App() {
       onClose: () => setActiveModal(null),
       onDeleteClick: (actionType) => {
         if (selectedRes && (selectedRes.event_type === 'holiday' || selectedRes.is_holiday)) {
+          
+          // ADD A CONFIRMATION HERE SO ADMINS DON'T MISCLICK
+          if (!window.confirm("Are you sure you want to delete this holiday?")) return;
+
           setLoading(true);
-          apiService.deleteHoliday(selectedRes.holiday_id)
+          
+          // FIX THE ID BUG HERE: Use selectedRes.holiday_id OR selectedRes.id
+          const targetId = selectedRes.holiday_id || selectedRes.id; 
+          
+          apiService.deleteHoliday(targetId)
             .then(async () => {
               await refreshCalendarOnly();
               setNotification('Holiday deleted successfully.');
@@ -954,6 +962,8 @@ function App() {
             .finally(() => setLoading(false));
           return;
         }
+        
+        // Normal reservation logic
         setEventActionType(actionType || 'delete');
         setActiveModal('deleteEvent');
       }
@@ -4648,31 +4658,10 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           className: `${isAdmin ? 'flex-1' : 'w-full'} bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-xl font-bold transition-colors`
         }, 'Close'),
         (isAdmin && (eventActionType || isHoliday)) && React.createElement('button', {
-          onClick: async () => {
-            if (isHoliday) {
-              if (window.confirm("Are you sure you want to delete this holiday?")) {
-                try {
-                  // WE ADDED THE CREDENTIALS LINE RIGHT HERE 👇
-                  const response = await fetch(`/api/holidays/${event.id}`, { 
-                      method: 'DELETE',
-                      credentials: 'include' 
-                  });
-                  
-                  const data = await response.json();
-                  
-                  if (response.ok && data.status === 'success') {
-                    alert('Holiday deleted successfully!');
-                    window.location.reload(); 
-                  } else {
-                    alert(data.message || 'Failed to delete holiday');
-                  }
-                } catch (error) {
-                  alert('Error deleting holiday: ' + error.message);
-                }
-              }
-            } else {
-              onDeleteClick(eventActionType);
-            }
+          onClick: () => {
+             // Simply pass the click up to the parent component!
+             // The parent will check if it's a holiday and handle everything.
+             onDeleteClick('delete'); 
           },
           disabled: loading,
           className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2'
