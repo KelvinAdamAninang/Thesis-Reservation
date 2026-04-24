@@ -287,7 +287,10 @@ def _auto_cancel_overdue_stage2_reservations():
     The calendar query excludes 'denied' so the plotted event
     disappears from the calendar immediately on next load.
     """
-    now = datetime.now()
+    # Use utcnow() to match Supabase UTC-stored timestamps.
+    # Using datetime.now() (local Manila time) causes the comparison
+    # to fail because Supabase timestamps are UTC (8hrs behind Manila).
+    now = datetime.utcnow()
     cutoff = now - timedelta(days=5)
 
     candidates = Reservation.query.filter(
@@ -979,7 +982,7 @@ def get_calendar_events():
 @login_required
 def get_reservations():
     # Eagerly deny expired concept-approved reservations so My Reservations
-    # list reflects the correct status without waiting for the nightly scheduler.
+    # reflects correct status without waiting for the nightly scheduler.
     _auto_cancel_overdue_stage2_reservations()
     query = Reservation.query.options(joinedload(Reservation.requester))
     if current_user.role in ['admin', 'admin_phase1']:
