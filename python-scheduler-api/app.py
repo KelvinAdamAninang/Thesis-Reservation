@@ -459,7 +459,8 @@ def start_stage2_deadline_scheduler(app):
     def monthly_report_job():
         with app.app_context():
             try:
-                count = _generate_monthly_report()
+                report_text, report_data = generate_monthly_report(logger=app.logger)
+                count = len(report_data) if report_data else 0
                 app.logger.info(f'Monthly report generated successfully: {count} reservations')
             except Exception as exc:
                 app.logger.error('Monthly report generation failed: %s', exc)
@@ -1167,21 +1168,6 @@ def deny_reservation(id):
         app.logger.info(f"Notified user {user.username} (ID: {user.id}) that their reservation '{reservation.activity_purpose}' was denied. Reason: {reservation.denial_reason}")
     db.session.commit()
     return jsonify({'status': 'success', 'message': 'Reservation denied and user notified'})
-# Archive denied reservation (user-initiated)
-@app.route('/api/reservations/<int:id>/archive', methods=['POST'])
-@login_required
-def user_archive_reservation(id):
-    reservation = db.session.get(Reservation, id)
-    if not reservation:
-        return jsonify({'error': 'Reservation not found'}), 404
-    # Only the owner can archive their own denied reservation
-    if reservation.user_id != current_user.id:
-        return jsonify({'error': 'Unauthorized'}), 403
-    if reservation.status != 'denied':
-        return jsonify({'error': 'Only denied reservations can be archived by user'}), 400
-    reservation.archived_at = datetime.now()
-    db.session.commit()
-    return jsonify({'status': 'success', 'message': 'Denied reservation archived'})
 
 # Cancel event from calendar (Admin only) - with notification to user
 @app.route('/api/reservations/<int:id>/delete-event', methods=['POST'])
@@ -1235,18 +1221,24 @@ def delete_event(id):
 @app.route('/api/reservations/<int:id>/archive', methods=['POST'])
 @login_required
 def archive_reservation(id):
-    if current_user.role not in ['admin', 'admin_phase1']:
-        return jsonify({'error': 'Admin access required'}), 403
-    
     reservation = db.session.get(Reservation, id)
     if not reservation:
         return jsonify({'error': 'Reservation not found'}), 404
-    
-    # Only set archived_at, keep status as 'approved' so it stays on calendar
-    reservation.archived_at = datetime.now()
-    
-    db.session.commit()
-    return jsonify({'status': 'success', 'message': 'Reservation archived'})
+
+    is_admin = current_user.role in ['admin', 'admin_phase1']
+
+    if is_admin:
+        reservation.archived_at = datetime.now()
+        db.session.commit()
+        return jsonify({'status': 'success', 'message': 'Reservation archived'})
+    else:
+        if reservation.user_id != current_user.id:
+            return jsonify({'error': 'Unauthorized'}), 403
+        if reservation.status != 'denied':
+            return jsonify({'error': 'Only denied reservations can be archived'}), 400
+        reservation.archived_at = datetime.now()
+        db.session.commit()
+        return jsonify({'status': 'success', 'message': 'Denied reservation archived'})
 
 # Delete reservation
 @app.route('/api/reservations/<int:id>', methods=['DELETE'])

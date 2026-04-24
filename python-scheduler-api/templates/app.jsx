@@ -800,7 +800,7 @@ function App() {
         loading && React.createElement('div', { className: 'mb-4 bg-white border rounded-xl shadow-sm' },
           React.createElement(InlineSpinner, { label: 'Fetching latest data...' })
         ),
-        currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, loading, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); } }),
+        currentView === 'dashboard' && React.createElement(Dashboard, { reservations, rooms, archive, user: currentUser, loading, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onBook: (roomId) => { setSelectedRes({ room_id: roomId }); setActiveModal('reservation'); }, onArchive: handleArchive }),
         currentView === 'calendar' && React.createElement(CalendarView, {
           events: calendarEvents,
           rooms,
@@ -1098,7 +1098,7 @@ function Badge({ status }) {
   return React.createElement('span', { className: `px-3 py-1 rounded-full text-xs font-bold ${colors[status] || 'bg-slate-100 text-slate-700'}` }, status);
 }
 
-function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, loading }) {
+function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, onArchive, loading }) {
   const toTimestamp = (isoString) => {
     if (!isoString) return Number.MAX_SAFE_INTEGER;
     const dt = new Date(isoString);
@@ -1156,11 +1156,12 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, 
           : orderedUserRes.length === 0 
           ? React.createElement('p', { className: 'text-slate-400 py-8 text-center' }, 'No reservations yet. Book a space to get started!')
           : React.createElement('div', { className: 'max-h-72 overflow-y-auto space-y-2 pr-1' },
-              orderedUserRes.map(r => React.createElement('div', { key: r.id, onClick: () => onViewDetails(r), className: 'p-4 bg-slate-50 rounded-xl cursor-pointer hover:bg-sky-50 transition' },
-                React.createElement('div', { className: 'flex justify-between items-center' },
-                  React.createElement('div', {}, 
-                    React.createElement('p', { className: 'font-bold text-slate-800' }, r.activity_purpose), 
+              orderedUserRes.map(r => React.createElement('div', { key: r.id, className: `p-4 rounded-xl border mb-1 ${r.status === 'denied' ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-transparent hover:bg-sky-50 cursor-pointer'} transition` },
+                React.createElement('div', { className: 'flex justify-between items-start gap-2' },
+                  React.createElement('div', { className: 'flex-1 min-w-0', onClick: () => onViewDetails(r), style: { cursor: 'pointer' } }, 
+                    React.createElement('p', { className: 'font-bold text-slate-800 truncate' }, r.activity_purpose), 
                     React.createElement('p', { className: 'text-sm text-slate-500' }, formatReservationMeta(r)),
+                    r.status === 'denied' && r.denial_reason && React.createElement('p', { className: 'text-xs text-red-500 mt-1 italic' }, `Reason: ${r.denial_reason}`),
                     // 5-day timer for concept-approved
                     (r.status === 'concept-approved' && !r.final_form_uploaded && !r.final_form_url && (function() {
                       // Compute deadline: concept_approved_at or date_filed + 5 days
@@ -1179,7 +1180,14 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, 
                       return React.createElement('span', { className: 'text-xs text-orange-500 font-semibold ml-1' }, `⏰ ${days}d ${hours}h ${minutes}m left to upload final form`);
                     })())
                   ),
-                  React.createElement(Badge, { status: r.status })
+                  React.createElement('div', { className: 'flex flex-col items-end gap-1 shrink-0' },
+                    React.createElement(Badge, { status: r.status }),
+                    r.status === 'denied' && React.createElement('button', {
+                      className: 'text-xs text-slate-400 hover:text-red-500 hover:bg-red-50 px-2 py-0.5 rounded transition mt-1 border border-slate-200',
+                      title: 'Archive this denied reservation',
+                      onClick: (e) => { e.stopPropagation(); if (onArchive) onArchive(r.id); }
+                    }, '📦 Archive')
+                  )
                 )
               ))
             )
