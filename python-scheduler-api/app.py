@@ -946,6 +946,7 @@ def get_reservations():
         'room_name': r.room_name or 'Unknown',
         'activity_purpose': r.activity_purpose,
         'division': r.division,
+        'department_temp': r.department_temp or '',
         'attendees': r.attendees,
         'classification': r.classification,
         'person_in_charge': r.person_in_charge,
@@ -982,6 +983,7 @@ def get_reservation(id):
         'room_name': reservation.room_name or 'Unknown',
         'activity_purpose': reservation.activity_purpose,
         'division': reservation.division,
+        'department_temp': reservation.department_temp or '',
         'attendees': reservation.attendees,
         'classification': reservation.classification,
         'person_in_charge': reservation.person_in_charge,
@@ -1054,6 +1056,8 @@ def create_reservation():
             status='pending',
             date_filed=datetime.now()
         )
+        # Save optional department override to its own column
+        reservation.department_temp = (data.get('override_department') or data.get('department_temp') or '').strip() or None
         if 'equipment_data' in data:
             reservation.set_equipment(data['equipment_data'])
         db.session.add(reservation)

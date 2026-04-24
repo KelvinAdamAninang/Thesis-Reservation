@@ -1351,6 +1351,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     room_id: initialData?.room_id || '',
     activity_purpose: '',
     person_in_charge: '',
+    department_temp: '',
     contact_country_code: '+63',
     contact_number: '',
     event_start_date: '',
@@ -1614,6 +1615,10 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
             )),
             React.createElement('input', { placeholder: 'Activity Purpose', value: form.activity_purpose, onChange: (e) => setForm({ ...form, activity_purpose: e.target.value }), className: 'w-full p-2 border rounded bg-white', required: true }),
             React.createElement('input', { placeholder: 'Person In Charge', value: form.person_in_charge, onChange: (e) => setForm({ ...form, person_in_charge: e.target.value }), className: 'w-full p-2 border rounded bg-white' }),
+            React.createElement('div', { className: 'flex flex-col gap-1' },
+              React.createElement('input', { placeholder: 'Department (optional — leave blank to use your account department)', value: form.department_temp || '', onChange: (e) => setForm({ ...form, department_temp: e.target.value }), className: 'w-full p-2 border rounded bg-white text-sm' }),
+              React.createElement('p', { className: 'text-xs text-slate-400 px-1' }, 'Optional: overrides your account department on the print form and event details.')
+            ),
             React.createElement('div', { className: 'grid grid-cols-3 gap-2' },
               React.createElement('select', {
                 value: form.contact_country_code,
@@ -2021,6 +2026,7 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
       ? new Date(dateFiledSource).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : '';
     const departmentCompany = firstNonEmpty(
+      res.department_temp,
       res.department,
       res.department_name,
       res.company,
@@ -2544,8 +2550,8 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
                 React.createElement('p', { className: 'font-medium text-slate-700' }, res.contact_number || 'N/A')
               ),
               React.createElement('div', {},
-                React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'Division'),
-                React.createElement('p', { className: 'font-medium text-slate-700' }, res.division || 'N/A')
+                React.createElement('p', { className: 'text-slate-400 uppercase text-[10px] font-bold' }, 'Department'),
+                React.createElement('p', { className: 'font-medium text-slate-700' }, res.department_temp || res.department || res.division || 'N/A')
               )
             )
           ),
