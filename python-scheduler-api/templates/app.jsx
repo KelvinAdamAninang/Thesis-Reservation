@@ -691,18 +691,18 @@ function App() {
   };
 
   const handleArchive = async (id) => {
-  setLoading(true);
-  try {
-    await apiService.archiveReservation(id);
-    await refreshReservationsAndCalendar();
-    setNotification('Reservation archived successfully.');
-    setActiveModal('notification');
-  } catch (err) {
-    setError(err.message);
-  } finally {
-    setLoading(false);
-  }
-};
+    setLoading(true);
+    try {
+      await apiService.archiveReservation(id);
+      await refreshReservationsAndCalendar();
+      setNotification('Reservation archived successfully.');
+      setActiveModal('notification');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
   // Real-time sync for reservation list, requests, and notifications.
   useEffect(() => {
     if (!currentUser) return;
@@ -1025,7 +1025,7 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin, mobileMenuOpen
     // Close button for mobile
     React.createElement('button', { 
       onClick: onClose, 
-      className: 'absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 md:hidden' 
+      className: 'absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 transition-colors md:hidden' 
     }, '✕'),
     React.createElement('div', { className: 'text-2xl font-bold mb-10 text-sky-500' }, 'VacanSee'),
     React.createElement('nav', { className: 'flex-1 space-y-2' },
@@ -1552,70 +1552,70 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
               })
             ),
             React.createElement('div', { className: 'space-y-1' },
-          React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Start Time'),
-          React.createElement('div', { className: 'flex gap-2 items-center' },
-            React.createElement('select', { 
-              value: form.start_hour, 
-              onChange: (e) => setForm({ ...form, start_hour: e.target.value }), 
-              className: 'w-1/3 p-2 border rounded bg-white', 
-              required: true 
-            },
-              React.createElement('option', { value: '' }, 'Hour'),
-              HOUR_OPTIONS.map(h => React.createElement('option', { key: h, value: h }, h))
+              React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'Start Time'),
+              React.createElement('div', { className: 'flex gap-2 items-center' },
+                React.createElement('select', { 
+                  value: form.start_hour, 
+                  onChange: (e) => setForm({ ...form, start_hour: e.target.value }), 
+                  className: 'w-1/3 p-2 border rounded bg-white', 
+                  required: true 
+                },
+                  React.createElement('option', { value: '' }, 'Hour'),
+                  HOUR_OPTIONS.map(h => React.createElement('option', { key: h, value: h }, h))
+                ),
+                React.createElement('span', { className: 'text-slate-500 font-bold' }, ':'),
+                React.createElement('select', { 
+                  value: form.start_minute, 
+                  onChange: (e) => setForm({ ...form, start_minute: e.target.value }), 
+                  className: 'w-1/3 p-2 border rounded bg-white', 
+                  required: true 
+                },
+                  React.createElement('option', { value: '' }, 'Min'),
+                  MINUTE_OPTIONS.map(m => React.createElement('option', { key: m, value: m }, m))
+                ),
+                React.createElement('select', {
+                  value: form.start_period,
+                  onChange: (e) => setForm({ ...form, start_period: e.target.value }),
+                  className: 'w-1/3 p-2 border rounded bg-white',
+                  required: true
+                },
+                  React.createElement('option', { value: '' }, 'AM/PM'),
+                  AM_PM_OPTIONS.map(period => React.createElement('option', { key: period, value: period }, period))
+                )
+              )
             ),
-            React.createElement('span', { className: 'text-slate-500 font-bold' }, ':'),
-            React.createElement('select', { 
-              value: form.start_minute, 
-              onChange: (e) => setForm({ ...form, start_minute: e.target.value }), 
-              className: 'w-1/3 p-2 border rounded bg-white', 
-              required: true 
-            },
-              React.createElement('option', { value: '' }, 'Min'),
-              MINUTE_OPTIONS.map(m => React.createElement('option', { key: m, value: m }, m))
-            ),
-            React.createElement('select', {
-              value: form.start_period,
-              onChange: (e) => setForm({ ...form, start_period: e.target.value }),
-              className: 'w-1/3 p-2 border rounded bg-white',
-              required: true
-            },
-              React.createElement('option', { value: '' }, 'AM/PM'),
-              AM_PM_OPTIONS.map(period => React.createElement('option', { key: period, value: period }, period))
-            )
-          )
-        ),
             React.createElement('div', { className: 'space-y-1' },
-          React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'End Time'),
-          React.createElement('div', { className: 'flex gap-2 items-center' },
-            React.createElement('select', { 
-              value: form.end_hour, 
-              onChange: (e) => setForm({ ...form, end_hour: e.target.value }), 
-              className: 'w-1/3 p-2 border rounded bg-white', 
-              required: true 
-            },
-              React.createElement('option', { value: '' }, 'Hour'),
-              HOUR_OPTIONS.map(h => React.createElement('option', { key: h, value: h }, h))
-            ),
-            React.createElement('span', { className: 'text-slate-500 font-bold' }, ':'),
-            React.createElement('select', { 
-              value: form.end_minute, 
-              onChange: (e) => setForm({ ...form, end_minute: e.target.value }), 
-              className: 'w-1/3 p-2 border rounded bg-white', 
-              required: true 
-            },
-              React.createElement('option', { value: '' }, 'Min'),
-              MINUTE_OPTIONS.map(m => React.createElement('option', { key: m, value: m }, m))
-            ),
-            React.createElement('select', {
-              value: form.end_period,
-              onChange: (e) => setForm({ ...form, end_period: e.target.value }),
-              className: 'w-1/3 p-2 border rounded bg-white',
-              required: true
-            },
-              React.createElement('option', { value: '' }, 'AM/PM'),
-              AM_PM_OPTIONS.map(period => React.createElement('option', { key: period, value: period }, period))
-            )
-          )
+              React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, 'End Time'),
+              React.createElement('div', { className: 'flex gap-2 items-center' },
+                React.createElement('select', { 
+                  value: form.end_hour, 
+                  onChange: (e) => setForm({ ...form, end_hour: e.target.value }), 
+                  className: 'w-1/3 p-2 border rounded bg-white', 
+                  required: true 
+                },
+                  React.createElement('option', { value: '' }, 'Hour'),
+                  HOUR_OPTIONS.map(h => React.createElement('option', { key: h, value: h }, h))
+                ),
+                React.createElement('span', { className: 'text-slate-500 font-bold' }, ':'),
+                React.createElement('select', { 
+                  value: form.end_minute, 
+                  onChange: (e) => setForm({ ...form, end_minute: e.target.value }), 
+                  className: 'w-1/3 p-2 border rounded bg-white', 
+                  required: true 
+                },
+                  React.createElement('option', { value: '' }, 'Min'),
+                  MINUTE_OPTIONS.map(m => React.createElement('option', { key: m, value: m }, m))
+                ),
+                React.createElement('select', {
+                  value: form.end_period,
+                  onChange: (e) => setForm({ ...form, end_period: e.target.value }),
+                  className: 'w-1/3 p-2 border rounded bg-white',
+                  required: true
+                },
+                  React.createElement('option', { value: '' }, 'AM/PM'),
+                  AM_PM_OPTIONS.map(period => React.createElement('option', { key: period, value: period }, period))
+                )
+              )
             )
           )
         ),
@@ -1815,6 +1815,8 @@ function AdminRequests({ reservations, onViewDetails, loading }) {
             )
           )
         )
+      )
+    )
   );
 }
 
@@ -1915,17 +1917,11 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
     const isPAT = matchesFacility('pat', 'performing arts theatre', 'performing arts theater');
     const isCollegeLobby = matchesFacility('college lobby');
     const isQuadrangle = matchesFacility('quadrangle', 'quad');
-    const isAchieversPark = matchesFacility('achievers park');
-    const isTvStudio = matchesFacility('tv studio');
-    const isRadioRoom = matchesFacility('radio room');
     const isStudioRoom = matchesFacility('studio room');
     const isOthersFacility = Boolean(roomName) && ![
       isPAT,
       isCollegeLobby,
       isQuadrangle,
-      isAchieversPark,
-      isTvStudio,
-      isRadioRoom,
       isStudioRoom
     ].some(Boolean);
 
@@ -2202,16 +2198,17 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
             <tr>
               <td class="facility-col">
                 <div class="chk">${checkbox(isPAT)} PAT</div>
-                <div class="chk">${checkbox(isCollegeLobby)} COLLEGE LOBBY</div>
+                <div class="chk">${checkbox(isStudioRoom)} STUDIO ROOM</div>
                 <div class="chk">${checkbox(isQuadrangle)} QUADRANGLE</div>
               </td>
               <td class="facility-col">
-                <div class="chk">${checkbox(isAchieversPark)} ACHIEVERS PARK</div>
-                <div class="chk">${checkbox(isTvStudio)} TV STUDIO</div>
-                <div class="chk">${checkbox(isRadioRoom)} RADIO ROOM</div>
+                <div class="chk">${checkbox(isCollegeLobby)} COLLEGE LOBBY</div>
+                <div class="chk">${checkbox()} BASIC ED. MINI AUDI</div>
+                <div class="chk">${checkbox()} OVAL</div>
               </td>
               <td class="facility-col">
-                <div class="chk">${checkbox(isStudioRoom)} STUDIO ROOM</div>
+                <div class="chk">${checkbox()} GYM & SPORTS CENTER</div>
+                <div class="chk">${checkbox()} SWIMMING POOL</div>
                 <div class="chk">${checkbox(isOthersFacility)} OTHERS: <span class="uline" style="width:90px;">${isOthersFacility ? escapeHtml(roomName) : ''}</span></div>
               </td>
             </tr>
@@ -3104,7 +3101,7 @@ function AnalyticsView({ reservations }) {
       label: 'Reservations',
       data: charts.reservations_over_time.values,
       borderColor: '#0284c7',
-      backgroundColor: 'rgba(14,165,233,0.18)',
+      backgroundColor: 'rgba(2,132,199,0.15)',
       tension: 0.35,
       fill: true,
       pointRadius: 3
@@ -3421,14 +3418,103 @@ function AnalyticsView({ reservations }) {
                   )
             )
           )
-    ),
-
-    React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
+        )
+      ),
+      React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
+        React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+          React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Most Booked Venues'),
+          React.createElement(ChartCanvas, {
+            type: 'bar',
+            data: topVenuesChartData,
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { display: false } },
+              scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            }
+          })
+        ),
+        React.createElement('div', { className: 'bg-white border rounded-3xl p-6 relative' },
+          loadingAnalytics && React.createElement('div', {
+            className: 'absolute inset-0 bg-white/60 backdrop-blur-sm rounded-3xl flex items-center justify-center z-10 pointer-events-none'
+          },
+            React.createElement('div', { className: 'flex flex-col items-center gap-2' },
+              React.createElement('div', { className: 'w-8 h-8 border-3 border-sky-200 border-t-sky-500 rounded-full animate-spin' }),
+              React.createElement('p', { className: 'text-sm text-slate-600' }, 'Updating heatmap...')
+            )
+          ),
+          React.createElement('div', { className: 'flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4' },
+            React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Peak Usage Time Heatmap'),
+            React.createElement('p', { className: 'text-sm text-slate-500' },
+              selectedSemester !== 'all' && selectedSemesterYear
+                ? `Showing ${formatSemesterLabel(parseInt(selectedSemester))} ${selectedSemesterYear}`
+                : 'Showing all data'
+            )
+          ),
+          React.createElement('div', { className: 'pointer-events-auto' },
+            React.createElement(HeatmapChart, { data: charts.peak_usage_heatmap })
+          )
+        )
+      ),
+      React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
+        React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+          React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Reservations Over Time'),
+          React.createElement(ChartCanvas, {
+            type: 'line',
+            data: reservationsOverTimeChartData,
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { display: false } },
+              scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            }
+          })
+        ),
+        React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+          React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Events by Day of the Week'),
+          React.createElement(ChartCanvas, {
+            type: 'radar',
+            data: dayOfWeekChartData,
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { display: false } },
+              scales: { r: { beginAtZero: true, ticks: { precision: 0 } } }
+            }
+          })
+        )
+      ),
+      React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
+        React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+          React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Reservations by Department'),
+          React.createElement(ChartCanvas, {
+            type: 'doughnut',
+            data: departmentChartData,
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { position: 'bottom' } }
+            }
+          })
+        ),
+        React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+          React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Booking Status Overview'),
+          React.createElement(ChartCanvas, {
+            type: 'pie',
+            data: statusOverviewChartData,
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { position: 'bottom' } }
+            }
+          })
+        )
+      ),
       React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Most Booked Venues'),
+        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Average Lead Time Histogram'),
         React.createElement(ChartCanvas, {
           type: 'bar',
-          data: topVenuesChartData,
+          data: leadTimeChartData,
           options: {
             responsive: true,
             maintainAspectRatio: false,
@@ -3436,98 +3522,7 @@ function AnalyticsView({ reservations }) {
             scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
           }
         })
-      ),
-      React.createElement('div', { className: 'bg-white border rounded-3xl p-6 relative' },
-        loadingAnalytics && React.createElement('div', {
-          className: 'absolute inset-0 bg-white/60 backdrop-blur-sm rounded-3xl flex items-center justify-center z-10 pointer-events-none'
-        },
-          React.createElement('div', { className: 'flex flex-col items-center gap-2' },
-            React.createElement('div', { className: 'w-8 h-8 border-3 border-sky-200 border-t-sky-500 rounded-full animate-spin' }),
-            React.createElement('p', { className: 'text-sm text-slate-600' }, 'Updating heatmap...')
-          )
-        ),
-        React.createElement('div', { className: 'flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4' },
-          React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Peak Usage Time Heatmap'),
-          React.createElement('p', { className: 'text-sm text-slate-500' },
-            selectedSemester !== 'all' && selectedSemesterYear
-              ? `Showing ${formatSemesterLabel(parseInt(selectedSemester))} ${selectedSemesterYear}`
-              : 'Showing all data'
-          )
-        ),
-        React.createElement('div', { className: 'pointer-events-auto' },
-          React.createElement(HeatmapChart, { data: charts.peak_usage_heatmap })
-        )
       )
-    ),
-
-    React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
-      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Reservations Over Time'),
-        React.createElement(ChartCanvas, {
-          type: 'line',
-          data: reservationsOverTimeChartData,
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-          }
-        })
-      ),
-      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Events by Day of the Week'),
-        React.createElement(ChartCanvas, {
-          type: 'radar',
-          data: dayOfWeekChartData,
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: { r: { beginAtZero: true, ticks: { precision: 0 } } }
-          }
-        })
-      )
-    ),
-
-    React.createElement('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-6' },
-      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Reservations by Department'),
-        React.createElement(ChartCanvas, {
-          type: 'doughnut',
-          data: departmentChartData,
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom' } }
-          }
-        })
-      ),
-      React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-        React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Booking Status Overview'),
-        React.createElement(ChartCanvas, {
-          type: 'pie',
-          data: statusOverviewChartData,
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom' } }
-          }
-        })
-      )
-    ),
-
-    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-      React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Average Lead Time Histogram'),
-      React.createElement(ChartCanvas, {
-        type: 'bar',
-        data: leadTimeChartData,
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-        }
-      })
     )
   );
 }
@@ -3986,7 +3981,7 @@ function FacilityEditorModal({ initialFacility, onClose, onSubmit }) {
           React.createElement('button', {
             type: 'button',
             onClick: onClose,
-            className: 'flex-1 border border-slate-300 text-slate-700 rounded-lg py-2 font-medium hover:bg-slate-50'
+            className: 'flex-1 border border-slate-300 text-slate-700 rounded-lg py-2 font-medium'
           }, 'Cancel'),
           React.createElement('button', {
             type: 'submit',
