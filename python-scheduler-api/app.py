@@ -279,17 +279,12 @@ with app.app_context():
 
 
 def _auto_cancel_overdue_stage2_reservations():
-    """Deny concept-approved reservations if final form is not submitted within 5 days.
-
-    Instead of deleting, we set the status to 'denied' with a system-generated
-    denial reason so the reservation history is preserved and the calendar event
-    is automatically removed (denied events are excluded from calendar plotting).
-    """
+    """Cancel concept-approved reservations if final form is not submitted within 5 days."""
     now = datetime.now()
     cutoff = now - timedelta(days=5)
 
     candidates = Reservation.query.filter(Reservation.status == 'concept-approved').all()
-    auto_denied = 0
+    auto_cancelled = 0
 
     for reservation in candidates:
         has_final_form_link = bool(str(reservation.final_form_url or '').strip())
@@ -301,31 +296,18 @@ def _auto_cancel_overdue_stage2_reservations():
         if not approval_anchor or approval_anchor > cutoff:
             continue
 
-        # Set to denied with a system reason instead of deleting.
-        # This preserves the reservation record and automatically removes
-        # the event from the calendar (denied status is excluded from calendar query).
-        reservation.status = 'denied'
-        reservation.denial_reason = (
-            'Final form submission deadline expired. '
-            'The reservation was automatically denied because the final form '
-            'was not submitted within 5 days of concept approval.'
-        )
-
+        # Notify the user before deleting
         user = db.session.get(User, reservation.user_id)
         if user:
-            app.logger.info(
-                f"Auto-denied reservation '{reservation.activity_purpose}' "
-                f"for user {user.username} (ID: {user.id}) due to Stage 2 submission timeout."
-            )
+            # You can replace this with an actual email or push notification system
+            app.logger.info(f"Notified user {user.username} (ID: {user.id}) that their reservation '{reservation.activity_purpose}' was deleted due to Stage 2 timeout.")
 
-        auto_denied += 1
+        db.session.delete(reservation)
+        auto_cancelled += 1
 
-    if auto_denied > 0:
+    if auto_cancelled > 0:
         db.session.commit()
-        app.logger.info(
-            'Auto-denied %s concept-approved reservations due to Stage 2 submission timeout.',
-            auto_denied
-        )
+        app.logger.info('Auto-deleted %s concept-approved reservations due to Stage 2 timeout.', auto_cancelled)
 
 
 
@@ -918,10 +900,18 @@ def get_calendar_events():
 
         return 'plotting'
 
+    # Before fetching calendar events, eagerly deny any concept-approved
+    # reservations whose 5-day final form deadline has already passed.
+    # This ensures expired events are removed from the calendar immediately
+    # on the next page load, without waiting for the nightly scheduler.
+    _auto_cancel_overdue_stage2_reservations()
+
     # Return calendar-relevant reservations:
     # - concept-approved events (pending final review, shown as plotting)
     # - approved events (normal / ongoing / plotting)
     # - cancelled events (legacy deleted also treated as cancelled)
+    # NOTE: denied is excluded -- expired concept-approved reservations
+    # are denied above and will not appear on the calendar.
     reservations = Reservation.query.options(joinedload(Reservation.requester)).filter(
         or_(
             Reservation.status == 'concept-approved',
