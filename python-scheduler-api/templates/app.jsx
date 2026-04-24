@@ -690,6 +690,19 @@ function App() {
     return { updatedReservations, updatedEvents };
   };
 
+  const handleArchive = async (id) => {
+  setLoading(true);
+  try {
+    await apiService.archiveReservation(id);
+    await refreshReservationsAndCalendar();
+    setNotification('Reservation archived successfully.');
+    setActiveModal('notification');
+  } catch (err) {
+    setError(err.message);
+  } finally {
+    setLoading(false);
+  }
+};
   // Real-time sync for reservation list, requests, and notifications.
   useEffect(() => {
     if (!currentUser) return;
@@ -887,16 +900,7 @@ function App() {
         } catch (err) { setError(err.message); } 
         finally { setLoading(false); } 
       },
-      onArchive: async (id) => {
-        setLoading(true);
-        try {
-          await apiService.archiveReservation(id);
-          await refreshReservationsAndCalendar();
-          setNotification('Reservation archived successfully.');
-          setActiveModal('notification');
-        } catch (err) { setError(err.message); }
-        finally { setLoading(false); }
-      },
+      onArchive: handleArchive,
       onDenyClick: () => setActiveModal('deny'), 
       loading 
     }),
