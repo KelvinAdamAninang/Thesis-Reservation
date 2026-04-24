@@ -23,7 +23,7 @@ from data_mining.analytics import build_analytics_snapshot
 from data_mining.analytics import generate_monthly_report
 from data_mining.forecast_utils import forecast_all_academic_periods, forecast_for_period, forecast_current_semester
 from data_mining.train_sarimax_model import retrain_all_historical_data
-from scheduler import start_training_scheduler, get_next_retrain_at_iso
+from scheduler import start_training_scheduler, get_next_retrain_at_iso, start_stage2_deadline_scheduler
 
 try:
     from google import genai as google_genai_client

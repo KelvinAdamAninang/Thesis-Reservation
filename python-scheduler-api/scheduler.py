@@ -92,3 +92,55 @@ def start_training_scheduler(app):
         f'Semester SARIMAX training scheduler started (retrains on months={SEMESTER_RETRAIN_MONTHS}, min data={MIN_TRAINING_MONTHS} months).'
     )
     return scheduler
+
+def start_stage2_deadline_scheduler(app):
+    if not _is_reloader_process():
+        return None
+
+    # Import inside the function to avoid circular imports
+    from models import db, Reservation 
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    scheduler = BackgroundScheduler(timezone=SCHEDULER_TIMEZONE)
+
+    def cancel_expired_reservations():
+        with app.app_context():
+            try:
+                tz = ZoneInfo(SCHEDULER_TIMEZONE)
+                now = datetime.now(tz)
+                
+                # Calculate the cutoff date (5 days ago)
+                cutoff_date = now - timedelta(days=5)
+                
+                # Find all reservations stuck in concept-approved past the 5 days
+                # NOTE: Ensure 'date_filed' matches the actual column name in your models.py
+                expired_reservations = Reservation.query.filter(
+                    Reservation.status == 'concept-approved',
+                    Reservation.date_filed <= cutoff_date.date() # using .date() assuming it's a Date column
+                ).all()
+
+                if expired_reservations:
+                    for res in expired_reservations:
+                        res.status = 'denied'
+                        res.denial_reason = 'System Auto-Cancellation: Failed to submit final Stage 2 requirements within the 5-day deadline.'
+                    
+                    # Physically save the changes to the PostgreSQL database
+                    db.session.commit()
+                    app.logger.info(f"Auto-cancelled {len(expired_reservations)} expired stage-2 reservations.")
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f'Stage 2 deadline scheduler failed: {str(e)}')
+
+    # Add the job to run automatically every hour
+    scheduler.add_job(
+        cancel_expired_reservations,
+        CronTrigger(minute=0), # Runs at the top of every hour (e.g., 1:00, 2:00)
+        id='stage2_deadline_check',
+        replace_existing=True,
+        max_instances=1
+    )
+
+    scheduler.start()
+    app.logger.info('Stage 2 Deadline scheduler started (checking every hour).')
+    return scheduler
