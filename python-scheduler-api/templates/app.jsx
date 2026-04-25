@@ -4652,7 +4652,7 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
                 React.createElement(SmoothieIcon, { name: 'building', cls: 'w-6 h-6 text-slate-400 shrink-0' }),
                 React.createElement('div', {},
                   React.createElement('p', { className: 'text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1' }, 'Department'),
-                  React.createElement('p', { className: 'font-semibold text-slate-800' }, res.department_temp || res.department || res.division || 'N/A')
+                  React.createElement('p', { className: 'font-semibold text-slate-800' }, event.department)
                 )
               )
             )
