@@ -1099,9 +1099,6 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin, mobileMenuOpen
     }, React.createElement(SmoothieIcon, { name: 'close' })),
 
     React.createElement('div', { className: 'flex items-center gap-2.5 px-3 mb-8' },
-      React.createElement('div', { className: 'w-8 h-8 bg-sky-500 rounded-lg flex items-center justify-center shrink-0' },
-        React.createElement(SmoothieIcon, { name: 'calendar', cls: 'w-4 h-4' })
-      ),
       React.createElement('span', { className: 'text-xl font-bold text-sky-500 tracking-tight' }, 'VacanSee')
     ),
 
