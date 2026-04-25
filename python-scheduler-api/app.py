@@ -1193,14 +1193,20 @@ def user_archive_reservation(id):
     reservation = db.session.get(Reservation, id)
     if not reservation:
         return jsonify({'error': 'Reservation not found'}), 404
-    # Only the owner can archive their own denied reservation
+        
+    # Only the owner can archive their own reservation
     if reservation.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized'}), 403
-    if reservation.status != 'denied':
-        return jsonify({'error': 'Only denied reservations can be archived by user'}), 400
+        
+    # THE FIX: Allow approved, denied, and cancelled statuses
+    if reservation.status not in ['denied', 'approved', 'cancelled']:
+        return jsonify({'error': 'Only denied, approved, or cancelled reservations can be archived'}), 400
+        
     reservation.archived_at = datetime.now()
     db.session.commit()
-    return jsonify({'status': 'success', 'message': 'Denied reservation archived'})
+    
+    # Updated the success message since it's no longer just for denied reservations
+    return jsonify({'status': 'success', 'message': 'Reservation archived'})
 
 # Cancel event from calendar (Admin only) - with notification to user
 @app.route('/api/reservations/<int:id>/delete-event', methods=['POST'])
