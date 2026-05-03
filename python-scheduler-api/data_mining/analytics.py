@@ -174,24 +174,6 @@ def _bucket_lead_time(days):
 
 
 def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
-        # Activity classification breakdown
-        classification_labels = [
-            'Institutional',
-            'Curricular',
-            'Co-Curricular',
-            'Outside Group',
-            'Extra-Curricular'
-        ]
-        classification_counter = Counter()
-        for reservation in reservations:
-            val = (getattr(reservation, 'classification', None) or getattr(reservation, 'activity_classification', None) or '').strip().lower().replace('-', ' ').replace('_', ' ')
-            for label in classification_labels:
-                if val == label.lower():
-                    classification_counter[label] += 1
-        classification_breakdown = {
-            'labels': classification_labels,
-            'values': [classification_counter.get(label, 0) for label in classification_labels]
-        }
     """Build KPI and chart datasets for the admin analytics dashboard."""
     # Eager-load requester to avoid N+1 queries while aggregating departments.
     all_reservations = Reservation.query.options(joinedload(Reservation.requester)).all()
@@ -212,7 +194,26 @@ def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
         department_filter = 'All'
         reservations = all_reservations
 
+    # Activity classification breakdown (must be after reservations is set)
+    classification_labels = [
+        'Institutional',
+        'Curricular',
+        'Co-Curricular',
+        'Outside Group',
+        'Extra-Curricular'
+    ]
+    classification_counter = Counter()
+    for reservation in reservations:
+        val = (getattr(reservation, 'classification', None) or getattr(reservation, 'activity_classification', None) or '').strip().lower().replace('-', ' ').replace('_', ' ')
+        for label in classification_labels:
+            if val == label.lower():
+                classification_counter[label] += 1
+    classification_breakdown = {
+        'labels': classification_labels,
+        'values': [classification_counter.get(label, 0) for label in classification_labels]
+    }
 
+    # Build KPI and chart datasets for the admin analytics dashboard.
     # Always use current year and month as default if available
     available_heatmap_month_keys = sorted({
         reservation.start_time.strftime('%Y-%m')
