@@ -37,22 +37,24 @@ const COUNTRY_PHONE_RULES = {
 
 const EQUIPMENT_DATA = {
   'Performing Arts Theatre': [
-    'Tables', 'Chairs', 'Philippine Flag', 'University Flag', 'TV', 
-    'Still Camera', 'Video Camera', 'Sound System', 'Microphone', 
-    'Speaker', 'Lights Set-Up', 'Podium'
+    'Tables', 'Chairs', 'Philippine Flag', 'University Flag', 'College Flag',
+    'LCD Projector', 'White Screen', 'TV', 'Still Camera', 'Video Camera', 
+    'Sound System', 'Microphone', 'Speaker', 'Lights Set-Up', 'Podium'
   ],
   'Quadrangle': [
-    'Tables', 'Chairs', 'Philippine Flag', 'University Flag', 
-    'Still Camera', 'Video Camera', 'Sound System', 'Microphone', 
-    'Speaker', 'Lights Set-Up'
+    'Tables', 'Chairs', 'Philippine Flag', 'University Flag', 'College Flag',
+    'LCD Projector', 'White Screen', 'TV', 'Still Camera', 'Video Camera', 
+    'Sound System', 'Microphone', 'Speaker', 'Lights Set-Up', 'Podium'
   ],
   'Radio Room': [
-    'Tables', 'Chairs', 'LCD Projector', 'White Screen','Still Camera',
-    'Video Camera', 'Sound System', 'Microphone', 'Speaker'
+    'Tables', 'Chairs', 'Philippine Flag', 'University Flag', 'College Flag',
+    'LCD Projector', 'White Screen', 'TV', 'Still Camera', 'Video Camera', 
+    'Sound System', 'Microphone', 'Speaker', 'Lights Set-Up', 'Podium'
   ],
   'TV Studio': [
-    'Tables', 'Chairs', 'LCD Projector', 'White Screen', 'TV', 'Still Camera',
-    'Video Camera', 'Sound System', 'Microphone', 'Speaker'
+    'Tables', 'Chairs', 'Philippine Flag', 'University Flag', 'College Flag',
+    'LCD Projector', 'White Screen', 'TV', 'Still Camera', 'Video Camera', 
+    'Sound System', 'Microphone', 'Speaker', 'Lights Set-Up', 'Podium'
   ]
 };
 
@@ -60,12 +62,20 @@ const EQUIPMENT_DATA = {
 const DEFAULT_EQUIPMENT = [
   'Tables',
   'Chairs',
+  'Philippine Flag',
+  'University Flag',
+  'College Flag',
   'LCD Projector',
   'White Screen',
+  'TV',
+  'Still Camera',
+  'Video Camera',
   'Sound System',
   'Microphone',
   'Speaker',
+  'Lights Set-Up',
   'Podium'
+
 ];
 
 // ==================== API SERVICE ====================
@@ -2384,7 +2394,7 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
                 <div class="chk">${checkbox(hasMatch('microphone'))} Microphone <span class="uline" style="width:30px;">${escapeHtml(qtyByNeedle('microphone'))}</span></div>
                 <div class="chk">${checkbox(hasMatch('speaker'))} Speaker <span class="uline" style="width:40px;">${escapeHtml(qtyByNeedle('speaker'))}</span></div>
                 <div class="chk">${checkbox(hasMatch('lights set-up') || hasMatch('lights setup'))} Lights Set-up <span class="uline" style="width:30px;">${escapeHtml(qtyByNeedle('lights'))}</span></div>
-                <div class="chk">${checkbox(hasMatch('podium'))} Podium <span class="uline" style="width:20px;">${escapeHtml(qtyByNeedle('podium'))}</span> &nbsp; ${checkbox(hasMatch('laptop'))} Laptop <span class="uline" style="width:20px;">${escapeHtml(qtyByNeedle('laptop'))}</span></div>
+                <div class="chk">${checkbox(hasMatch('podium'))} Podium <span class="uline" style="width:20px;">${escapeHtml(qtyByNeedle('podium'))}</span></div>
               </td>
             </tr>
           </table>
