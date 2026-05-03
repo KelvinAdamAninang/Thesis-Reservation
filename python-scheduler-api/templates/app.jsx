@@ -1293,9 +1293,11 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, 
     return (b.id || 0) - (a.id || 0);
   };
 
-  const userRes = reservations.filter(r => r.user_id === user.id && !r.archived_at);
+  // Show all user's reservations, including archived, for analytics/statistics
+  const userRes = reservations.filter(r => r.user_id === user.id);
   const orderedUserRes = [...userRes].sort(byUpcomingThenRecent);
-  const approved = reservations.filter(r => r.status === 'approved' && !r.archived_at);
+  // Show all approved, including archived, for analytics/statistics
+  const approved = reservations.filter(r => r.status === 'approved');
   
   return React.createElement('div', { className: 'space-y-6 md:space-y-8' },
     // Stats row
@@ -3013,6 +3015,30 @@ function getAvailableSemesters(heatmapMonthKeys) {
 }
 
 function AnalyticsView({ reservations }) {
+    // Compute activity classification breakdown for approved reservations
+    const classificationLabels = [
+      'Institutional',
+      'Curricular',
+      'Co-Curricular',
+      'Outside Group',
+      'Extra-Curricular'
+    ];
+    const classificationCounts = [0, 0, 0, 0, 0];
+    reservations.forEach(r => {
+      if ((r.status === 'approved') && (r.classification || r.activity_classification)) {
+        const val = (r.classification || r.activity_classification || '').toLowerCase().replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim();
+        const idx = classificationLabels.findIndex(l => l.toLowerCase() === val);
+        if (idx !== -1) classificationCounts[idx]++;
+      }
+    });
+    const classificationChartData = {
+      labels: classificationLabels,
+      datasets: [{
+        data: classificationCounts,
+        backgroundColor: ['#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6'],
+        borderWidth: 0
+      }]
+    };
   const [analytics, setAnalytics] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const [analyticsError, setAnalyticsError] = useState('');
@@ -3421,6 +3447,19 @@ function AnalyticsView({ reservations }) {
           ))
         )
       )
+    ),
+
+    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+      React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Activity Classification Breakdown'),
+      React.createElement(ChartCanvas, {
+        type: 'doughnut',
+        data: classificationChartData,
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom' } }
+        }
+      })
     ),
 
     React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4' },
