@@ -3015,26 +3015,12 @@ function getAvailableSemesters(heatmapMonthKeys) {
 }
 
 function AnalyticsView({ reservations }) {
-    // Compute activity classification breakdown for approved reservations
-    const classificationLabels = [
-      'Institutional',
-      'Curricular',
-      'Co-Curricular',
-      'Outside Group',
-      'Extra-Curricular'
-    ];
-    const classificationCounts = [0, 0, 0, 0, 0];
-    reservations.forEach(r => {
-      if ((r.status === 'approved') && (r.classification || r.activity_classification)) {
-        const val = (r.classification || r.activity_classification || '').toLowerCase().replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim();
-        const idx = classificationLabels.findIndex(l => l.toLowerCase() === val);
-        if (idx !== -1) classificationCounts[idx]++;
-      }
-    });
+    // Use backend-provided activity classification breakdown for accuracy
+    const classificationBreakdown = charts.activity_classification_breakdown || { labels: [], values: [] };
     const classificationChartData = {
-      labels: classificationLabels,
+      labels: classificationBreakdown.labels,
       datasets: [{
-        data: classificationCounts,
+        data: classificationBreakdown.values,
         backgroundColor: ['#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6'],
         borderWidth: 0
       }]
@@ -3449,18 +3435,6 @@ function AnalyticsView({ reservations }) {
       )
     ),
 
-    React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
-      React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Activity Classification Breakdown'),
-      React.createElement(ChartCanvas, {
-        type: 'doughnut',
-        data: classificationChartData,
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { position: 'bottom' } }
-        }
-      })
-    ),
 
     React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4' },
       React.createElement(AnalyticsKpiCard, {
@@ -3676,6 +3650,18 @@ function AnalyticsView({ reservations }) {
           React.createElement(ChartCanvas, {
             type: 'doughnut',
             data: departmentChartData,
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { position: 'bottom' } }
+            }
+          })
+        ),
+        React.createElement('div', { className: 'bg-white border rounded-3xl p-6' },
+          React.createElement('h3', { className: 'font-bold text-slate-800 mb-4' }, 'Activity Classification Breakdown'),
+          React.createElement(ChartCanvas, {
+            type: 'doughnut',
+            data: classificationChartData,
             options: {
               responsive: true,
               maintainAspectRatio: false,

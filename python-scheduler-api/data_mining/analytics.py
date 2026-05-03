@@ -174,6 +174,24 @@ def _bucket_lead_time(days):
 
 
 def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
+        # Activity classification breakdown
+        classification_labels = [
+            'Institutional',
+            'Curricular',
+            'Co-Curricular',
+            'Outside Group',
+            'Extra-Curricular'
+        ]
+        classification_counter = Counter()
+        for reservation in reservations:
+            val = (getattr(reservation, 'classification', None) or getattr(reservation, 'activity_classification', None) or '').strip().lower().replace('-', ' ').replace('_', ' ')
+            for label in classification_labels:
+                if val == label.lower():
+                    classification_counter[label] += 1
+        classification_breakdown = {
+            'labels': classification_labels,
+            'values': [classification_counter.get(label, 0) for label in classification_labels]
+        }
     """Build KPI and chart datasets for the admin analytics dashboard."""
     # Eager-load requester to avoid N+1 queries while aggregating departments.
     all_reservations = Reservation.query.options(joinedload(Reservation.requester)).all()
@@ -325,34 +343,35 @@ def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
         },
         'charts': {
             'top_venues': {
-                'labels': [label for label, _ in top_rooms],
-                'values': [value for _, value in top_rooms],
+                'labels': [room for room, _ in top_rooms],
+                'values': [count for _, count in top_rooms]
             },
             'peak_usage_heatmap': {
                 'days': DAY_LABELS,
                 'hours': HOUR_LABELS,
                 'values': heatmap_matrix,
-                'max_value': max_heatmap_value,
+                'max_value': max_heatmap_value
             },
             'reservations_over_time': {
                 'labels': monthly_labels,
-                'values': monthly_values,
+                'values': monthly_values
             },
             'events_by_day_of_week': {
                 'labels': DAY_LABELS,
-                'values': [day_counter[day] for day in DAY_LABELS],
+                'values': [day_counter[day] for day in DAY_LABELS]
             },
             'reservations_by_department': {
                 'labels': list(department_counter.keys()),
-                'values': list(department_counter.values()),
+                'values': list(department_counter.values())
             },
             'booking_status_overview': {
                 'labels': ['Pending', 'Concept Approved', 'Approved', 'Denied', 'Deleted'],
-                'values': status_values,
+                'values': status_values
             },
             'average_lead_time_histogram': {
                 'labels': [label for label, _, _ in LEAD_TIME_BUCKETS],
-                'values': [lead_time_counter[label] for label, _, _ in LEAD_TIME_BUCKETS],
+                'values': [lead_time_counter[label] for label, _, _ in LEAD_TIME_BUCKETS]
             },
-        },
+            'activity_classification_breakdown': classification_breakdown
+        }
     }
