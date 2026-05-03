@@ -3015,16 +3015,6 @@ function getAvailableSemesters(heatmapMonthKeys) {
 }
 
 function AnalyticsView({ reservations }) {
-    // Use backend-provided activity classification breakdown for accuracy
-    const classificationBreakdown = charts.activity_classification_breakdown || { labels: [], values: [] };
-    const classificationChartData = {
-      labels: classificationBreakdown.labels,
-      datasets: [{
-        data: classificationBreakdown.values,
-        backgroundColor: ['#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6'],
-        borderWidth: 0
-      }]
-    };
   const [analytics, setAnalytics] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const [analyticsError, setAnalyticsError] = useState('');
@@ -3243,6 +3233,17 @@ function AnalyticsView({ reservations }) {
     reservations_by_department: { labels: [], values: [] },
     booking_status_overview: { labels: [], values: [] },
     average_lead_time_histogram: { labels: [], values: [] }
+  };
+
+  // Use backend-provided activity classification breakdown for accuracy
+  const classificationBreakdown = charts.activity_classification_breakdown || { labels: [], values: [] };
+  const classificationChartData = {
+    labels: classificationBreakdown.labels,
+    datasets: [{
+      data: classificationBreakdown.values,
+      backgroundColor: ['#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6'],
+      borderWidth: 0
+    }]
   };
 
   const topVenuesChartData = {
