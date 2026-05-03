@@ -1328,9 +1328,9 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, 
                   ),
                   React.createElement('div', { className: 'flex flex-col items-end gap-1 shrink-0' },
                     React.createElement(Badge, { status: r.status }),
-                    r.status === 'denied' && React.createElement('button', {
-                      className: 'text-xs text-slate-400 hover:text-red-500 hover:bg-red-50 px-2 py-0.5 rounded transition mt-1 border border-slate-200',
-                      title: 'Archive this denied reservation',
+                    (['denied', 'approved'].includes(r.status)) && React.createElement('button', {
+                      className: 'text-xs text-slate-400 hover:text-amber-600 hover:bg-amber-50 px-2 py-0.5 rounded transition mt-1 border border-slate-200',
+                      title: 'Archive this reservation',
                       onClick: (e) => { e.stopPropagation(); if (onArchive) onArchive(r.id); }
                     }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'archive', cls: 'w-3 h-3 mr-1' }), 'Archive'))
                   )
