@@ -2704,14 +2704,6 @@ function DetailsModal({ res, user, rooms, onClose, onApproveStage1, onApproveFin
         ),
         // Stage 2 view-only for phase1 admin
         isPhase1Admin && res.status === 'concept-approved' && res.final_form_url && React.createElement('div', { className: 'flex-1 bg-slate-100 text-slate-500 py-3 rounded-lg font-bold shadow-md flex items-center justify-center' }, 'Waiting for full admin approval'),
-        // Archive button for eligible users (admin, phase1 admin, or owner for approved/denied/cancelled)
-        ((isAdmin || isPhase1Admin || (isOwner && ['approved', 'denied', 'cancelled'].includes(res.status))) &&
-          React.createElement('button', {
-            onClick: () => onArchive(res.id),
-            disabled: loading,
-            className: 'flex-1 bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-lg font-bold shadow-md transition-colors disabled:opacity-50'
-          }, loading ? 'Processing...' : React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'archive', cls: 'w-4 h-4 mr-1.5 inline' }), 'Move to Archive'))
-        ),
         // Cancel/Delete logic
         (() => {
           // Remove Cancel Event button for admin/phase1 admin
