@@ -1,6 +1,6 @@
 import os
 import pickle
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import numpy as np
@@ -86,7 +86,7 @@ def build_monthly_reservation_series(include_statuses=None, allow_csv_fallback=T
     query = Reservation.query
     if include_statuses:
         query = query.filter(Reservation.status.in_(include_statuses))
-    query = query.filter(Reservation.start_time <= datetime.utcnow())
+    query = query.filter(Reservation.start_time <= datetime.now(timezone.utc))
 
     rows = query.with_entities(Reservation.start_time).all()
     timestamps = [row[0] for row in rows if row[0] is not None]
