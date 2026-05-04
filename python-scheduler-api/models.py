@@ -32,6 +32,7 @@ class Room(db.Model):
     code = db.Column(db.String(20), unique=True, nullable=True)
     detailed_info = db.Column(db.Text, nullable=True)
     image_url = db.Column(db.String(500), nullable=True)
+    position = db.Column(db.Integer, nullable=True)
 
 class Reservation(db.Model):
     __tablename__ = 'reservations'

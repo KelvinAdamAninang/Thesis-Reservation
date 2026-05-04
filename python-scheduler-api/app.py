@@ -12,7 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from io import BytesIO
 from sqlalchemy import inspect
-from sqlalchemy import or_
+from sqlalchemy import or_, case
 from sqlalchemy.orm import joinedload
 from dotenv import load_dotenv
 import boto3
@@ -256,6 +256,17 @@ def _ensure_room_columns():
             conn.exec_driver_sql("ALTER TABLE rooms ADD COLUMN detailed_info TEXT")
         if 'image_url' not in columns:
             conn.exec_driver_sql("ALTER TABLE rooms ADD COLUMN image_url VARCHAR(500)")
+        if 'position' not in columns:
+            conn.exec_driver_sql("ALTER TABLE rooms ADD COLUMN position INTEGER")
+            conn.exec_driver_sql("UPDATE rooms SET position = id WHERE position IS NULL")
+
+
+def _room_ordering():
+    return [
+        case((Room.position.is_(None), 1), else_=0),
+        Room.position.asc(),
+        Room.name.asc()
+    ]
 
 
 def _ensure_reservation_columns():
@@ -822,7 +833,7 @@ def ai_chat():
         return jsonify({'error': f'An unexpected error occurred: {outer_error_text}'}), 500
 @app.route('/api/rooms', methods=['GET'])
 def get_rooms():
-    rooms = Room.query.all()
+    rooms = Room.query.order_by(*_room_ordering()).all()
     rooms_list = [{
         'id': room.id,
         'code': room.code,
@@ -831,7 +842,8 @@ def get_rooms():
         'description': room.description,
         'usual_activity': room.usual_activity,
         'detailed_info': room.detailed_info,
-        'image_url': room.image_url
+        'image_url': room.image_url,
+        'position': room.position
     } for room in rooms]
     return jsonify(rooms_list)
 
@@ -1587,7 +1599,7 @@ def admin_get_facilities():
     if denied:
         return denied
 
-    rooms = Room.query.order_by(Room.name.asc()).all()
+    rooms = Room.query.order_by(*_room_ordering()).all()
     return jsonify([
         {
             'id': room.id,
@@ -1597,7 +1609,8 @@ def admin_get_facilities():
             'description': room.description,
             'usual_activity': room.usual_activity,
             'detailed_info': room.detailed_info,
-            'image_url': room.image_url
+            'image_url': room.image_url,
+            'position': room.position
         }
         for room in rooms
     ])
@@ -1614,12 +1627,24 @@ def admin_create_facility():
     code = (data.get('code') or '').strip() or None
     name = (data.get('name') or '').strip()
     capacity = data.get('capacity')
+    position_raw = data.get('position')
+    position = None
+
+    if position_raw is not None and str(position_raw).strip() != '':
+        try:
+            position = int(position_raw)
+        except (TypeError, ValueError):
+            return jsonify({'status': 'error', 'message': 'Position must be a number'}), 400
 
     if not name or capacity is None:
         return jsonify({'status': 'error', 'message': 'Name and capacity are required'}), 400
 
     if code and Room.query.filter_by(code=code).first():
         return jsonify({'status': 'error', 'message': 'Facility code already exists'}), 409
+
+    if position is None:
+        max_position = db.session.query(db.func.max(Room.position)).scalar()
+        position = (max_position or 0) + 1
 
     room = Room(
         code=code,
@@ -1628,7 +1653,8 @@ def admin_create_facility():
         description=(data.get('description') or '').strip(),
         usual_activity=(data.get('usual_activity') or '').strip(),
         detailed_info=(data.get('detailed_info') or '').strip(),
-        image_url=(data.get('image_url') or '').strip()
+        image_url=(data.get('image_url') or '').strip(),
+        position=position
     )
     db.session.add(room)
     db.session.commit()
@@ -1650,6 +1676,7 @@ def admin_update_facility(id):
     code = (data.get('code') or '').strip() or None
     name = (data.get('name') or '').strip()
     capacity = data.get('capacity')
+    position_raw = data.get('position')
 
     if not name or capacity is None:
         return jsonify({'status': 'error', 'message': 'Name and capacity are required'}), 400
@@ -1665,6 +1692,14 @@ def admin_update_facility(id):
     room.description = (data.get('description') or '').strip()
     room.usual_activity = (data.get('usual_activity') or '').strip()
     room.detailed_info = (data.get('detailed_info') or '').strip()
+    if 'position' in data:
+        if position_raw is None or str(position_raw).strip() == '':
+            room.position = None
+        else:
+            try:
+                room.position = int(position_raw)
+            except (TypeError, ValueError):
+                return jsonify({'status': 'error', 'message': 'Position must be a number'}), 400
     new_image_url = (data.get('image_url') or '').strip()
     old_image_url = (room.image_url or '').strip()
 

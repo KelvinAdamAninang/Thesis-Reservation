@@ -3705,6 +3705,12 @@ function FacilitiesView({ rooms, onBook, isAdmin, onRoomsUpdated, onNotify, show
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingFacility, setEditingFacility] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const sortedRooms = [...rooms].sort((a, b) => {
+    const posA = Number.isFinite(a.position) ? a.position : Number.MAX_SAFE_INTEGER;
+    const posB = Number.isFinite(b.position) ? b.position : Number.MAX_SAFE_INTEGER;
+    if (posA !== posB) return posA - posB;
+    return (a.name || '').localeCompare(b.name || '');
+  });
 
   const handleEdit = (facility) => {
     setEditingFacility(facility);
@@ -3752,7 +3758,7 @@ function FacilitiesView({ rooms, onBook, isAdmin, onRoomsUpdated, onNotify, show
     ),
 
     React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-6' },
-      rooms.map(r => React.createElement('div', { key: r.id, className: 'bg-white rounded-3xl overflow-hidden shadow-sm border hover:shadow-md transition-all' },
+      sortedRooms.map(r => React.createElement('div', { key: r.id, className: 'bg-white rounded-3xl overflow-hidden shadow-sm border hover:shadow-md transition-all' },
         React.createElement('div', { className: 'aspect-video bg-slate-100 overflow-hidden' },
           r.image_url
             ? React.createElement('img', {
@@ -4043,6 +4049,7 @@ function FacilityEditorModal({ initialFacility, onClose, onSubmit }) {
     code: initialFacility?.code || '',
     name: initialFacility?.name || '',
     capacity: initialFacility?.capacity || '',
+    position: Number.isFinite(initialFacility?.position) ? initialFacility.position : '',
     description: initialFacility?.description || '',
     usual_activity: initialFacility?.usual_activity || '',
     detailed_info: initialFacility?.detailed_info || '',
@@ -4074,6 +4081,7 @@ function FacilityEditorModal({ initialFacility, onClose, onSubmit }) {
         code: form.code,
         name: form.name,
         capacity: Number(form.capacity),
+        position: form.position === '' ? null : Number(form.position),
         description: form.description,
         usual_activity: form.usual_activity,
         detailed_info: form.detailed_info,
@@ -4117,6 +4125,14 @@ function FacilityEditorModal({ initialFacility, onClose, onSubmit }) {
           placeholder: 'Capacity',
           className: 'p-2 border rounded w-full',
           required: true
+        }),
+        React.createElement('input', {
+          type: 'number',
+          min: '1',
+          value: form.position,
+          onChange: (e) => setForm({ ...form, position: e.target.value }),
+          placeholder: 'Display order (1 = first)',
+          className: 'p-2 border rounded w-full'
         }),
         React.createElement('textarea', {
           value: form.description,
