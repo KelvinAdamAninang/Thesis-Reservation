@@ -3503,6 +3503,9 @@ function AnalyticsView({ reservations }) {
       forecastError && React.createElement('div', { className: 'mb-3 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-sm' },
         `Forecast unavailable: ${forecastError}`
       ),
+      forecastPayload?.data?.warning && React.createElement('div', { className: 'mb-3 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-sm' },
+        `Forecast is using fallback mode: ${forecastPayload.data.warning}`
+      ),
       loadingForecast
         ? React.createElement('div', { className: 'h-[300px] flex items-center justify-center text-slate-500' }, 'Loading forecast...')
         : forecastSeries.length === 0

@@ -83,7 +83,7 @@ def _forecast_to_target_months(model_fit, last_observed_month_str, target_months
     max_target = target_months.max()
     months_ahead = (max_target.year - last_observed.year) * 12 + (max_target.month - last_observed.month)
     if months_ahead <= 0:
-        raise ValueError('Target months are not in the future relative to training data.')
+        return pd.Series(dtype='float64', index=target_months)
 
     # Check if model uses exogenous features (SARIMAX)
     if metadata and metadata.get('model_type') == 'SARIMAX with Semester Features':
@@ -182,8 +182,11 @@ def forecast_current_semester(now=None, artifact_path=SARIMAX_ARTIFACT_PATH):
         hist = build_monthly_reservation_series(include_statuses=['approved'])
         hist_before_now = hist[hist.index < now_month_start].dropna()
         baseline = float(hist_before_now.tail(3).mean()) if len(hist_before_now) > 0 else 0.0
+        recent_changes = hist_before_now.diff().dropna().tail(3)
+        trend_step = float(recent_changes.mean()) if len(recent_changes) > 0 else 0.0
         if len(predicted_months) > 0:
-            predicted_series = pd.Series([baseline] * len(predicted_months), index=predicted_months, dtype='float64')
+            values = [max(0.0, baseline + trend_step * (i + 1)) for i in range(len(predicted_months))]
+            predicted_series = pd.Series(values, index=predicted_months, dtype='float64')
 
         metadata = {
             'model_type': 'Fallback (recent approved reservations average)',
@@ -191,6 +194,7 @@ def forecast_current_semester(now=None, artifact_path=SARIMAX_ARTIFACT_PATH):
             'fallback_reason': fallback_reason,
             'last_observation_month': (hist_before_now.index.max().strftime('%Y-%m') if len(hist_before_now) > 0 else None),
             'fallback_baseline': round(float(baseline), 2),
+            'fallback_trend_step': round(float(trend_step), 2),
         }
 
     series = []
