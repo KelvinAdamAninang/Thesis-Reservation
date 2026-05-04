@@ -86,6 +86,8 @@ def build_monthly_reservation_series(include_statuses=None, allow_csv_fallback=T
     query = Reservation.query
     if include_statuses:
         query = query.filter(Reservation.status.in_(include_statuses))
+    
+    now_utc = datetime.now(timezone.utc)
     query = query.filter(Reservation.start_time <= datetime.now(timezone.utc))
 
     rows = query.with_entities(Reservation.start_time).all()
