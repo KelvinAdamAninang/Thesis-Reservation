@@ -868,7 +868,7 @@ function App() {
             setActiveModal('notification');
           }
         }),
-        currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at), loading, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); } }),
+        currentView === 'reservations' && isAdminOrPhase1 && React.createElement(AdminRequests, { reservations: reservations.filter(r => !r.archived_at), loading, onViewDetails: (r) => { setSelectedRes(r); setActiveModal('details'); }, onArchive: handleArchive }),
         currentView === 'analytics' && isAdminOrPhase1 && React.createElement(AnalyticsView, { reservations }),
         currentView === 'archive' && React.createElement(ArchiveView, {
           archive,
@@ -1918,7 +1918,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
   );
 }
 
-function AdminRequests({ reservations, onViewDetails, loading }) {
+function AdminRequests({ reservations, onViewDetails, onArchive, loading }) {
   // Show all non-archived requests for admin and admin_phase1 (from all users)
   const toTimestamp = (isoString) => {
     if (!isoString) return 0;
@@ -1964,13 +1964,21 @@ function AdminRequests({ reservations, onViewDetails, loading }) {
               React.createElement('button', {
                 className: 'px-3 py-1 rounded bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold',
                 onClick: () => onViewDetails(r)
-              }, 'View Details')
+              }, 'View Details'),
+              onArchive && React.createElement('button', {
+                className: 'px-3 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold',
+                onClick: () => onArchive(r.id)
+              }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'archive', cls: 'w-3 h-3 mr-1 inline' }), 'Archive'))
             ),
             r.status === 'pending' && React.createElement('div', { className: 'mt-2 flex gap-2' },
               React.createElement('button', {
                 className: 'px-3 py-1 rounded bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold',
                 onClick: () => onViewDetails(r)
-              }, 'View Details')
+              }, 'View Details'),
+              onArchive && React.createElement('button', {
+                className: 'px-3 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold',
+                onClick: () => onArchive(r.id)
+              }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'archive', cls: 'w-3 h-3 mr-1 inline' }), 'Archive'))
             )
           )
     )
