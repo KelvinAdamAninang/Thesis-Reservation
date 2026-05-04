@@ -3370,11 +3370,6 @@ function AnalyticsView({ reservations }) {
   const actualSeriesData = forecastSeries.map((entry) => entry.actual == null ? null : entry.actual);
   const predictedSeriesData = forecastSeries.map((entry) => entry.predicted == null ? null : entry.predicted);
 
-  // Bridge forecast to the last actual point so the two lines read as one continuous trend.
-  const firstPredictedIndex = predictedSeriesData.findIndex((value) => value != null);
-  if (firstPredictedIndex > 0 && actualSeriesData[firstPredictedIndex - 1] != null) {
-    predictedSeriesData[firstPredictedIndex - 1] = actualSeriesData[firstPredictedIndex - 1];
-  }
 
   const forecastChartData = {
     labels: forecastSeries.map((entry) => {

@@ -86,9 +86,13 @@ def build_monthly_reservation_series(include_statuses=None, allow_csv_fallback=T
     query = Reservation.query
     if include_statuses:
         query = query.filter(Reservation.status.in_(include_statuses))
-    
+    # Include reservations scheduled within the current UTC month.
     now_utc = datetime.now(timezone.utc)
-    query = query.filter(Reservation.start_time <= datetime.now(timezone.utc))
+    if now_utc.month == 12:
+        next_month_start_utc = datetime(now_utc.year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        next_month_start_utc = datetime(now_utc.year, now_utc.month + 1, 1, tzinfo=timezone.utc)
+    query = query.filter(Reservation.start_time < next_month_start_utc)
 
     rows = query.with_entities(Reservation.start_time).all()
     timestamps = [row[0] for row in rows if row[0] is not None]
@@ -152,7 +156,7 @@ def save_sarimax_bundle(model, series, order, seasonal_order, artifact_path=ARTI
             'model_type': 'SARIMAX with Semester Features',
             'order': order,
             'seasonal_order': seasonal_order,
-            'trained_at': datetime.utcnow().isoformat() + 'Z',
+            'trained_at': datetime.now(timezone.utc).isoformat(),
             'n_observations': int(len(series)),
             'last_observation_month': series.index[-1].strftime('%Y-%m'),
         },

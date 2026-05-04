@@ -159,8 +159,7 @@ def forecast_current_semester(now=None, artifact_path=SARIMAX_ARTIFACT_PATH):
     approved_monthly_actual = build_monthly_reservation_series(include_statuses=['approved'])
     approved_monthly_actual = approved_monthly_actual.reindex(semester_months)
 
-    actual_mask = semester_months < now_month_start
-    predicted_months = semester_months[~actual_mask]
+    predicted_months = semester_months[approved_monthly_actual.isna()]
 
     fallback_reason = None
     metadata = {}
@@ -200,7 +199,7 @@ def forecast_current_semester(now=None, artifact_path=SARIMAX_ARTIFACT_PATH):
         predicted_val = predicted_series.get(m)
         series.append({
             'month': m.strftime('%Y-%m'),
-            'actual': None if pd.isna(actual_val) or m >= now_month_start else round(float(actual_val), 2),
+            'actual': None if pd.isna(actual_val) else round(float(actual_val), 2),
             'predicted': None if pd.isna(predicted_val) else round(max(0.0, float(predicted_val)), 2),
         })
 
