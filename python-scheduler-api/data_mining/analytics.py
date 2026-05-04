@@ -118,6 +118,22 @@ def _format_month_label(month_key):
     return datetime.strptime(month_key, '%Y-%m').strftime('%b %Y')
 
 
+def _month_key_to_index(month_key):
+    try:
+        year, month = month_key.split('-')
+        return int(year) * 12 + int(month)
+    except Exception:
+        return None
+
+
+def _format_month_range_label(start_key, end_key):
+    if not start_key or not end_key:
+        return 'All Months'
+    if start_key == end_key:
+        return _format_month_label(start_key)
+    return f'{_format_month_label(start_key)} - {_format_month_label(end_key)}'
+
+
 def _last_month_keys(months):
     # Build chronological month keys ending at current month.
     now = datetime.now()
@@ -129,6 +145,22 @@ def _last_month_keys(months):
             month_index += 12
             year -= 1
         month_keys.append(f'{year:04d}-{month_index:02d}')
+    return month_keys
+
+
+def _month_keys_between(start_key, end_key):
+    start_index = _month_key_to_index(start_key)
+    end_index = _month_key_to_index(end_key)
+    if start_index is None or end_index is None:
+        return []
+    if end_index < start_index:
+        start_index, end_index = end_index, start_index
+
+    month_keys = []
+    for idx in range(start_index, end_index + 1):
+        year = (idx - 1) // 12
+        month = idx - (year * 12)
+        month_keys.append(f'{year:04d}-{month:02d}')
     return month_keys
 
 
@@ -173,7 +205,7 @@ def _bucket_lead_time(days):
     return 'Unknown'
 
 
-def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
+def build_analytics_snapshot(months=6, department=None, heatmap_month=None, filter_start_month=None, filter_end_month=None):
     """Build KPI and chart datasets for the admin analytics dashboard."""
     # Eager-load requester to avoid N+1 queries while aggregating departments.
     all_reservations = Reservation.query.options(joinedload(Reservation.requester)).all()
@@ -194,6 +226,37 @@ def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
         department_filter = 'All'
         reservations = all_reservations
 
+    available_heatmap_month_keys = sorted({
+        reservation.start_time.strftime('%Y-%m')
+        for reservation in reservations
+        if reservation.start_time
+    }, reverse=True)
+
+    range_start_key = (filter_start_month or '').strip() or None
+    range_end_key = (filter_end_month or '').strip() or range_start_key
+    range_start_index = _month_key_to_index(range_start_key) if range_start_key else None
+    range_end_index = _month_key_to_index(range_end_key) if range_end_key else None
+
+    if range_start_index is not None and range_end_index is not None and range_end_index < range_start_index:
+        range_start_index, range_end_index = range_end_index, range_start_index
+        range_start_key, range_end_key = range_end_key, range_start_key
+
+    use_range_filter = range_start_index is not None and range_end_index is not None
+
+    if use_range_filter:
+        filtered_reservations = []
+        for reservation in reservations:
+            if not reservation.start_time:
+                continue
+            month_key = reservation.start_time.strftime('%Y-%m')
+            month_index = _month_key_to_index(month_key)
+            if month_index is None:
+                continue
+            if range_start_index <= month_index <= range_end_index:
+                filtered_reservations.append(reservation)
+    else:
+        filtered_reservations = reservations
+
     # Activity classification breakdown (must be after reservations is set)
     classification_labels = [
         'Institutional',
@@ -203,7 +266,7 @@ def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
         'Extra-Curricular'
     ]
     classification_counter = Counter()
-    for reservation in reservations:
+    for reservation in filtered_reservations:
         val = (getattr(reservation, 'classification', None) or getattr(reservation, 'activity_classification', None) or '').strip().lower().replace('-', ' ').replace('_', ' ')
         for label in classification_labels:
             if val == label.lower():
@@ -215,26 +278,20 @@ def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
 
     # Build KPI and chart datasets for the admin analytics dashboard.
     # Always use current year and month as default if available
-    available_heatmap_month_keys = sorted({
-        reservation.start_time.strftime('%Y-%m')
-        for reservation in reservations
-        if reservation.start_time
-    }, reverse=True)
-
-    current_month_key = datetime.now().strftime('%Y-%m')
-    if heatmap_month and heatmap_month in available_heatmap_month_keys:
-        selected_heatmap_month = heatmap_month
-    elif current_month_key in available_heatmap_month_keys:
-        selected_heatmap_month = current_month_key
-    elif available_heatmap_month_keys:
-        selected_heatmap_month = available_heatmap_month_keys[0]
-    else:
-        selected_heatmap_month = 'all'
+    selected_heatmap_month = 'all'
+    if not use_range_filter:
+        current_month_key = datetime.now().strftime('%Y-%m')
+        if heatmap_month and heatmap_month in available_heatmap_month_keys:
+            selected_heatmap_month = heatmap_month
+        elif current_month_key in available_heatmap_month_keys:
+            selected_heatmap_month = current_month_key
+        elif available_heatmap_month_keys:
+            selected_heatmap_month = available_heatmap_month_keys[0]
 
     room_lookup = {room.id: room.name for room in Room.query.all()}
 
     # Accumulators used to compute KPI values and chart series in one pass.
-    total = len(reservations)
+    total = len(filtered_reservations)
     status_counter = Counter()
     room_counter = Counter()
     day_counter = Counter({day: 0 for day in DAY_LABELS})
@@ -245,7 +302,7 @@ def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
     heatmap_counts = {day: {hour: 0 for hour in HOUR_LABELS} for day in DAY_LABELS}
 
     # Single-pass aggregation over reservations for all dashboard widgets.
-    for reservation in reservations:
+    for reservation in filtered_reservations:
         status_counter[_format_status(reservation.status)] += 1
 
         room_name = room_lookup.get(reservation.room_id, 'Unknown Venue')
@@ -265,10 +322,9 @@ def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
             if status_value not in heatmap_eligible_statuses:
                 continue
 
-            include_in_heatmap = (
-                selected_heatmap_month == 'all' or
-                reservation.start_time.strftime('%Y-%m') == selected_heatmap_month
-            )
+            include_in_heatmap = True
+            if not use_range_filter and selected_heatmap_month != 'all':
+                include_in_heatmap = reservation.start_time.strftime('%Y-%m') == selected_heatmap_month
             if include_in_heatmap:
                 for weekday_index, hour in _iter_hour_slots(reservation.start_time, reservation.end_time) or []:
                     heatmap_counts[DAY_LABELS[weekday_index]][f'{hour:02d}:00'] += 1
@@ -304,7 +360,10 @@ def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
     approval_rate = _safe_pct(status_counter.get('Approved', 0), total)
     denial_rate = _safe_pct(status_counter.get('Denied', 0), total)
 
-    month_keys = _last_month_keys(months)
+    if use_range_filter and range_start_key and range_end_key:
+        month_keys = _month_keys_between(range_start_key, range_end_key)
+    else:
+        month_keys = _last_month_keys(months)
     monthly_labels = [_format_month_label(key) for key in month_keys]
     monthly_values = [monthly_counter.get(key, 0) for key in month_keys]
 
@@ -319,6 +378,11 @@ def build_analytics_snapshot(months=6, department=None, heatmap_month=None):
             'heatmap_months': ['all'] + available_heatmap_month_keys,
             'selected_heatmap_month': selected_heatmap_month,
             'selected_heatmap_month_label': _format_month_label(selected_heatmap_month) if selected_heatmap_month != 'all' else 'All Months',
+            'filter_start_month': range_start_key if use_range_filter else None,
+            'filter_end_month': range_end_key if use_range_filter else None,
+            'filter_label': _format_month_range_label(range_start_key, range_end_key) if use_range_filter else (
+                _format_month_label(selected_heatmap_month) if selected_heatmap_month != 'all' else 'All Months'
+            ),
         },
         'kpis': {
             'total_reservations': total,

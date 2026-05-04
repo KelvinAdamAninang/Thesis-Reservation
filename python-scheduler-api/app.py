@@ -1405,6 +1405,8 @@ def get_data_mining_analytics():
     try:
         department = (request.args.get('department') or '').strip() or None
         heatmap_month = (request.args.get('heatmap_month') or '').strip() or None
+        filter_start_month = (request.args.get('filter_start_month') or '').strip() or None
+        filter_end_month = (request.args.get('filter_end_month') or '').strip() or None
         try:
             months = int(request.args.get('months', 6))
         except (TypeError, ValueError):
@@ -1414,6 +1416,8 @@ def get_data_mining_analytics():
             months=months,
             department=department,
             heatmap_month=heatmap_month,
+            filter_start_month=filter_start_month,
+            filter_end_month=filter_end_month,
         )
         return jsonify({'status': 'success', 'data': payload})
     except Exception as e:

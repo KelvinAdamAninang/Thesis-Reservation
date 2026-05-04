@@ -259,6 +259,8 @@ const apiService = {
     const params = new URLSearchParams();
     if (filters.department) params.set('department', filters.department);
     if (filters.heatmap_month) params.set('heatmap_month', filters.heatmap_month);
+    if (filters.filter_start_month) params.set('filter_start_month', filters.filter_start_month);
+    if (filters.filter_end_month) params.set('filter_end_month', filters.filter_end_month);
     if (filters.months) params.set('months', String(filters.months));
     const query = params.toString();
     const response = await fetch(`${API_BASE}/data-mining/analytics${query ? `?${query}` : ''}`, { credentials: 'include' });
@@ -2978,6 +2980,12 @@ function getCurrentSemester() {
   return 3; // Jun-Jul = Summer
 }
 
+function getSemesterForMonth(monthNumber) {
+  if (monthNumber >= 8) return 1;
+  if (monthNumber >= 1 && monthNumber <= 5) return 2;
+  return 3;
+}
+
 function getSemesterDateRange(semester) {
   // Returns { startMonth: "MM", endMonth: "MM" }
   if (semester === 1) return { startMonth: '08', endMonth: '12' }; // 1st Sem: Aug-Dec
@@ -3018,6 +3026,22 @@ function getAvailableSemesters(heatmapMonthKeys) {
   return semesters;
 }
 
+function getAvailableMonthsByYear(heatmapMonthKeys) {
+  const monthsByYear = {};
+  heatmapMonthKeys.forEach((key) => {
+    if (key === 'all') return;
+    const [year, month] = key.split('-');
+    if (!monthsByYear[year]) monthsByYear[year] = new Set();
+    monthsByYear[year].add(month);
+  });
+
+  Object.keys(monthsByYear).forEach((year) => {
+    monthsByYear[year] = Array.from(monthsByYear[year]).sort((a, b) => parseInt(a) - parseInt(b));
+  });
+
+  return monthsByYear;
+}
+
 function AnalyticsView({ reservations }) {
   const [analytics, setAnalytics] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
@@ -3036,6 +3060,9 @@ function AnalyticsView({ reservations }) {
   const [selectedDepartment, setSelectedDepartment] = useState('All');
   const [selectedSemesterYear, setSelectedSemesterYear] = useState('');
   const [selectedSemester, setSelectedSemester] = useState('all');
+  const [timeFilterMode, setTimeFilterMode] = useState('semester');
+  const [selectedMonthYear, setSelectedMonthYear] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('all');
   const [showDepartmentPicker, setShowDepartmentPicker] = useState(false);
   const [monthlyReport, setMonthlyReport] = useState(null);
   const [loadingMonthlyReport, setLoadingMonthlyReport] = useState(false);
@@ -3050,34 +3077,37 @@ function AnalyticsView({ reservations }) {
       setLoadingAnalytics(true);
       setAnalyticsError('');
       try {
-        // Calculate heatmap_month from selected semester
-        let heatmapMonth = 'all';
-        if (selectedSemester !== 'all' && selectedSemesterYear) {
-          const range = getSemesterDateRange(parseInt(selectedSemester));
-          heatmapMonth = `${selectedSemesterYear}-${range.startMonth}`;
+        let filterStartMonth;
+        let filterEndMonth;
+        if (timeFilterMode === 'month') {
+          if (selectedMonth !== 'all' && selectedMonthYear) {
+            filterStartMonth = `${selectedMonthYear}-${selectedMonth}`;
+            filterEndMonth = filterStartMonth;
+          }
+        } else if (selectedSemester !== 'all' && selectedSemesterYear) {
+          const range = getSemesterDateRange(parseInt(selectedSemester, 10));
+          filterStartMonth = `${selectedSemesterYear}-${range.startMonth}`;
+          filterEndMonth = `${selectedSemesterYear}-${range.endMonth}`;
         }
         
         const data = await apiService.getDataMiningAnalytics({
           department: selectedDepartment,
-          heatmap_month: heatmapMonth !== 'all' ? heatmapMonth : undefined,
+          filter_start_month: filterStartMonth,
+          filter_end_month: filterEndMonth,
         });
         if (isMounted) {
           setAnalytics(data);
-          // Initialize semester selection on first load
-          if (!selectedSemesterYear && data?.filters?.selected_heatmap_month) {
-            const initialKey = data.filters.selected_heatmap_month;
-            if (initialKey !== 'all' && /^\d{4}-\d{2}$/.test(initialKey)) {
+          if (!selectedSemesterYear && !selectedMonthYear) {
+            const availableKeys = (data?.filters?.heatmap_months || []).filter((key) => key !== 'all');
+            const initialKey = availableKeys[0];
+            if (initialKey && /^\d{4}-\d{2}$/.test(initialKey)) {
               const [year, month] = initialKey.split('-');
-              const monthNum = parseInt(month);
-              let semester;
-              if (monthNum >= 8) semester = 1;
-              else if (monthNum >= 1 && monthNum <= 5) semester = 2;
-              else semester = 3;
+              const monthNum = parseInt(month, 10);
+              const semester = getSemesterForMonth(monthNum);
               setSelectedSemesterYear(year);
               setSelectedSemester(String(semester));
-            } else {
-              setSelectedSemesterYear('');
-              setSelectedSemester('all');
+              setSelectedMonthYear(year);
+              setSelectedMonth(month);
             }
           }
         }
@@ -3089,7 +3119,7 @@ function AnalyticsView({ reservations }) {
     })();
 
     return () => { isMounted = false; };
-  }, [reservations.length, selectedDepartment, selectedSemesterYear, selectedSemester]);
+  }, [reservations.length, selectedDepartment, selectedSemesterYear, selectedSemester, selectedMonthYear, selectedMonth, timeFilterMode]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3323,13 +3353,18 @@ function AnalyticsView({ reservations }) {
   const departmentOptions = filterData.departments || ['All'];
   const heatmapMonthKeys = (filterData.heatmap_months || ['all']).filter((key) => key !== 'all');
   const availableSemesters = getAvailableSemesters(heatmapMonthKeys);
+  const availableMonthsByYear = getAvailableMonthsByYear(heatmapMonthKeys);
   const semesterYears = Object.keys(availableSemesters).sort((a, b) => Number(b) - Number(a));
+  const monthYears = Object.keys(availableMonthsByYear).sort((a, b) => Number(b) - Number(a));
   const semestersForSelectedYear = selectedSemesterYear ? [1, 2, 3] : [];
+  const monthsForSelectedYear = selectedMonthYear ? (availableMonthsByYear[selectedMonthYear] || []) : [];
 
   const handleSemesterYearChange = (year) => {
     if (year === 'all') {
       setSelectedSemesterYear('');
       setSelectedSemester('all');
+      setSelectedMonthYear('');
+      setSelectedMonth('all');
       return;
     }
     
@@ -3345,6 +3380,13 @@ function AnalyticsView({ reservations }) {
     } else {
       setSelectedSemester('all');
     }
+    if (!selectedMonthYear || selectedMonthYear !== year) {
+      const monthsForYear = availableMonthsByYear[year] || [];
+      if (monthsForYear.length > 0) {
+        setSelectedMonthYear(year);
+        setSelectedMonth(monthsForYear[0]);
+      }
+    }
   };
 
   const handleSemesterChange = (semester) => {
@@ -3353,12 +3395,70 @@ function AnalyticsView({ reservations }) {
       return;
     }
     setSelectedSemester(semester);
+    if (selectedSemesterYear) {
+      const range = getSemesterDateRange(parseInt(semester, 10));
+      setSelectedMonthYear(selectedSemesterYear);
+      setSelectedMonth(range.startMonth);
+    }
+  };
+
+  const handleMonthYearChange = (year) => {
+    if (year === 'all') {
+      setSelectedMonthYear('');
+      setSelectedMonth('all');
+      return;
+    }
+    setSelectedMonthYear(year);
+    const monthsForYear = availableMonthsByYear[year] || [];
+    const nextMonth = monthsForYear.length > 0 ? monthsForYear[0] : 'all';
+    setSelectedMonth(nextMonth);
+    if (nextMonth !== 'all') {
+      const semester = getSemesterForMonth(parseInt(nextMonth, 10));
+      setSelectedSemesterYear(year);
+      setSelectedSemester(String(semester));
+    }
+  };
+
+  const handleMonthChange = (month) => {
+    setSelectedMonth(month);
+    if (month === 'all' || !selectedMonthYear) return;
+    const semester = getSemesterForMonth(parseInt(month, 10));
+    setSelectedSemesterYear(selectedMonthYear);
+    setSelectedSemester(String(semester));
+  };
+
+  const handleTimeFilterModeChange = (mode) => {
+    setTimeFilterMode(mode);
+    if (mode === 'month') {
+      if (!selectedMonthYear && selectedSemesterYear) {
+        const range = selectedSemester !== 'all'
+          ? getSemesterDateRange(parseInt(selectedSemester, 10))
+          : { startMonth: '01' };
+        setSelectedMonthYear(selectedSemesterYear);
+        setSelectedMonth(range.startMonth);
+      }
+    } else if (mode === 'semester') {
+      if (!selectedSemesterYear && selectedMonthYear) {
+        const monthNumber = selectedMonth !== 'all' ? parseInt(selectedMonth, 10) : null;
+        const semester = monthNumber ? getSemesterForMonth(monthNumber) : getCurrentSemester();
+        setSelectedSemesterYear(selectedMonthYear);
+        setSelectedSemester(String(semester));
+      }
+    }
   };
 
   const formatMonthName = (monthNumber) => {
     const temp = new Date(`2000-${monthNumber}-01T00:00:00`);
     return temp.toLocaleDateString(undefined, { month: 'long' });
   };
+
+  const filterLabel = timeFilterMode === 'month'
+    ? (selectedMonthYear && selectedMonth !== 'all'
+        ? `${formatMonthName(selectedMonth)} ${selectedMonthYear}`
+        : 'All Months')
+    : (selectedSemesterYear && selectedSemester !== 'all'
+        ? `${formatSemesterLabel(parseInt(selectedSemester, 10))} ${selectedSemesterYear}`
+        : 'All Semesters');
 
   const handleTopDepartmentClick = () => {
     const topDept = (kpis.top_department || '').trim();
@@ -3405,33 +3505,74 @@ function AnalyticsView({ reservations }) {
       'Showing fallback metrics. ', analyticsError
     ),
 
-    React.createElement('div', { className: 'bg-white border rounded-3xl p-4 md:p-5 grid grid-cols-1 md:grid-cols-2 gap-4' },
-      React.createElement('label', { className: 'text-sm text-slate-600' },
-        React.createElement('span', { className: 'block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2' }, 'Year'),
-        React.createElement('select', {
-          className: 'w-full border rounded-xl px-3 py-2 bg-white',
-          value: selectedSemesterYear,
-          onChange: (e) => handleSemesterYearChange(e.target.value)
-        },
-          React.createElement('option', { value: '' }, 'All Years'),
-          semesterYears.map((year) => React.createElement('option', { key: year, value: year }, year))
+    React.createElement('div', { className: 'bg-white border rounded-3xl p-4 md:p-5' },
+      React.createElement('div', { className: 'flex flex-wrap items-center justify-between gap-3 mb-4' },
+        React.createElement('div', { className: 'text-sm text-slate-600 font-semibold' }, 'Time Filter'),
+        React.createElement('div', { className: 'inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1' },
+          React.createElement('button', {
+            type: 'button',
+            onClick: () => handleTimeFilterModeChange('semester'),
+            className: `px-3 py-1.5 rounded-lg text-xs font-semibold transition ${timeFilterMode === 'semester' ? 'bg-sky-500 text-white shadow-sm' : 'text-slate-600 hover:bg-white'}`
+          }, 'Semester'),
+          React.createElement('button', {
+            type: 'button',
+            onClick: () => handleTimeFilterModeChange('month'),
+            className: `px-3 py-1.5 rounded-lg text-xs font-semibold transition ${timeFilterMode === 'month' ? 'bg-sky-500 text-white shadow-sm' : 'text-slate-600 hover:bg-white'}`
+          }, 'Month')
         )
       ),
-      React.createElement('label', { className: 'text-sm text-slate-600' },
-        React.createElement('span', { className: 'block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2' }, 'Semester'),
-        React.createElement('select', {
-          className: 'w-full border rounded-xl px-3 py-2 bg-white',
-          value: selectedSemester,
-          disabled: !selectedSemesterYear,
-          onChange: (e) => handleSemesterChange(e.target.value)
-        },
-          React.createElement('option', { value: 'all' }, selectedSemesterYear ? 'Select semester' : 'Select year first'),
-          semestersForSelectedYear.map((sem) => React.createElement(
-            'option',
-            { key: sem, value: String(sem) },
-            formatSemesterLabel(sem)
-          ))
-        )
+      React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-4' },
+        React.createElement('label', { className: 'text-sm text-slate-600' },
+          React.createElement('span', { className: 'block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2' }, 'Year'),
+          React.createElement('select', {
+            className: 'w-full border rounded-xl px-3 py-2 bg-white',
+            value: timeFilterMode === 'month' ? selectedMonthYear : selectedSemesterYear,
+            onChange: (e) => {
+              const nextYear = e.target.value;
+              if (timeFilterMode === 'month') {
+                handleMonthYearChange(nextYear || 'all');
+              } else {
+                handleSemesterYearChange(nextYear || 'all');
+              }
+            }
+          },
+            React.createElement('option', { value: '' }, 'All Years'),
+            (timeFilterMode === 'month' ? monthYears : semesterYears).map((year) => React.createElement('option', { key: year, value: year }, year))
+          )
+        ),
+        timeFilterMode === 'semester'
+          ? React.createElement('label', { className: 'text-sm text-slate-600' },
+              React.createElement('span', { className: 'block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2' }, 'Semester'),
+              React.createElement('select', {
+                className: 'w-full border rounded-xl px-3 py-2 bg-white',
+                value: selectedSemester,
+                disabled: !selectedSemesterYear,
+                onChange: (e) => handleSemesterChange(e.target.value)
+              },
+                React.createElement('option', { value: 'all' }, selectedSemesterYear ? 'Select semester' : 'Select year first'),
+                semestersForSelectedYear.map((sem) => React.createElement(
+                  'option',
+                  { key: sem, value: String(sem) },
+                  formatSemesterLabel(sem)
+                ))
+              )
+            )
+          : React.createElement('label', { className: 'text-sm text-slate-600' },
+              React.createElement('span', { className: 'block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2' }, 'Month'),
+              React.createElement('select', {
+                className: 'w-full border rounded-xl px-3 py-2 bg-white',
+                value: selectedMonth,
+                disabled: !selectedMonthYear,
+                onChange: (e) => handleMonthChange(e.target.value)
+              },
+                React.createElement('option', { value: 'all' }, selectedMonthYear ? 'Select month' : 'Select year first'),
+                monthsForSelectedYear.map((month) => React.createElement(
+                  'option',
+                  { key: month, value: month },
+                  formatMonthName(month)
+                ))
+              )
+            )
       )
     ),
 
@@ -3609,9 +3750,7 @@ function AnalyticsView({ reservations }) {
           React.createElement('div', { className: 'flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4' },
             React.createElement('h3', { className: 'font-bold text-slate-800' }, 'Peak Usage Time Heatmap'),
             React.createElement('p', { className: 'text-sm text-slate-500' },
-              selectedSemester !== 'all' && selectedSemesterYear
-                ? `Showing ${formatSemesterLabel(parseInt(selectedSemester))} ${selectedSemesterYear}`
-                : 'Showing all data'
+              `Showing ${filterLabel}`
             )
           ),
           React.createElement('div', { className: 'pointer-events-auto' },
