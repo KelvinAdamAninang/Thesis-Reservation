@@ -717,8 +717,6 @@ function App() {
     try {
       await apiService.archiveReservation(id);
       await refreshReservationsAndCalendar();
-      setNotification('Reservation archived successfully.');
-      setActiveModal('notification');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1965,7 +1963,7 @@ function AdminRequests({ reservations, onViewDetails, onArchive, loading }) {
                 className: 'px-3 py-1 rounded bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold',
                 onClick: () => onViewDetails(r)
               }, 'View Details'),
-              onArchive && React.createElement('button', {
+              onArchive && !['pending', 'concept-approved'].includes(r.status) && React.createElement('button', {
                 className: 'px-3 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold',
                 onClick: () => onArchive(r.id)
               }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'archive', cls: 'w-3 h-3 mr-1 inline' }), 'Archive'))
@@ -1974,11 +1972,7 @@ function AdminRequests({ reservations, onViewDetails, onArchive, loading }) {
               React.createElement('button', {
                 className: 'px-3 py-1 rounded bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold',
                 onClick: () => onViewDetails(r)
-              }, 'View Details'),
-              onArchive && React.createElement('button', {
-                className: 'px-3 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold',
-                onClick: () => onArchive(r.id)
-              }, React.createElement(React.Fragment, {}, React.createElement(SmoothieIcon, { name: 'archive', cls: 'w-3 h-3 mr-1 inline' }), 'Archive'))
+              }, 'View Details')
             )
           )
     )
