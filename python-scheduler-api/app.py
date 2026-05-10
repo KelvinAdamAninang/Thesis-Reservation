@@ -38,15 +38,21 @@ except Exception:
     except Exception:
         google_legacy_genai = None
 
-app = Flask(__name__)
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DOTENV_PATH = os.path.join(APP_DIR, '.env')
+# Load environment variables from your .env file
+load_dotenv(dotenv_path=DOTENV_PATH, override=True)
 
+app = Flask(__name__)
 
 
 # Enable CORS
-allowed_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5000').split(',')
-CORS(app, supports_credentials=True, origins=allowed_origins)
+CORS(app, supports_credentials=True, origins=[
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://localhost:5000',
+    'http://127.0.0.1:5173',
+])
 
 # CONFIG
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -54,12 +60,10 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-pro
 # Session Configuration for persistent login across browser tabs
 app.config['SESSION_COOKIE_SECURE'] = True  # Only send over HTTPS in production
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevent JavaScript access to session cookie
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Allow cross-site navigation but not embedded requests
+app.config['SESSION_COOKIE_SAMESITE'] = 'None' 
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)  # Session lasts 7 days
 app.config['SESSION_REFRESH_EACH_REQUEST'] = True  # Refresh session on each request
 
-# Load environment variables from your .env file
-load_dotenv(dotenv_path=DOTENV_PATH, override=True)
 
 # Grab the Supabase URL from the environment
 db_url = os.getenv("DATABASE_URL")
@@ -521,10 +525,6 @@ def log_response_headers(response):
     return response
 
 # ==================== WEB ROUTES ====================
-
-@app.route('/')
-def index():
-    return render_template('index.html')
 
 @app.route('/app.jsx')
 def serve_app_jsx():
