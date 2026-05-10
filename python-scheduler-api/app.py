@@ -47,12 +47,8 @@ app = Flask(__name__)
 
 
 # Enable CORS
-CORS(app, supports_credentials=True, origins=[
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'http://localhost:5000',
-    'http://127.0.0.1:5173',
-])
+allowed_origins = os.getenv('CORS_ORIGINS', 'http://localhost:5173,http://localhost:5000').split(',')
+CORS(app, supports_credentials=True, origins=allowed_origins)
 
 # CONFIG
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
