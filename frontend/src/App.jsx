@@ -876,7 +876,6 @@ function App() {
         currentView === 'archive' && React.createElement(ArchiveView, {
           archive,
           user: currentUser,
-          isAdmin: isAdminOrPhase1,
           loading,
           onDelete: async (id) => {
             if (!confirmDeleteAction('this reservation record')) return;
@@ -4637,14 +4636,14 @@ function CalendarView({ events, rooms, isAdmin, onAddHoliday, onViewEvent }) {
   );
 }
 
-function ArchiveView({ archive, user, isAdmin, onDelete, loading }) {
+function ArchiveView({ archive, user, onDelete, loading }) {
   const toTimestamp = (isoString) => {
     if (!isoString) return 0;
     const dt = new Date(isoString);
     return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
   };
 
-  const items = (isAdmin ? archive : archive.filter(a => a.user_id === user.id)).sort((a, b) => {
+  const items = archive.filter(a => a.user_id === user.id).sort((a, b) => {
     // Ascending order: oldest archived/filed first
     const aArchiveTs = toTimestamp(a.archived_at);
     const bArchiveTs = toTimestamp(b.archived_at);
