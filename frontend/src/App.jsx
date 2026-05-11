@@ -1306,8 +1306,8 @@ function Dashboard({ reservations, rooms, archive, user, onViewDetails, onBook, 
     return (b.id || 0) - (a.id || 0);
   };
 
-  // Show all user's reservations, including archived, for analytics/statistics
-  const userRes = reservations.filter(r => r.user_id === user.id);
+  // Show only active (non-archived) reservations in the main list/stat cards
+  const userRes = reservations.filter(r => r.user_id === user.id && !r.archived_at);
   const orderedUserRes = [...userRes].sort(byUpcomingThenRecent);
   // Show all approved, including archived, for analytics/statistics
   const approved = reservations.filter(r => r.status === 'approved');
