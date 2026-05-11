@@ -1110,7 +1110,7 @@ function Sidebar({ currentView, setView, user, onLogout, isAdmin, mobileMenuOpen
     }, React.createElement(SmoothieIcon, { name: 'close' })),
 
     React.createElement('div', { className: 'flex items-center gap-2.5 px-3 mb-8' },
-      React.createElement('span', { className: 'text-xl font-bold text-sky-500 tracking-tight' }, 'VacanSee')
+      React.createElement('span', { className: 'text-xl font-bold tracking-tight', style: { color: '#0EA5E9' } }, 'VacanSee')
     ),
 
     React.createElement('nav', { className: 'flex-1 space-y-1' },
