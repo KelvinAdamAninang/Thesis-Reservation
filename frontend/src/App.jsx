@@ -567,10 +567,12 @@ function App() {
     return reservations
       .filter(r => r.user_id === currentUser.id && !r.archived_at)
       .filter(r => {
-        if (r.status === 'denied' && !seenNotifications.includes(`user-${r.id}`)) return true;
-        if ((r.status === 'cancelled' || r.status === 'deleted') && !seenNotifications.includes(`user-${r.id}`)) return true;
+        // Only show non-archived reservations that are not denied/cancelled/deleted
+        if (['denied', 'cancelled', 'deleted'].includes(r.status)) return false;
         if (r.status === 'concept-approved' && !seenNotifications.includes(`user-concept-${r.id}`)) return true;
         if (r.status === 'approved' && !seenNotifications.includes(`user-approved-${r.id}`)) return true;
+        // Show pending and other active statuses
+        if (!['denied', 'cancelled', 'deleted', 'concept-approved', 'approved'].includes(r.status)) return true;
         return false;
       })
       .map(r => {
@@ -796,7 +798,7 @@ function App() {
     return React.createElement(LoginPage, { onLogin: handleLogin, loading, error });
   }
 
-  const archive = reservations.filter(r => r.archived_at || r.status === 'denied' || r.status === 'cancelled' || r.status === 'deleted');
+  const archive = reservations.filter(r => r.archived_at);
 
   // UI matching index-old.jsx (sidebar layout)
   return React.createElement('div', { className: 'flex h-screen bg-slate-50 overflow-hidden' },
