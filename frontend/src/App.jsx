@@ -880,7 +880,7 @@ function App() {
           onDelete: async (id) => {
             if (!confirmDeleteAction('this reservation record')) return;
             await apiService.deleteReservation(id);
-            setReservations(reservations.filter(r => r.id !== id));
+            await refreshReservationsOnly();
           }
         })
       )

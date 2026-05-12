@@ -1275,9 +1275,11 @@ def delete_reservation(id):
     if current_user.role != 'admin' and reservation.user_id != current_user.id:
         return jsonify({'error': 'Unauthorized'}), 403
     
-    db.session.delete(reservation)
+    # Soft delete: preserve record for audit/history and calendar integrity
+    reservation.status = 'deleted'
+    reservation.archived_at = datetime.now()
     db.session.commit()
-    return jsonify({'status': 'success', 'message': 'Reservation deleted'})
+    return jsonify({'status': 'success', 'message': 'Reservation soft-deleted'})
 
 # Get archived/denied reservations
 @app.route('/api/archive', methods=['GET'])
