@@ -891,8 +891,7 @@ def get_calendar_events():
         or_(
             Reservation.status == 'concept-approved',
             Reservation.status == 'approved',
-            Reservation.status == 'cancelled',
-            Reservation.status == 'deleted'
+            Reservation.status == 'cancelled'
         )
     ).all()
 

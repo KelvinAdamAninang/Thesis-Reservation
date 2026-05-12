@@ -798,7 +798,7 @@ function App() {
     return React.createElement(LoginPage, { onLogin: handleLogin, loading, error });
   }
 
-  const archive = reservations.filter(r => r.archived_at);
+  const archive = reservations.filter(r => r.archived_at && r.status !== 'deleted');
 
   // UI matching index-old.jsx (sidebar layout)
   return React.createElement('div', { className: 'flex h-screen bg-slate-50 overflow-hidden' },
@@ -4643,7 +4643,7 @@ function ArchiveView({ archive, user, onDelete, loading }) {
     return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
   };
 
-  const items = archive.filter(a => a.user_id === user.id).sort((a, b) => {
+  const items = archive.filter(a => a.user_id === user.id && a.status !== 'deleted').sort((a, b) => {
     // Ascending order: oldest archived/filed first
     const aArchiveTs = toTimestamp(a.archived_at);
     const bArchiveTs = toTimestamp(b.archived_at);
@@ -4658,7 +4658,8 @@ function ArchiveView({ archive, user, onDelete, loading }) {
   
   const getArchiveLabel = (item) => {
     if (item.status === 'denied') return { text: 'Denied', color: 'bg-red-100 text-red-700' };
-    if (item.status === 'cancelled' || item.status === 'deleted') return { text: 'Cancelled', color: 'bg-yellow-100 text-yellow-700' };
+    if (item.status === 'deleted') return { text: 'Deleted', color: 'bg-slate-100 text-slate-600' };
+    if (item.status === 'cancelled') return { text: 'Cancelled', color: 'bg-yellow-100 text-yellow-700' };
     if (item.status === 'approved' && item.archived_at) return { text: 'Archived (Approved)', color: 'bg-amber-100 text-amber-700' };
     return { text: item.status, color: 'bg-slate-100 text-slate-700' };
   };
