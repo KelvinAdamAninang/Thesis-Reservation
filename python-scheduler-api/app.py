@@ -530,7 +530,7 @@ def serve_app_jsx():
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     return response
-
+//HI
 
 @app.route('/header2.png')
 def serve_print_header_image():
@@ -1930,6 +1930,9 @@ def admin_delete_user(id):
 
     for reservation in remaining_reservations:
         reservation.user_id = placeholder.id
+
+    # Preserve holidays by reassigning creator to placeholder
+    Holiday.query.filter_by(created_by=id).update({'created_by': placeholder.id})
 
     db.session.delete(user)
     db.session.commit()
