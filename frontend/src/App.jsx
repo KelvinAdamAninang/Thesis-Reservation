@@ -431,7 +431,17 @@ const apiService = {
       method: 'DELETE',
       credentials: 'include'
     });
-    const data = await response.json();
+    const contentType = response.headers.get('content-type') || '';
+    let data = null;
+    if (contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      const text = await response.text();
+      if (!response.ok) {
+        throw new Error(text || 'Failed to delete user');
+      }
+      return { status: 'success', message: 'User deleted', raw: text };
+    }
     if (!response.ok) throw new Error(data.message || 'Failed to delete user');
     return data;
   },
