@@ -530,7 +530,7 @@ def serve_app_jsx():
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     return response
-//HI
+# HI
 
 @app.route('/header2.png')
 def serve_print_header_image():
