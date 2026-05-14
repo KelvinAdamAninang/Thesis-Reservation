@@ -1490,9 +1490,11 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
       return;
     }
 
-    // Preserve allowed booking window from the previous form (6:00 to 22:30)
-    if (startHour24 < 6 || startHour24 > 22 || endHour24 < 6 || endHour24 > 22) {
-      setLocalError('Reservation time must be between 6:00 AM and 10:30 PM.');
+    const startMinuteNum = Number(form.start_minute);
+    const endMinuteNum = Number(form.end_minute);
+    const isEndBeyondCutoff = endHour24 > 23 || (endHour24 === 23 && endMinuteNum > 0);
+    if (startHour24 < 6 || endHour24 < 6 || isEndBeyondCutoff) {
+      setLocalError('Reservation time must be between 6:00 AM and 11:00 PM.');
       return;
     }
 
@@ -1500,8 +1502,7 @@ function ReservationModal({ initialData, rooms, calendarEvents, onClose, onSubmi
     const startTime = `${String(startHour24).padStart(2, '0')}:${form.start_minute}`;
     const endTime = `${String(endHour24).padStart(2, '0')}:${form.end_minute}`;
 
-    // Validate end time is after start time
-    if (startTime >= endTime) {
+    if (!hasEndDate && startTime >= endTime) {
       setLocalError('End time must be after start time.');
       return;
     }
@@ -4868,11 +4869,11 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
           onClick: onClose,
           className: `${isAdmin ? 'flex-1' : 'w-full'} bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-xl font-bold transition-colors`
         }, 'Close'),
-        (isAdmin && (eventActionType || isHoliday)) && React.createElement('button', {
+          (isAdmin && (eventActionType || isHoliday)) && React.createElement('button', {
           onClick: () => {
              // Simply pass the click up to the parent component!
              // The parent will check if it's a holiday and handle everything.
-             onDeleteClick('delete'); 
+             onDeleteClick(eventActionType || 'delete'); 
           },
           disabled: loading,
           className: 'flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2'

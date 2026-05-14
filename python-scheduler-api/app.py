@@ -530,7 +530,6 @@ def serve_app_jsx():
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     return response
-# HI
 
 @app.route('/header2.png')
 def serve_print_header_image():
@@ -765,7 +764,6 @@ def ai_chat():
         if cached_response:
             app.logger.info('Returning cached Gemini response (quota conservation)')
             return jsonify({'reply': cached_response, 'cached': True})
-
         try:
             if client == "legacy-sdk":
                 legacy_model = google_legacy_genai.GenerativeModel(
