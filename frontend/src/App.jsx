@@ -827,7 +827,9 @@ function App() {
     return React.createElement(LoginPage, { onLogin: handleLogin, loading, error });
   }
 
-  const archive = reservations.filter(r => r.archived_at && r.status !== 'deleted');
+  const archive = reservations.filter(
+    r => r.archived_at && r.status !== 'deleted' && !r.archive_hidden_at
+  );
 
   // UI matching index-old.jsx (sidebar layout)
   return React.createElement('div', { className: 'flex h-screen bg-slate-50 overflow-hidden' },
