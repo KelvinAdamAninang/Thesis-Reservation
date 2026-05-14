@@ -1075,7 +1075,6 @@ function LoginPage({ onLogin, loading, error }) {
       ),
       error && React.createElement('p', { className: 'text-red-500 text-center mb-4' }, error),
       React.createElement('button', { type: 'submit', disabled: loading, className: 'w-full bg-sky-500 text-white p-3 rounded-lg font-bold' }, loading ? 'Signing in...' : 'Sign In'),
-      React.createElement('p', { className: 'text-xs text-slate-400 text-center mt-6' }, "Try: Guest/Guesting123")
     )
   );
 }
