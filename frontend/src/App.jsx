@@ -234,6 +234,24 @@ const apiService = {
     return response.json();
   },
 
+  async unarchiveReservation(id) {
+    const response = await fetch(`${API_BASE}/reservations/${id}/unarchive`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    if (!response.ok) throw new Error('Failed to remove reservation from archive');
+    return response.json();
+  },
+
+  async hideArchiveReservation(id) {
+    const response = await fetch(`${API_BASE}/reservations/${id}/hide-archive`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    if (!response.ok) throw new Error('Failed to hide reservation from archive');
+    return response.json();
+  },
+
   async createHoliday(payload) {
     const response = await fetch(`${API_BASE}/holidays`, {
       method: 'POST',
@@ -610,6 +628,7 @@ function App() {
     localStorage.setItem('seenNotifications', JSON.stringify(updated));
   };
 
+
   // Check for existing session on page load
   useEffect(() => {
     (async () => {
@@ -888,8 +907,8 @@ function App() {
           user: currentUser,
           loading,
           onDelete: async (id) => {
-            if (!confirmDeleteAction('this reservation record')) return;
-            await apiService.deleteReservation(id);
+            if (!window.confirm('Remove this item from the archive list?')) return;
+            await apiService.hideArchiveReservation(id);
             await refreshReservationsOnly();
           }
         })
@@ -4725,11 +4744,16 @@ function EventDetailsModal({ event, rooms, user, isAdmin, loading, onClose, onDe
   const isCancelled = normalizedCategory === 'cancelled';
   const isOngoing = normalizedCategory === 'ongoing';
   const isScheduled = status === 'approved';
+  const hasEnded = Boolean(event.end_time) && new Date(event.end_time) < new Date();
   // Allow cancel for both ongoing and scheduled (approved) events, delete for cancelled events
   let eventActionType = null;
   let eventActionLabel = '';
   let eventActionIcon = '';
   if (isCancelled) {
+    eventActionType = 'delete';
+    eventActionLabel = 'Delete Event';
+    eventActionIcon = 'trash';
+  } else if (isScheduled && hasEnded) {
     eventActionType = 'delete';
     eventActionLabel = 'Delete Event';
     eventActionIcon = 'trash';

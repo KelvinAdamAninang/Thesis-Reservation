@@ -61,6 +61,7 @@ class Reservation(db.Model):
     # Denial/Archive
     denial_reason = db.Column(db.Text, nullable=True)
     archived_at = db.Column(db.DateTime, nullable=True) # If not null, it's archived
+    archive_hidden_at = db.Column(db.DateTime, nullable=True) # Soft-hide from archive list only
 
     # Time
     start_time = db.Column(db.DateTime, nullable=False)

@@ -279,6 +279,8 @@ def _ensure_reservation_columns():
             conn.exec_driver_sql("ALTER TABLE reservations ADD COLUMN concept_approved_at TIMESTAMP")
         if 'department_temp' not in columns:
             conn.exec_driver_sql("ALTER TABLE reservations ADD COLUMN department_temp VARCHAR(200)")
+        if 'archive_hidden_at' not in columns:
+            conn.exec_driver_sql("ALTER TABLE reservations ADD COLUMN archive_hidden_at TIMESTAMP")
 
 
 with app.app_context():
@@ -968,7 +970,8 @@ def get_reservations():
         'final_form_uploaded': r.final_form_uploaded,
         'denial_reason': r.denial_reason,
         'equipment_data': r.get_equipment(),
-        'archived_at': r.archived_at.isoformat() if r.archived_at else None
+        'archived_at': r.archived_at.isoformat() if r.archived_at else None,
+        'archive_hidden_at': r.archive_hidden_at.isoformat() if r.archive_hidden_at else None
     } for r in reservations]
     
     return jsonify(reservations_list)
@@ -1006,7 +1009,8 @@ def get_reservation(id):
         'final_form_uploaded': reservation.final_form_uploaded,
         'denial_reason': reservation.denial_reason,
         'equipment_data': reservation.get_equipment(),
-        'archived_at': reservation.archived_at.isoformat() if reservation.archived_at else None
+        'archived_at': reservation.archived_at.isoformat() if reservation.archived_at else None,
+        'archive_hidden_at': reservation.archive_hidden_at.isoformat() if reservation.archive_hidden_at else None
     })
 
 # Create new reservation
@@ -1209,9 +1213,43 @@ def archive_reservation(id):
         return jsonify({'error': 'Only denied, approved, or cancelled reservations can be archived'}), 400
 
     reservation.archived_at = datetime.now()
+    reservation.archive_hidden_at = None
     db.session.commit()
 
     return jsonify({'status': 'success', 'message': 'Reservation archived'})
+
+
+@app.route('/api/reservations/<int:id>/unarchive', methods=['POST'])
+@login_required
+def unarchive_reservation(id):
+    reservation = db.session.get(Reservation, id)
+    if not reservation:
+        return jsonify({'error': 'Reservation not found'}), 404
+
+    is_admin = current_user.role in ['admin', 'admin_phase1']
+    if not is_admin and reservation.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    reservation.archived_at = None
+    reservation.archive_hidden_at = None
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Reservation unarchived'})
+
+
+@app.route('/api/reservations/<int:id>/hide-archive', methods=['POST'])
+@login_required
+def hide_archive_reservation(id):
+    reservation = db.session.get(Reservation, id)
+    if not reservation:
+        return jsonify({'error': 'Reservation not found'}), 404
+
+    is_admin = current_user.role in ['admin', 'admin_phase1']
+    if not is_admin and reservation.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    reservation.archive_hidden_at = datetime.now()
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Reservation hidden from archive'})
 
 # Cancel event from calendar (Admin only) - with notification to user
 @app.route('/api/reservations/<int:id>/delete-event', methods=['POST'])
@@ -1291,14 +1329,14 @@ def get_archive():
                 Reservation.status.in_(['denied', 'cancelled', 'deleted']),
                 Reservation.archived_at != None
             )
-        ).all()
+        ).filter(Reservation.archive_hidden_at == None).all()
     else:
         archived = query.filter_by(user_id=current_user.id).filter(
             or_(
                 Reservation.status.in_(['denied', 'cancelled', 'deleted']),
                 Reservation.archived_at != None
             )
-        ).all()
+        ).filter(Reservation.archive_hidden_at == None).all()
     
     archive_list = [{
         'id': r.id,
@@ -1312,7 +1350,8 @@ def get_archive():
         'end_time': r.end_time.isoformat() if r.end_time else None,
         'status': r.status,
         'denial_reason': r.denial_reason,
-        'archived_at': r.archived_at.isoformat() if r.archived_at else None
+        'archived_at': r.archived_at.isoformat() if r.archived_at else None,
+        'archive_hidden_at': r.archive_hidden_at.isoformat() if r.archive_hidden_at else None
     } for r in archived]
     
     return jsonify(archive_list)
